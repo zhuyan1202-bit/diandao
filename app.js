@@ -260,8 +260,13 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("chart-drawer")?.classList.remove("open");
   };
 
+  /* ================= 精准定盘 v2 =================
+     主证据：你填人生大事的年份（填的时候看不到会算到哪个盘，没法被引导）
+     辅助：几句单盘描述，四档作答，不做二选一
+     没发生过 / 记不清 一律可以跳过，不存在“答不出还得硬选”
+  ================================================= */
   let currentRectifyQuiz = null;
-  let rectifyAnswers = {};
+  let rectifyAnswers = { events: {}, traits: {} };
 
   window.__openRectifyModal = function() {
     if (!window.AstrologyCore || !window.AstrologyCore.buildRectifyQuiz) return;
@@ -283,175 +288,156 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     currentRectifyQuiz = window.AstrologyCore.buildRectifyQuiz(ivRes.candidates);
-    rectifyAnswers = {};
+    rectifyAnswers = { events: {}, traits: {} };
 
-    const container = document.getElementById("rectify-quiz-container");
     const verdictBox = document.getElementById("rectify-verdict-box");
     if (verdictBox) verdictBox.style.display = "none";
-
-    if (container && currentRectifyQuiz) {
-      rectifyVisibleRounds = 1;
-      flattenRectifyQuiz();
-      renderRectifyQuiz();
-    }
-
+    renderRectifyQuiz();
     openModal("modal-rectify");
   };
 
-  /* ================= 定盘：多轮渐进式出题 + 置信度判定 ================= */
-  let rectifyVisibleRounds = 1;
-  let rectifyFlat = [];   // [{ q, round }]，把所有轮次的题拍平，索引即全局题号
-
-  function flattenRectifyQuiz() {
-    rectifyFlat = [];
-    if (!currentRectifyQuiz) return;
-    const rounds = currentRectifyQuiz.rounds || [currentRectifyQuiz.questions || []];
-    rounds.forEach((r, ri) => r.forEach(q => rectifyFlat.push({ q: q, round: ri })));
-  }
-
+  // 只在打开时渲染一次 —— 中途重绘会把年份输入框的光标顶掉
   function renderRectifyQuiz() {
     const container = document.getElementById("rectify-quiz-container");
-    if (!container || !currentRectifyQuiz) return;
-    let html = "";
-    rectifyFlat.forEach((item, gIdx) => {
-      if (item.round >= rectifyVisibleRounds) return;
-      const q = item.q;
-      const picked = rectifyAnswers[gIdx];
-      html += `
-        <div class="rectify-quiz-q" data-q-id="${q.id}">
-          <div class="rectify-quiz-dim">${escapeHtml(q.dimension)}</div>
-          <div class="rectify-quiz-title">${gIdx + 1}. ${escapeHtml(q.question)}</div>
-          <div class="rectify-opts-list">
-            ${q.options.map((opt, oIdx) => `
-              <button type="button" class="rectify-opt-btn${picked === opt.candIdx ? " selected" : ""}" onclick="window.__selectRectifyOpt(${gIdx}, ${opt.candIdx}, this)">
-                <strong>选项 ${String.fromCharCode(65 + oIdx)}：</strong>${escapeHtml(opt.label)}
-              </button>
-            `).join("")}
-            <button type="button" class="rectify-opt-btn is-unsure${picked === -1 ? " selected" : ""}" onclick="window.__selectRectifyOpt(${gIdx}, -1, this)">
-              🤷 <strong>说不准</strong> —— 两边都像，或这段时间我没什么印象（此题不计分）
-            </button>
-          </div>
-        </div>`;
-    });
-    container.innerHTML = html;
+    const q = currentRectifyQuiz;
+    if (!container) return;
+    if (!q) { container.innerHTML = "<div class=\"rx-head\">当前区间只对应一个时辰，不需要定盘。</div>"; return; }
+
+    const candLine = q.candidates.map(c => `<b>${escapeHtml(c.shichenName)}</b>`).join(" 还是 ");
+
+    const evHtml = q.events.map(ev => `
+      <div class="rx-ev" data-ev="${ev.id}">
+        <div class="rx-ev-text">
+          <div class="rx-ev-label">${escapeHtml(ev.label)}</div>
+          ${ev.hint ? `<div class="rx-ev-hint">${escapeHtml(ev.hint)}</div>` : ""}
+        </div>
+        <div class="rx-ev-ctrl">
+          <input type="number" inputmode="numeric" class="rx-year" placeholder="年份"
+                 min="${q.minYear}" max="${q.maxYear}"
+                 oninput="window.__setRectifyYear('${ev.id}', this.value)">
+          <button type="button" class="rx-skip" onclick="window.__skipRectifyEvent('${ev.id}', this)">没有过</button>
+        </div>
+      </div>`).join("");
+
+    const trHtml = !q.traits.length ? "" : `
+      <div class="rx-sec">
+        <div class="rx-sec-h">② 再对几句话 <span>对不上就直说「不符合」，不用勉强</span></div>
+        ${q.traits.map(t => `
+          <div class="rx-tr" data-tr="${t.id}">
+            <div class="rx-tr-dim">${escapeHtml(t.dimension)}</div>
+            <div class="rx-tr-text">${escapeHtml(t.statement)}</div>
+            <div class="rx-tr-opts">
+              ${[["yes", "很符合"], ["kinda", "有点像"], ["no", "不符合"], ["unsure", "说不准"]]
+                .map(o => `<button type="button" class="rx-tr-btn" onclick="window.__setRectifyTrait('${t.id}','${o[0]}',this)">${o[1]}</button>`).join("")}
+            </div>
+          </div>`).join("")}
+      </div>`;
+
+    container.innerHTML = `
+      <div class="rx-head">现在要分的是：${candLine}</div>
+      <div class="rx-sec">
+        <div class="rx-sec-h">① 你的人生时间点 <span>记得几件填几件，不用全填；只填年份即可</span></div>
+        <div class="rx-ev-list">${evHtml}</div>
+      </div>
+      ${trHtml}`;
   }
 
-  window.__selectRectifyOpt = function(qIdx, candIdx, btnEl) {
-    if (!currentRectifyQuiz) return;
-    const parent = btnEl.closest(".rectify-opts-list");
-    if (parent) parent.querySelectorAll(".rectify-opt-btn").forEach(b => b.classList.remove("selected"));
-    btnEl.classList.add("selected");
-    rectifyAnswers[qIdx] = candIdx;
-    evaluateRectifyQuiz();
-  };
-
-  window.__revealNextRectifyRound = function() {
-    const total = (currentRectifyQuiz && currentRectifyQuiz.rounds) ? currentRectifyQuiz.rounds.length : 1;
-    if (rectifyVisibleRounds >= total) return;
-    rectifyVisibleRounds++;
-    renderRectifyQuiz();
-    evaluateRectifyQuiz();
-    let firstNew = 0;
-    for (let i = 0; i < rectifyFlat.length; i++) {
-      if (rectifyFlat[i].round === rectifyVisibleRounds - 1) { firstNew = i; break; }
+  window.__setRectifyYear = function(evId, val) {
+    const q = currentRectifyQuiz;
+    if (!q) return;
+    const row = document.querySelector(`.rx-ev[data-ev="${evId}"]`);
+    const y = parseInt(val, 10);
+    if (!String(val).trim()) {
+      delete rectifyAnswers.events[evId];
+      row && row.classList.remove("rx-bad");
+    } else if (isNaN(y) || y < q.minYear || y > q.maxYear) {
+      delete rectifyAnswers.events[evId];
+      row && row.classList.add("rx-bad");
+    } else {
+      rectifyAnswers.events[evId] = y;
+      if (row) {
+        row.classList.remove("rx-bad");
+        const sk = row.querySelector(".rx-skip");
+        if (sk) sk.classList.remove("on");
+      }
     }
-    const qs = document.querySelectorAll("#rectify-quiz-container .rectify-quiz-q");
-    if (qs[firstNew]) qs[firstNew].scrollIntoView({ behavior: "smooth", block: "start" });
+    evaluateRectifyQuiz();
   };
 
-  // 判定门槛：权重不够或领先不够，一律不给结论，避免"答一题就 100% 吻合"的假精确
-  const RECTIFY_MIN_WEIGHT = 60;   // 已计分权重下限
-  const RECTIFY_MIN_LEAD   = 0.34; // 领先幅度须占已计分权重的 1/3 以上
+  window.__skipRectifyEvent = function(evId, btn) {
+    const row = document.querySelector(`.rx-ev[data-ev="${evId}"]`);
+    const on = btn.classList.toggle("on");
+    if (on && row) {
+      const inp = row.querySelector(".rx-year");
+      if (inp) inp.value = "";
+      row.classList.remove("rx-bad");
+      delete rectifyAnswers.events[evId];
+    }
+    evaluateRectifyQuiz();
+  };
+
+  window.__setRectifyTrait = function(tId, val, btn) {
+    const wrap = btn.closest(".rx-tr-opts");
+    if (wrap) wrap.querySelectorAll(".rx-tr-btn").forEach(b => b.classList.remove("selected"));
+    btn.classList.add("selected");
+    rectifyAnswers.traits[tId] = val;
+    evaluateRectifyQuiz();
+  };
 
   function evaluateRectifyQuiz() {
-    if (!currentRectifyQuiz) return;
-    const verdictBox = document.getElementById("rectify-verdict-box");
-    if (!verdictBox) return;
+    const box = document.getElementById("rectify-verdict-box");
+    const q = currentRectifyQuiz;
+    if (!box || !q || !window.AstrologyCore.scoreRectify) return;
 
-    const cands = currentRectifyQuiz.candidates;
-    const scores = {};
-    cands.forEach((c, i) => { scores[i] = 0; });
+    const nEv = Object.keys(rectifyAnswers.events).length;
+    const nTr = Object.keys(rectifyAnswers.traits).length;
+    if (!nEv && !nTr) { box.style.display = "none"; return; }
 
-    let answeredWeight = 0, unsureCount = 0, answeredCount = 0;
-    Object.keys(rectifyAnswers).forEach(k => {
-      const gi = parseInt(k, 10);
-      const item = rectifyFlat[gi];
-      if (!item) return;
-      answeredCount++;
-      const cIdx = rectifyAnswers[gi];
-      if (cIdx < 0) { unsureCount++; return; }   // "说不准" 不计分
-      const w = item.q.weight || 25;
-      scores[cIdx] = (scores[cIdx] || 0) + w;
-      answeredWeight += w;
-    });
+    const r = window.AstrologyCore.scoreRectify(q, rectifyAnswers);
 
-    if (answeredCount === 0) { verdictBox.style.display = "none"; return; }
+    const detailHtml = r.evLines.concat(r.trLines)
+      .map(l => `<div class="rx-line ${l.ok ? "ok" : "no"}">${l.ok ? "✔" : "—"} ${escapeHtml(l.text)}</div>`).join("");
 
-    const ranked = cands.map((c, i) => ({ i: i, c: c, s: scores[i] || 0 })).sort((a, b) => b.s - a.s);
-    const top = ranked[0];
-    const second = ranked[1] || { s: 0 };
-    const lead = top.s - second.s;
-    const leadRatio = answeredWeight > 0 ? lead / answeredWeight : 0;
-
-    let status = "confident";
-    if (answeredWeight < RECTIFY_MIN_WEIGHT) status = "insufficient";
-    else if (leadRatio < RECTIFY_MIN_LEAD) status = "tie";
-
-    const totalRounds = (currentRectifyQuiz.rounds || [currentRectifyQuiz.questions]).length;
-    const hasMore = rectifyVisibleRounds < totalRounds;
-    const visibleCount = rectifyFlat.filter(x => x.round < rectifyVisibleRounds).length;
-
-    const breakdown = ranked.map(r => {
-      const pct = answeredWeight > 0 ? Math.round((r.s / answeredWeight) * 100) : 0;
-      const crown = (r.i === top.i && status === "confident") ? "🏆 " : "";
-      return `<span style="margin-right:14px;">${crown}<strong>${r.c.shichenName}盘（命宫${r.c.mingStars}）</strong>：${pct}%</span>`;
+    const bars = r.ranked.map(x => {
+      const pct = r.weight > 0 ? Math.round(x.s / r.weight * 100) : 0;
+      return `<div class="rx-bar-row"><span class="rx-bar-name">${escapeHtml(x.c.shichenName)}</span>`
+           + `<span class="rx-bar"><i style="width:${pct}%"></i></span><span class="rx-bar-pct">${pct}%</span></div>`;
     }).join("");
 
     let tone, headline, detail;
-    if (status === "insufficient") {
+    if (r.status === "insufficient") {
       tone = "#f59e0b";
-      headline = "证据还不够，暂不下结论";
-      detail = `已计分权重 ${answeredWeight}（判定线 ${RECTIFY_MIN_WEIGHT}）`
-             + (unsureCount ? `，其中 ${unsureCount} 题选了「说不准」不计分` : "")
-             + `。再多答几题才谈得上定盘。`;
-    } else if (status === "tie") {
+      headline = "证据还不够，先不下结论";
+      detail = `目前有效证据 ${r.weight} 分，判定线是 ${r.minWeight} 分。`
+             + (r.noSignal ? `你填的年份里有 ${r.noSignal} 条在几个盘上都说得通，分不出来。` : "")
+             + `再多填几个年份会准得多。`;
+    } else if (r.status === "tie") {
       tone = "#f59e0b";
-      headline = "两盘咬得很近，现在还分不开";
-      detail = `领先幅度只有 ${Math.round(leadRatio * 100)}%，没到 ${Math.round(RECTIFY_MIN_LEAD * 100)}% 的判定线`
-             + (unsureCount ? `；另有 ${unsureCount} 题你选了「说不准」` : "")
-             + `。这种情况下硬定一个盘，后面所有分析都会跟着错。`;
+      headline = "两个盘咬得太近，现在还分不开";
+      detail = `领先幅度只有 ${Math.round(r.leadRatio * 100)}%，没到 ${Math.round(r.minLead * 100)}% 的判定线。`
+             + `这种时候硬定一个，后面所有分析都会跟着错。`;
     } else {
       tone = "#10b981";
-      headline = `【${top.c.shichenName}盘】明显领先`;
-      detail = `在已计分的 ${answeredWeight} 点权重里领先 ${Math.round(leadRatio * 100)}%，超过了 ${Math.round(RECTIFY_MIN_LEAD * 100)}% 的判定线`
-             + (unsureCount ? `（${unsureCount} 题「说不准」未计入）` : "")
-             + `。`;
+      headline = `【${r.top.c.shichenName}】明显对得上`;
+      detail = `在 ${r.weight} 分有效证据里领先 ${Math.round(r.leadRatio * 100)}%，超过了 ${Math.round(r.minLead * 100)}% 的判定线。`;
     }
+    if (r.unsure) detail += `（${r.unsure} 项你选了“说不准”，没计分）`;
 
     const btns = [];
-    if (status === "confident") {
-      btns.push(`<button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#10b981,#059669); font-size:13px;" onclick="window.__applyRectifiedChart(${top.c.clockHour}, ${top.c.clockMinute}, '${top.c.shichenName}')">✨ 采纳：锁定【${top.c.shichenName}盘】并更新全盘</button>`);
-      if (hasMore) {
-        btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__revealNextRectifyRound()">➕ 再验证一组题（更稳妥）</button>`);
-      }
-    } else if (hasMore) {
-      btns.push(`<button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9); font-size:13px;" onclick="window.__revealNextRectifyRound()">➕ 展开下一组题，继续缩小范围</button>`);
+    if (r.status === "confident") {
+      btns.push(`<button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#10b981,#059669); font-size:13px;" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">✨ 采纳：锁定【${r.top.c.shichenName}】并更新全盘</button>`);
     } else {
-      btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__applyRectifiedChart(${top.c.clockHour}, ${top.c.clockMinute}, '${top.c.shichenName}')">按目前领先的【${top.c.shichenName}盘】先用着（随时可改）</button>`);
+      btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">先按目前领先的【${r.top.c.shichenName}】用着（随时可改）</button>`);
     }
-    btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__sendRectifyToAI()">💬 把已答内容交给 AI，让它继续追问</button>`);
+    btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__sendRectifyToAI()">💬 把已填的内容交给 AI，让它继续追问</button>`);
 
-    verdictBox.style.display = "block";
-    verdictBox.innerHTML = `
-      <div style="font-size:14px; font-weight:700; color:${tone}; margin-bottom:6px;">
-        🎯 ${headline}（已答 ${answeredCount}/${visibleCount} 题）
-      </div>
-      <div style="margin-bottom:8px; padding:7px 10px; background:rgba(255,255,255,0.05); border-radius:6px;">
-        ${breakdown}
-      </div>
-      <div style="color:#e2e8f0; margin-bottom:10px; font-size:12.5px; line-height:1.6;">${detail}</div>
-      <div style="display:flex; flex-direction:column; gap:8px;">${btns.join("")}</div>
-    `;
+    box.style.display = "block";
+    box.innerHTML = `
+      <div style="font-size:14px; font-weight:700; color:${tone}; margin-bottom:8px;">🎯 ${headline}</div>
+      <div class="rx-bars">${bars}</div>
+      <div class="rx-lines">${detailHtml}</div>
+      <div style="color:var(--text-sub); margin:10px 0; font-size:12.5px; line-height:1.6;">${detail}</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">${btns.join("")}</div>`;
   }
 
   window.__applyRectifiedChart = function(clockH, clockM, shichenName) {
@@ -460,32 +446,35 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   window.__sendRectifyToAI = function() {
-    if (!currentRectifyQuiz) return;
+    const q = currentRectifyQuiz;
+    if (!q) return;
     closeModal("modal-rectify");
     document.getElementById("chart-drawer")?.classList.remove("open");
 
-    const candDesc = currentRectifyQuiz.candidates.map((c, i) =>
+    const candDesc = q.candidates.map((c, i) =>
       `候选盘${String.fromCharCode(65 + i)}：【${c.shichenName}】（时柱${c.hourPillar}，紫微命宫${c.mingStars}，夫妻宫${c.spouseStars}）`
     ).join(" vs ");
 
-    const answered = [], unsure = [], skipped = [];
-    rectifyFlat.forEach((item, gIdx) => {
-      if (item.round >= rectifyVisibleRounds) return;
-      const q = item.q;
-      const cIdx = rectifyAnswers[gIdx];
-      if (cIdx === undefined) { skipped.push(`· ${q.dimension}：未作答`); return; }
-      if (cIdx < 0) { unsure.push(`· ${q.dimension}：我分辨不出来，两边都像`); return; }
-      const opt = q.options.find(o => o.candIdx === cIdx);
-      answered.push(`· ${q.dimension}：我选了「${opt ? opt.label : "（选项缺失）"}」`);
-    });
+    const evTxt = q.events
+      .filter(ev => rectifyAnswers.events[ev.id])
+      .map(ev => `· ${ev.label}：${rectifyAnswers.events[ev.id]} 年`);
 
-    const userChoices = [
-      answered.length ? "【我能确定的部分】\n" + answered.join("\n") : "",
-      unsure.length   ? "\n\n【我分辨不出来的部分 —— 这些正是需要你追问的地方】\n" + unsure.join("\n") : "",
-      skipped.length  ? "\n\n【我还没答的部分】\n" + skipped.join("\n") : ""
+    const TR_LABEL = { yes: "很符合", kinda: "有点像", no: "不符合", unsure: "说不准" };
+    const trTxt = (q.traits || [])
+      .filter(t => rectifyAnswers.traits[t.id])
+      .map(t => `· 「${t.statement}」→ 我的回答：${TR_LABEL[rectifyAnswers.traits[t.id]]}`);
+
+    const r = window.AstrologyCore.scoreRectify(q, rectifyAnswers);
+    const sysTxt = r.evLines.concat(r.trLines).map(l => `· ${l.text}`);
+
+    const body = [
+      evTxt.length ? "【我填的人生时间点】\n" + evTxt.join("\n") : "【我还没填任何年份】",
+      trTxt.length ? "\n\n【几句描述的核对结果】\n" + trTxt.join("\n") : "",
+      "\n\n【系统自动算出来的初步判断（仅供参考，不要直接附和）】\n" + (sysTxt.join("\n") || "· 暂无")
+        + `\n· 当前状态：${r.status === "confident" ? "系统认为可以定下来" : (r.status === "tie" ? "两盘咬得很近，分不开" : "证据不足")}`
     ].filter(Boolean).join("");
 
-    const prompt = `我的出生时间只知道一个大致区间，现在在这几个时辰盘之间还没定下来：\n${candDesc}\n\n以下是我在【精准定盘】问卷里的真实回答：\n${userChoices}\n\n请严格按下面三步来，不要跳步，也不要直接附和问卷的打分结果：\n\n第一步：先判断现有信息够不够定盘。如果不够，就直接说不够，不要硬给结论。\n\n第二步：针对我「分辨不出来」的维度，以及这几个候选盘差异最大的地方，向我提 2–3 个追问。追问必须满足：只能用客观事实回答（某年具体发生过什么事、身体某个部位是否真的出过问题、某段时间住在哪里），不要问"你觉得自己是不是比较内向"这类性格感受题——那种题我会不自觉顺着你的话选。\n\n第三步：等我回答完你的追问之后，再收敛结论。如果到那时仍然分不开，请明确告诉我分不开，并说明还需要什么信息才能分开。不要为了给个答案而勉强下判断。`;
+    const prompt = `我的出生时间只知道一个大致区间，现在还定不下来：\n${candDesc}\n\n${body}\n\n请严格按下面三步来，不要跳步，也不要直接附和系统的初步判断：\n\n第一步：拿我填的每一个年份，分别在两个候选盘上排一遍流年与大限，看哪个盘对得上。对不上就说对不上，不要强行圆。\n\n第二步：针对我没填、或两盘都说得通的地方，向我提 2–3 个追问。追问必须只能用客观事实回答（哪一年发生了什么、住在哪里、身体哪个部位真的出过问题），不要问“你觉得自己是不是比较内向”这类性格感受题——那种题我会不自觉顺着你的话选。\n\n第三步：等我回答完追问之后再收敛。如果仍然分不开，请明确告诉我分不开，并说明还需要什么信息才能分开。不要为了给个答案而勉强下判断。`;
     send(prompt);
   };
 

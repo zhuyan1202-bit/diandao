@@ -822,58 +822,122 @@ body {
   opacity: 0.95;
   transform: translateY(-1px);
 }
-.rectify-quiz-q {
+/* ================= 精准定盘 v2 =================
+   一律用主题变量，不写死深色主题的颜色（否则浅色主题下看不见）
+   ================================================= */
+.rx-head {
+  font-size: 13px;
+  color: var(--text-sub);
+  background: var(--bg-card-soft);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 9px 12px;
   margin-bottom: 14px;
+}
+.rx-head b { color: var(--accent); }
+
+.rx-sec { margin-bottom: 16px; }
+.rx-sec-h {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 9px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+.rx-sec-h span { font-size: 11.8px; font-weight: 400; color: var(--text-muted); }
+
+.rx-ev-list { display: flex; flex-direction: column; gap: 7px; }
+.rx-ev {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+}
+.rx-ev.rx-bad { border-color: #d98a84; }
+.rx-ev-text { flex: 1; min-width: 0; }
+.rx-ev-label { font-size: 13px; color: var(--text-main); line-height: 1.45; }
+.rx-ev-hint { font-size: 11.3px; color: var(--text-muted); margin-top: 2px; line-height: 1.4; }
+.rx-ev-ctrl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.rx-year {
+  width: 78px;
+  padding: 7px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card-soft);
+  color: var(--text-main);
+  font-size: 16px;            /* 低于 16px 时 iOS 聚焦会自动放大页面 */
+  text-align: center;
+  -moz-appearance: textfield;
+}
+.rx-year::-webkit-outer-spin-button,
+.rx-year::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.rx-year:focus { outline: none; border-color: var(--accent); }
+.rx-skip {
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px dashed var(--border-strong);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.rx-skip.on {
+  background: var(--accent-bg);
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.rx-tr {
   padding: 11px 13px;
   border-radius: 9px;
-  background: rgba(15, 23, 42, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
 }
-.rectify-quiz-dim {
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 4px;
-}
-.rectify-quiz-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #f8fafc;
-  margin-bottom: 8px;
-}
-.rectify-opt-btn {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 9px 11px;
-  margin-bottom: 6px;
+.rx-tr-dim { font-size: 11.5px; font-weight: 700; color: var(--accent); margin-bottom: 5px; }
+.rx-tr-text { font-size: 13px; color: var(--text-main); line-height: 1.6; margin-bottom: 9px; }
+.rx-tr-opts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.rx-tr-btn {
+  padding: 8px 4px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #cbd5e1;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card-soft);
+  color: var(--text-sub);
   font-size: 12.2px;
-  line-height: 1.5;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all .16s ease;
 }
-.rectify-opt-btn:hover {
-  background: rgba(167, 139, 250, 0.14);
-  border-color: rgba(167, 139, 250, 0.45);
-  color: #fff;
-}
-.rectify-opt-btn.selected {
-  background: rgba(139, 92, 246, 0.25);
-  border-color: #a78bfa;
-  color: #fff;
-  font-weight: 600;
-}
+.rx-tr-btn:hover { border-color: var(--accent); color: var(--accent); }
+.rx-tr-btn.selected { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
+.rx-bars { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.rx-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.rx-bar-name { flex-shrink: 0; width: 74px; color: var(--text-main); font-weight: 600; }
+.rx-bar { flex: 1; min-width: 0; height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+.rx-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-soft)); }
+.rx-bar-pct { flex-shrink: 0; width: 34px; text-align: right; color: var(--text-sub); }
+
+.rx-lines { display: flex; flex-direction: column; gap: 3px; }
+.rx-line { font-size: 12px; line-height: 1.55; }
+.rx-line.ok { color: var(--text-sub); }
+.rx-line.no { color: var(--text-muted); }
+
 .rectify-verdict-box {
-  margin-top: 14px;
+  margin-top: 16px;
   padding: 13px 15px;
   border-radius: 10px;
-  background: linear-gradient(135deg, rgba(30, 27, 75, 0.9), rgba(15, 23, 42, 0.95));
-  border: 1px solid rgba(167, 139, 250, 0.5);
-  color: #f8fafc;
+  background: var(--bg-card-soft);
+  border: 1px solid var(--accent);
+  color: var(--text-main);
   font-size: 12.8px;
   line-height: 1.6;
 }
@@ -1024,8 +1088,14 @@ body {
     -webkit-overflow-scrolling: touch;
   }
   .rectify-modal-box { width: 100% !important; max-width: 100% !important; }
-  .rectify-opt-btn { padding: 12px 12px; font-size: 13px; }
-  .rectify-quiz-title { font-size: 13.5px; }
+  .rx-ev { padding: 8px 9px; gap: 7px; }
+  .rx-ev-label { font-size: 12.5px; }
+  .rx-ev-hint { font-size: 10.8px; }
+  .rx-year { width: 62px; padding: 6px 3px; }
+  .rx-skip { font-size: 10.8px; padding: 6px 6px; }
+  .rx-tr-opts { grid-template-columns: repeat(2, 1fr); }
+  .rx-tr-text { font-size: 12.6px; }
+  .rx-bar-name { width: 62px; font-size: 11.5px; }
   .rectify-lock-btn { padding: 7px 11px; font-size: 12px; }
   .rectify-candidate-head { flex-direction: column; align-items: flex-start; gap: 6px; }
 
@@ -1159,19 +1229,6 @@ html, body { max-width: 100%; overflow-x: hidden; }
 
 
 
-
-/* 定盘题的「说不准」选项：虚线边框以示与正式选项不同，且不计分 */
-.rectify-opt-btn.is-unsure {
-  border-style: dashed;
-  opacity: .9;
-  margin-top: 2px;
-}
-.rectify-opt-btn.is-unsure.selected {
-  background: rgba(148, 163, 184, 0.22);
-  border-color: #94a3b8;
-  border-style: solid;
-  color: #fff;
-}
 
 /* 精准定盘弹窗尺寸（原为 index.html 内联样式，内联的 88vh 会盖掉移动端 dvh 修复） */
 .rectify-modal-box {

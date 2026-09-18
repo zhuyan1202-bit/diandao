@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="点到">
+  <meta name="theme-color" content="#f7f3ec" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14110d" media="(prefers-color-scheme: dark)">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.json">
+  <title>点到 — AI 命理分析与人生决策顾问</title>
+  <link rel="stylesheet" href="styles.css?v=20260918b">
+</head>
+<body>
+  <canvas id="space-canvas"></canvas>
+
+  <div class="app-layout">
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+    <!-- ========== 侧边栏 ========== -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand-logo">✦</div>
+        <div class="brand-title">
+          <h2>点到</h2>
+          <p>AI 命理分析与人生决策顾问</p>
+        </div>
+      </div>
+
+      <button class="new-chat-btn" id="btn-new-chat">
+        <span>＋</span> 开启新的推演
+      </button>
+
+      <div class="chart-profile-mini" id="btn-mini-chart-card" title="点击查看与编辑命盘">
+        <div class="mini-profile-header">
+          <span>命盘档案</span>
+          <span>编辑 ✎</span>
+        </div>
+        <div class="mini-profile-details" id="mini-profile-text">—</div>
+      </div>
+
+      <div class="sidebar-sessions" id="sessions-container">
+        <div class="session-group-title">历史推演</div>
+        <div id="session-items-list"></div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button class="tool-icon-btn" id="btn-theme-toggle" title="切换浅色 / 夜间模式">
+          <span id="theme-icon">🌙</span> <span id="theme-label">夜间</span>
+        </button>
+        <button class="tool-icon-btn" id="btn-open-settings" title="配置大模型 API">
+          <span>⚙</span> 设置
+        </button>
+        <button class="tool-icon-btn" id="btn-sound-toggle" title="音效开关">
+          <span id="sound-icon">🔔</span>
+        </button>
+        <button class="tool-icon-btn" id="btn-mobile-access" title="用手机扫码访问">
+          <span>📱</span>
+        </button>
+        <button class="tool-icon-btn" id="btn-clear-history" title="清空全部记录">
+          <span>🗑</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- ========== 主对话区 ========== -->
+    <main class="main-chat-container">
+      <header class="chat-top-bar">
+        <div class="top-bar-left">
+          <button class="menu-toggle-btn" id="btn-mobile-menu">☰</button>
+          <div class="chat-current-title" id="chat-title-text">新的推演</div>
+        </div>
+        <div class="top-bar-right">
+          <button class="bar-pill-btn rectify-pill-btn" id="btn-open-rectify" onclick="window.__openRectifyModal()">🧭 <span>四维精准定盘</span></button>
+          <button class="bar-pill-btn" id="btn-open-drawer">🪢 <span>本人命盘设置</span></button>
+          <button class="bar-pill-btn" id="btn-export-chat">📥 <span>导出手记</span></button>
+        </div>
+      </header>
+
+      <!-- 两大独立命理专席窗口切换栏（紫微专席窗口 vs 八字专席窗口） -->
+      <div class="kb-entrance-bar" id="kb-entrance-bar">
+        <div class="kb-entrance-tabs two-rooms">
+          <button class="kb-tab active" data-kb-mode="ziwei" id="tab-room-ziwei">
+            <span class="kb-tab-icon">🔮</span>
+            <div class="kb-tab-info">
+              <div class="kb-tab-title">进入【紫微斗数专席】聊天窗口</div>
+              <div class="kb-tab-sub">独立对话窗口 · 锁定《紫微斗數全書》460条原典 · 专断感情婚恋 / 配偶画像 / 十二宫人事</div>
+            </div>
+            <span class="room-enter-badge">当前窗口</span>
+          </button>
+          <button class="kb-tab" data-kb-mode="bazi" id="tab-room-bazi">
+            <span class="kb-tab-icon">📜</span>
+            <div class="kb-tab-info">
+              <div class="kb-tab-title">进入【四柱八字专席】聊天窗口</div>
+              <div class="kb-tab-sub">独立对话窗口 · 锁定《穷通宝鉴·渊海子平》319条原典 · 专断2026流年运势 / 事业财运 / 五行喜忌</div>
+            </div>
+            <span class="room-enter-badge">点击切换</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 当前窗口知识库与本人实盘锁定状态栏 -->
+      <div class="room-kb-lock-banner" id="room-kb-lock-banner">
+        <div class="kb-lock-left">
+          <span class="kb-lock-badge" id="kb-lock-badge">📚 知识库状态：已锁定《紫微斗數全書》原典库（已隔离八字库）</span>
+        </div>
+        <div class="kb-lock-right" id="kb-lock-chart-summary">
+          本人实盘加载中…
+        </div>
+      </div>
+
+      <div class="chat-messages-scroll" id="chat-scroll-area">
+        <div class="messages-wrapper" id="messages-wrapper">
+
+          <div class="chat-greeting-card" id="greeting-card">
+            <div class="greeting-icon" id="greeting-icon">🔮</div>
+            <h1 class="greeting-title" id="greeting-title">紫微斗数专席 · 本人实盘推演室</h1>
+            <p class="greeting-desc" id="greeting-desc">
+              当前处于<strong>【紫微斗数独立聊天窗口】</strong>。所有回答均基于你本人的生辰排盘，直接检索<strong>《紫微斗數全書》460条原典条文</strong>，采用<strong>「命理师直断 + 古籍原文铁证 + 大白话解读」</strong>结构为您剖析。下方为您本人命盘专属推演课题：
+            </p>
+
+            <div class="starter-prompts-grid" id="starter-prompts-grid"></div>
+          </div>
+
+          <div id="messages-list" style="display:flex; flex-direction:column; gap:22px;"></div>
+
+          <div class="message-row ai" id="ai-thinking-indicator" style="display:none;">
+            <div class="message-avatar">✦</div>
+            <div class="message-bubble thinking-bubble">
+              <span class="dot-pulse"></span><span class="dot-pulse"></span><span class="dot-pulse"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="chat-bottom-dock">
+        <div class="dock-wrapper">
+          <div class="chart-context-strip">
+            <span id="chart-context-tag">—</span>
+            <span class="switch-chart-btn" id="btn-modify-chart-trigger">修改本人出生时间 ✎</span>
+          </div>
+
+          <div class="input-box-container">
+            <textarea id="chat-input" rows="1" placeholder="在此输入你本人的具体问题（系统将基于你本人的排盘数据与底层命理规则直接用大白话分析，Enter 发送）…"></textarea>
+            <button class="send-btn" id="btn-send-msg" title="发送">↑</button>
+          </div>
+          <div class="dock-disclaimer">
+            点到 · 严格依据本人实盘干支与底层命理规则推演 · 结论清晰直白，仅供个人决策参考
+          </div>
+        </div>
+      </footer>
+    </main>
+
+    <!-- ========== 命盘抽屉 ========== -->
+    <aside class="chart-drawer" id="chart-drawer">
+      <div class="drawer-header">
+        <h3>🪢 个人命盘档案</h3>
+        <button class="drawer-close" id="btn-close-drawer">×</button>
+      </div>
+
+      <div class="drawer-body">
+        <div class="drawer-section">
+          <div class="drawer-section-title">⚙ 生辰数据</div>
+          <div class="form-row">
+            <div class="form-col">
+              <label class="form-label-xs">性别</label>
+              <select class="form-select-xs" id="drawer-gender">
+                <option value="female" selected>女 · 坤造</option>
+                <option value="male">男 · 乾造</option>
+              </select>
+            </div>
+            <div class="form-col">
+              <label class="form-label-xs">当前状态</label>
+              <select class="form-select-xs" id="drawer-status">
+                <option value="single" selected>单身</option>
+                <option value="dating">恋爱中</option>
+                <option value="broken">断联 / 冷战</option>
+                <option value="married">已婚</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-col">
+              <label class="form-label-xs">出生日期（公历）</label>
+              <input type="date" class="form-input-xs" id="drawer-birthdate" value="1998-08-18">
+            </div>
+            <div class="form-col">
+              <label class="form-label-xs">出生时间模式</label>
+              <select class="form-select-xs" id="drawer-time-mode">
+                <option value="interval" selected>⏱ 仅知大致区间（不确定具体几分）</option>
+                <option value="exact">🎯 知道精确时间（几点几分）</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- 区间模式输入区 -->
+          <div id="drawer-interval-wrap" style="margin-top:8px;">
+            <label class="form-label-xs">⏳ 大致出生时间区间（可点选下方常见时段或手动选择起止时间）</label>
+            <div class="preset-range-chips" style="display:flex; flex-wrap:wrap; gap:5px; margin:5px 0 8px 0;">
+              <button type="button" class="range-chip" data-start="06:00" data-end="09:00">早晨 06–09点</button>
+              <button type="button" class="range-chip active" data-start="09:00" data-end="12:00">上午 09–12点</button>
+              <button type="button" class="range-chip" data-start="11:00" data-end="14:00">中午 11–14点</button>
+              <button type="button" class="range-chip" data-start="13:00" data-end="17:00">下午 13–17点</button>
+              <button type="button" class="range-chip" data-start="17:00" data-end="20:00">傍晚 17–20点</button>
+              <button type="button" class="range-chip" data-start="20:00" data-end="23:30">夜晚 20–23点半</button>
+            </div>
+            <div class="form-row" style="align-items:center;">
+              <div class="form-col">
+                <span style="font-size:11.5px;color:var(--text-muted);">最早可能时间</span>
+                <input type="time" class="form-input-xs" id="drawer-range-start" value="09:00">
+              </div>
+              <span style="padding:14px 4px 0 4px; color:var(--text-muted);">至</span>
+              <div class="form-col">
+                <span style="font-size:11.5px;color:var(--text-muted);">最晚可能时间</span>
+                <input type="time" class="form-input-xs" id="drawer-range-end" value="12:00">
+              </div>
+            </div>
+          </div>
+
+          <!-- 精确时间输入区 -->
+          <div id="drawer-exact-wrap" style="margin-top:8px; display:none;">
+            <label class="form-label-xs">🎯 精确出生钟表时间（时:分）</label>
+            <input type="time" class="form-input-xs" id="drawer-birthtime" value="10:30" style="width:100%;">
+            <select class="form-select-xs" id="drawer-hour" style="display:none;">
+              <option value="0">0</option><option value="2">2</option><option value="4">4</option>
+              <option value="6">6</option><option value="8">8</option><option value="10" selected>10</option>
+              <option value="12">12</option><option value="14">14</option><option value="16">16</option>
+              <option value="18">18</option><option value="20">20</option><option value="22">22</option>
+            </select>
+          </div>
+          <div class="form-row" style="margin-top:8px;">
+            <div class="form-col" style="flex:1;">
+              <label class="form-label-xs">📍 出生地点（天文真太阳时校准 · 强烈建议选择）</label>
+              <select class="form-select-xs" id="drawer-city">
+                <option value="默认 (东经120°标准时)">默认 (东经120°北京时间标准时 · 不做经度修正)</option>
+                <optgroup label="西南 / 西北（经度时差大 · 极易跨时辰）">
+                  <option value="成都">成都 (东经104.07° · 慢约64分钟)</option>
+                  <option value="重庆">重庆 (东经106.55° · 慢约54分钟)</option>
+                  <option value="西安">西安 (东经108.94° · 慢约44分钟)</option>
+                  <option value="昆明">昆明 (东经102.71° · 慢约69分钟)</option>
+                  <option value="贵阳">贵阳 (东经106.63° · 慢约53分钟)</option>
+                  <option value="兰州">兰州 (东经103.83° · 慢约65分钟)</option>
+                  <option value="西宁">西宁 (东经101.78° · 慢约73分钟)</option>
+                  <option value="银川">银川 (东经106.23° · 慢约55分钟)</option>
+                  <option value="乌鲁木齐">乌鲁木齐 (东经87.62° · 慢约130分钟)</option>
+                  <option value="拉萨">拉萨 (东经91.13° · 慢约115分钟)</option>
+                </optgroup>
+                <optgroup label="华南 / 华中（经度时差约 20–45 分钟）">
+                  <option value="广州">广州 (东经113.26° · 慢约27分钟)</option>
+                  <option value="深圳">深圳 (东经114.06° · 慢约24分钟)</option>
+                  <option value="武汉">武汉 (东经114.30° · 慢约23分钟)</option>
+                  <option value="长沙">长沙 (东经112.94° · 慢约28分钟)</option>
+                  <option value="郑州">郑州 (东经113.62° · 慢约26分钟)</option>
+                  <option value="南宁">南宁 (东经108.37° · 慢约47分钟)</option>
+                  <option value="海口">海口 (东经110.33° · 慢约39分钟)</option>
+                  <option value="香港">香港 (东经114.17° · 慢约23分钟)</option>
+                  <option value="澳门">澳门 (东经113.54° · 慢约26分钟)</option>
+                </optgroup>
+                <optgroup label="华北 / 华东 / 东北 / 台">
+                  <option value="北京">北京 (东经116.40° · 慢约14分钟)</option>
+                  <option value="上海">上海 (东经121.47° · 快约6分钟)</option>
+                  <option value="杭州">杭州 (东经120.15° · 快约1分钟)</option>
+                  <option value="南京">南京 (东经118.78° · 慢约5分钟)</option>
+                  <option value="苏州">苏州 (东经120.58° · 快约2分钟)</option>
+                  <option value="天津">天津 (东经117.20° · 慢约11分钟)</option>
+                  <option value="合肥">合肥 (东经117.23° · 慢约11分钟)</option>
+                  <option value="福州">福州 (东经119.30° · 慢约3分钟)</option>
+                  <option value="厦门">厦门 (东经118.09° · 慢约8分钟)</option>
+                  <option value="济南">济南 (东经117.00° · 慢约12分钟)</option>
+                  <option value="青岛">青岛 (东经120.38° · 快约2分钟)</option>
+                  <option value="南昌">南昌 (东经115.86° · 慢约17分钟)</option>
+                  <option value="石家庄">石家庄 (东经114.51° · 慢约22分钟)</option>
+                  <option value="太原">太原 (东经112.55° · 慢约30分钟)</option>
+                  <option value="沈阳">沈阳 (东经123.43° · 快约14分钟)</option>
+                  <option value="大连">大连 (东经121.61° · 快约6分钟)</option>
+                  <option value="长春">长春 (东经125.32° · 快约21分钟)</option>
+                  <option value="哈尔滨">哈尔滨 (东经126.64° · 快约27分钟)</option>
+                  <option value="台北">台北 (东经121.56° · 快约6分钟)</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+          <div id="drawer-tst-preview" class="tst-preview-box">
+            ⏱ 正在计算真太阳时天文修正…
+          </div>
+          <button class="save-chart-btn" id="btn-save-chart">保存出生地与真太阳时并重新排盘</button>
+        </div>
+
+        <div class="drawer-section">
+          <div class="drawer-section-title">🪐 紫微斗数 · 十二宫全盘</div>
+          <div id="ziwei-grid" class="ziwei-grid"></div>
+          <div id="ziwei-warnings" class="ziwei-warnings"></div>
+        </div>
+
+        <div class="drawer-section">
+          <div class="drawer-section-title">🌌 紫微 · 夫妻宫</div>
+          <div id="drawer-ziwei-info" style="font-size:13.2px; color:var(--text-sub);"></div>
+        </div>
+
+        <div class="drawer-section">
+          <div class="drawer-section-title">🪢 四柱八字</div>
+          <div id="drawer-bazi-info" style="font-size:13.2px; color:var(--text-sub);"></div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ========== 手机扫码访问弹窗 ========== -->
+  <div class="modal-overlay" id="modal-mobile">
+    <div class="modal-box" style="max-width:420px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="font-size:17px;">📱 用手机访问「点到」</h3>
+        <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-mobile')">×</button>
+      </div>
+      <p style="font-size:12.8px; color:var(--text-sub); line-height:1.6; margin-bottom:14px;">
+        请确保手机与这台电脑连接在<strong>同一个 Wi-Fi</strong> 下，然后用手机相机扫描下方二维码，或直接在手机浏览器输入网址。<br>
+        在 iPhone Safari 中打开后，点击底部「分享 → 添加到主屏幕」，即可像 App 一样全屏使用。
+      </p>
+      <div id="mobile-qr-wrap" style="text-align:center; margin-bottom:12px;">
+        <div style="font-size:12.5px; color:var(--text-muted);">正在获取本机局域网地址…</div>
+      </div>
+      <div id="mobile-url-box" class="mobile-url-box"></div>
+    </div>
+  </div>
+
+  <!-- ========== 四维互动精准定盘弹窗 ========== -->
+  <div class="modal-overlay" id="modal-rectify">
+    <div class="modal-box rectify-modal-box" style="max-width:680px; width:94vw; max-height:88vh; overflow-y:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h3 style="font-size:17px; display:flex; align-items:center; gap:7px;">🧭 <span>四维互动精准定盘向导（解决区间跨时辰难题）</span></h3>
+        <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-rectify')">×</button>
+      </div>
+      <p style="font-size:12.5px; color:var(--text-sub); margin-bottom:14px; line-height:1.55;">
+        当您只知道<strong>大致出生时间区间</strong>，或因<strong>出生地真太阳时修正</strong>跨越了两个候选时辰（候选盘 A vs 候选盘 B）难以抉择时，单凭一句性格描述容易产生模糊感。<br>
+        请对照以下 <strong>4 个客观维度（核心依据为 2024–2025 过往真实应事回溯）</strong>勾选最符合您真实情况的选项，系统将实时计算铁证权重并为您锁定真命盘：
+      </p>
+      <div id="rectify-quiz-container" class="rectify-quiz-container"></div>
+      <div id="rectify-verdict-box" class="rectify-verdict-box" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ========== 设置弹窗 ========== -->
+  <div class="modal-overlay" id="modal-settings">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="font-size:17px;">⚙ AI 引擎设置</h3>
+        <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-settings')">×</button>
+      </div>
+      <p style="font-size:13px; color:var(--text-sub); margin-bottom:16px;">
+        默认使用<strong>内置推演引擎</strong>（离线可用）。若想获得更自然、更贴合你具体情况的长文分析，
+        建议接入大模型 API —— 填入后所有回答将由大模型实时生成。
+      </p>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div>
+          <label class="form-label-xs">引擎</label>
+          <select class="form-select-xs" id="settings-provider" style="width:100%;">
+            <option value="builtin">内置推演引擎（无需密钥 · 模板式）</option>
+            <option value="deepseek">DeepSeek（推荐 · 便宜 · 国内直连）</option>
+            <option value="qwen">通义千问 Qwen</option>
+            <option value="zhipu">智谱 GLM（有免费额度）</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="doubao">豆包 Doubao</option>
+            <option value="openai">OpenAI / 其它兼容接口</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label-xs">API Key</label>
+          <input type="password" class="form-input-xs" id="settings-api-key" placeholder="sk-…" style="width:100%;" autocomplete="off">
+          <div style="font-size:10.5px;color:var(--text-dim);margin-top:4px;line-height:1.5;">
+            DeepSeek 申请：<b>platform.deepseek.com</b> → API keys。<br>
+            充 ¥10 约可对话 700 次（单次约 1.4 分钱）。<br>
+            密钥只存在你本机浏览器，经本地服务器转发，不会上传到任何第三方。
+          </div>
+        </div>
+        <div>
+          <label class="form-label-xs">模型名（留空用默认）</label>
+          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-chat" style="width:100%;">
+        </div>
+        <div>
+          <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>
+          <input type="text" class="form-input-xs" id="settings-api-endpoint" placeholder="自动" style="width:100%;">
+        </div>
+        <button class="save-chart-btn" id="btn-save-settings">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 海报弹窗 ========== -->
+  <div class="modal-overlay" id="modal-poster">
+    <div class="modal-box" style="max-width:430px; text-align:center;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="font-size:16.5px;">✦ 命理手记</h3>
+        <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-poster')">×</button>
+      </div>
+      <canvas id="poster-canvas" width="750" height="1100" style="width:100%;height:auto;border-radius:12px;margin-bottom:14px;box-shadow:var(--shadow-md);"></canvas>
+      <button class="save-chart-btn" id="btn-download-poster">📥 下载长图</button>
+    </div>
+  </div>
+
+  <script src="vsop87.js"></script>
+  <script src="calendar_core.js"></script>
+  <script src="ziwei_engine.js"></script>
+  <script src="bazi_analyze.js"></script>
+  <!-- 知识库（RAG）：紫微 + 八字 -->
+  <script src="knowledge_base.js"></script>
+  <script src="kb_retrieve.js"></script>
+  <script src="bazi_kb.js"></script>
+  <script src="bazi_retrieve.js"></script>
+  <script src="tarot_data.js"></script>
+  <script src="ziwei_bazi_core.js"></script>
+  <script src="chat_engine.js"></script>
+  <script src="app.js?v=20260918b"></script>
+</body>
+</html>

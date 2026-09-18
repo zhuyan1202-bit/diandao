@@ -1,0 +1,9 @@
+# 运行产物
+server.log
+__pycache__/
+*.pyc
+.DS_Store
+
+# 本地打包产物（发布走 gh-pages 分支，无需入库）
+dist/
+dist.zip

@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260918193853">
+  <link rel="stylesheet" href="styles.css?v=20260918194939">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -85,16 +85,16 @@
           <button class="kb-tab active" data-kb-mode="ziwei" id="tab-room-ziwei">
             <span class="kb-tab-icon">🔮</span>
             <div class="kb-tab-info">
-              <div class="kb-tab-title">进入【紫微斗数专席】聊天窗口</div>
-              <div class="kb-tab-sub">独立对话窗口 · 锁定《紫微斗數全書》460条原典 · 专断感情婚恋 / 配偶画像 / 十二宫人事</div>
+              <div class="kb-tab-title">紫微斗数</div>
+              <div class="kb-tab-sub">十二宫 · 星曜四化</div>
             </div>
             <span class="room-enter-badge">当前窗口</span>
           </button>
           <button class="kb-tab" data-kb-mode="bazi" id="tab-room-bazi">
             <span class="kb-tab-icon">📜</span>
             <div class="kb-tab-info">
-              <div class="kb-tab-title">进入【四柱八字专席】聊天窗口</div>
-              <div class="kb-tab-sub">独立对话窗口 · 锁定《穷通宝鉴·渊海子平》319条原典 · 专断2026流年运势 / 事业财运 / 五行喜忌</div>
+              <div class="kb-tab-title">四柱八字</div>
+              <div class="kb-tab-sub">天干地支 · 大运流年</div>
             </div>
             <span class="room-enter-badge">点击切换</span>
           </button>
@@ -104,10 +104,10 @@
       <!-- 当前窗口知识库与本人实盘锁定状态栏 -->
       <div class="room-kb-lock-banner" id="room-kb-lock-banner">
         <div class="kb-lock-left">
-          <span class="kb-lock-badge" id="kb-lock-badge">📚 知识库状态：已锁定《紫微斗數全書》原典库（已隔离八字库）</span>
+          <span class="kb-lock-badge" id="kb-lock-badge">🔮 紫微斗数 · 十二宫已排定</span>
         </div>
         <div class="kb-lock-right" id="kb-lock-chart-summary">
-          本人实盘加载中…
+          正在读取你的命盘…
         </div>
       </div>
 
@@ -116,9 +116,9 @@
 
           <div class="chat-greeting-card" id="greeting-card">
             <div class="greeting-icon" id="greeting-icon">🔮</div>
-            <h1 class="greeting-title" id="greeting-title">紫微斗数专席 · 本人实盘推演室</h1>
+            <h1 class="greeting-title" id="greeting-title">紫微斗数 · 一语点到</h1>
             <p class="greeting-desc" id="greeting-desc">
-              当前处于<strong>【紫微斗数独立聊天窗口】</strong>。所有回答均基于你本人的生辰排盘，直接检索<strong>《紫微斗數全書》460条原典条文</strong>，采用<strong>「命理师直断 + 古籍原文铁证 + 大白话解读」</strong>结构为您剖析。下方为您本人命盘专属推演课题：
+              已按你的出生时刻排定十二宫。下面三个是从你盘里挑出来的切入点，也可以直接问。
             </p>
 
             <div class="starter-prompts-grid" id="starter-prompts-grid"></div>
@@ -398,18 +398,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260918193853"></script>
-  <script src="calendar_core.js?v=20260918193853"></script>
-  <script src="ziwei_engine.js?v=20260918193853"></script>
-  <script src="bazi_analyze.js?v=20260918193853"></script>
+  <script src="vsop87.js?v=20260918194939"></script>
+  <script src="calendar_core.js?v=20260918194939"></script>
+  <script src="ziwei_engine.js?v=20260918194939"></script>
+  <script src="bazi_analyze.js?v=20260918194939"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260918193853"></script>
-  <script src="kb_retrieve.js?v=20260918193853"></script>
-  <script src="bazi_kb.js?v=20260918193853"></script>
-  <script src="bazi_retrieve.js?v=20260918193853"></script>
-  <script src="tarot_data.js?v=20260918193853"></script>
-  <script src="ziwei_bazi_core.js?v=20260918193853"></script>
-  <script src="chat_engine.js?v=20260918193853"></script>
-  <script src="app.js?v=20260918193853"></script>
+  <script src="knowledge_base.js?v=20260918194939"></script>
+  <script src="kb_retrieve.js?v=20260918194939"></script>
+  <script src="bazi_kb.js?v=20260918194939"></script>
+  <script src="bazi_retrieve.js?v=20260918194939"></script>
+  <script src="tarot_data.js?v=20260918194939"></script>
+  <script src="ziwei_bazi_core.js?v=20260918194939"></script>
+  <script src="chat_engine.js?v=20260918194939"></script>
+  <script src="app.js?v=20260918194939"></script>
 </body>
 </html>

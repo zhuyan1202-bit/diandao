@@ -502,8 +502,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const tag = document.getElementById("chart-context-tag");
     if (tag) {
       tag.textContent = mode === "ziwei"
-        ? `🔮 紫微专席实盘：${g} · 命宫【${mingStar}】 · 夫妻宫【${sp.primaryStar}(${sp.sihua || "无四化"})】 · 福德宫【${fudeStar}】`
-        : `📜 八字专席实盘：${g} · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】 · 日元【${dmLabel}】 · 婚姻宫【${marriageBranch}】`;
+        ? `🔮 你的紫微盘：${g} · 命宫【${mingStar}】 · 夫妻宫【${sp.primaryStar}(${sp.sihua || "无四化"})】 · 福德宫【${fudeStar}】`
+        : `📜 你的八字盘：${g} · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】 · 日元【${dmLabel}】 · 婚姻宫【${marriageBranch}】`;
     }
 
     // 获取当前真实天文历法与四柱干支时间基准
@@ -518,10 +518,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const tst = chart.profile.trueSolarTime || {};
     const cityTag = tst.isCalibrated ? `📍 ${tst.city}(真太阳时${tst.trueTimeStr})` : `📍 东经120°标准时`;
     if (mode === "ziwei") {
-      if (lockBadge) lockBadge.innerHTML = `🔮 当前窗口：<strong>紫微斗数独立分析室</strong>（底层已内化紫微知识库 · 与八字窗口隔离）`;
+      if (lockBadge) lockBadge.innerHTML = `🔮 <strong>紫微斗数</strong> · 十二宫已排定`;
       if (lockSummary) lockSummary.innerHTML = `${timeBadgeStr} ｜ ${cityTag} · ${g} · 命宫【${mingStar}】 · 夫妻【${spouseStar}】`;
     } else {
-      if (lockBadge) lockBadge.innerHTML = `📜 当前窗口：<strong>四柱八字独立分析室</strong>（底层已内化八字知识库 · 与紫微窗口隔离）`;
+      if (lockBadge) lockBadge.innerHTML = `📜 <strong>四柱八字</strong> · 四柱已定局`;
       if (lockSummary) lockSummary.innerHTML = `${timeBadgeStr} ｜ ${cityTag} · ${g} · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】`;
     }
 
@@ -533,8 +533,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let cards = [];
     if (mode === "ziwei") {
       if (greetIcon) greetIcon.textContent = "🔮";
-      if (greetTitle) greetTitle.textContent = "紫微斗数专席 · 感情婚恋与十二宫独立分析室";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>当前实时历法基准：公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日（${t.termName}后）</strong></div><div style="margin-top:4px;">当前处于<strong>【紫微斗数独立聊天窗口】</strong>（与八字窗口历史完全隔离）。系统在底层自动运用紫微斗数知识库规则，直接输出<strong>「核心结论 + 命盘剖析 + 时间节点与策略」</strong>，不堆砌古籍引文。下方为您本人紫微命盘的 3 个核心课题：</div>`;
+      if (greetTitle) greetTitle.textContent = "紫微斗数 · 一语点到";
+      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">已按你的出生时刻排定十二宫。下面三个是从你盘里挑出来的切入点，也可以直接问。</div>`;
 
       cards = [
         {
@@ -558,8 +558,8 @@ document.addEventListener("DOMContentLoaded", () => {
       ];
     } else {
       if (greetIcon) greetIcon.textContent = "📜";
-      if (greetTitle) greetTitle.textContent = "四柱八字专席 · 大运流年与命局喜忌独立分析室";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>当前实时历法基准：公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日（${t.termName}后）</strong></div><div style="margin-top:4px;">当前处于<strong>【四柱八字独立聊天窗口】</strong>（与紫微窗口历史完全隔离）。系统在底层自动运用子平八字知识库规则，直接输出<strong>「核心结论 + 命盘剖析 + 时间节点与策略」</strong>，不堆砌古籍引文。下方为您本人八字四柱的 3 个核心课题：</div>`;
+      if (greetTitle) greetTitle.textContent = "四柱八字 · 一语点到";
+      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">已按你的出生时刻排定四柱。下面三个是从你盘里挑出来的切入点，也可以直接问。</div>`;
 
       cards = [
         {

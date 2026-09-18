@@ -676,7 +676,47 @@
       })
     };
 
-    return { candidates: cands, questions: [q1, q2, q3, q4, q5] };
+    // 每题自带权重（原先写死在 app.js 的数组里，一加题就会错位）
+    q1.weight = 20; q2.weight = 35; q3.weight = 20; q4.weight = 15; q5.weight = 40;
+
+    // ==================== 追加轮次：继续用「过往流年应事」逐对回溯 ====================
+    // 性格题容易被引导着选，过往某年具体发生过什么则很难自欺，因此后续轮次全部用流年事件。
+    const ganOf = y => TIANGAN[((y - 4) % 10 + 10) % 10];
+    const zhiOf = y => DIZHI[((y - 4) % 12 + 12) % 12];
+    const birthYear = sampleProfile.year;
+    let _seq = 6;
+
+    const makeYearPairQ = (yA, yB, weight) => {
+      const bA = zhiOf(yA), bB = zhiOf(yB);
+      return {
+        id: "q" + (_seq++),
+        weight: weight,
+        dimension: `${yA}–${yB} 年往事回溯（客观事件铁证）`,
+        question: `再往前回想：${yA}年（${ganOf(yA)}${bA}年）和 ${yB}年（${ganOf(yB)}${bB}年）这两年，你身上最主要的变动、或者最耗你精力的事，更接近下面哪一条？`,
+        options: cands.map((c, idx) => {
+          const pA = getPalaceByBranch(c.chart, bA);
+          const pB = getPalaceByBranch(c.chart, bB);
+          const dA = PALACE_EVENT_DESC[pA.name] || "个人事务调整";
+          const dB = PALACE_EVENT_DESC[pB.name] || "外部环境变化";
+          return {
+            candIdx: idx,
+            shichenName: c.shichenName,
+            label: `${yA}年重心在【${pA.name}】（${dA}） ➔ ${yB}年重心在【${pB.name}】（${dB}）。（对应${c.shichenName}盘）`
+          };
+        })
+      };
+    };
+
+    // 只问出生满 6 周岁之后的年份 —— 更早的事当事人多半没有可靠记忆
+    const YEAR_PAIRS = [[2020, 2021, 35], [2018, 2019, 32], [2016, 2017, 30], [2014, 2015, 28]];
+    const extraQs = YEAR_PAIRS
+      .filter(pr => pr[0] - birthYear >= 6)
+      .map(pr => makeYearPairQ(pr[0], pr[1], pr[2]));
+
+    const rounds = [[q1, q2, q3, q4, q5]];
+    for (let i = 0; i < extraQs.length; i += 2) rounds.push(extraQs.slice(i, i + 2));
+
+    return { candidates: cands, questions: rounds[0], rounds: rounds };
   }
   function analyzeTimeInterval(params) {
     const {

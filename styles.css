@@ -1159,6 +1159,20 @@ html, body { max-width: 100%; overflow-x: hidden; }
 
 
 
+
+/* 定盘题的「说不准」选项：虚线边框以示与正式选项不同，且不计分 */
+.rectify-opt-btn.is-unsure {
+  border-style: dashed;
+  opacity: .9;
+  margin-top: 2px;
+}
+.rectify-opt-btn.is-unsure.selected {
+  background: rgba(148, 163, 184, 0.22);
+  border-color: #94a3b8;
+  border-style: solid;
+  color: #fff;
+}
+
 /* 精准定盘弹窗尺寸（原为 index.html 内联样式，内联的 88vh 会盖掉移动端 dvh 修复） */
 .rectify-modal-box {
   max-width: 680px;

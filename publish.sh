@@ -71,10 +71,16 @@ else
   (cd "$WORKTREE" && git checkout --orphan "$BRANCH" && git rm -rf . >/dev/null 2>&1 || true)
 fi
 
-rsync -a --delete --exclude ".git" dist/ "$WORKTREE"/
+# -I 强制逐文件比对内容：版本号戳长度恒定且与检出同秒，默认的「大小+时间」快速判断会漏判
+rsync -a -I --delete --exclude ".git" dist/ "$WORKTREE"/
 cd "$WORKTREE"
 git add -A
-git commit -m "发布：点到 $(date '+%Y-%m-%d %H:%M')" >/dev/null 2>&1 || echo "   （内容无变化，跳过提交）"
+if [ -z "$(git status --porcelain)" ]; then
+  echo "   （内容与上次发布完全一致，无需提交）"
+else
+  git commit -q -m "发布：点到 $(date '+%Y-%m-%d %H:%M')"
+  echo "   已提交：$(git log -1 --format=%h)"
+fi
 git push -u origin "$BRANCH" --force
 cd ..
 git worktree remove "$WORKTREE" --force

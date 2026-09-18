@@ -25,7 +25,7 @@ cp index.html app.js chat_engine.js styles.css manifest.json icon.svg \
    vsop87.js calendar_core.js ziwei_engine.js ziwei_bazi_core.js \
    knowledge_base.js kb_retrieve.js bazi_analyze.js bazi_kb.js \
    bazi_retrieve.js tarot_data.js dist/
-[ -d kb ] && cp -R kb dist/
+# kb/ 为古籍原文与编译脚本，已编译进 knowledge_base.js / bazi_kb.js，线上无需发布
 touch dist/.nojekyll          # 告诉 GitHub Pages 不要用 Jekyll 处理
 
 # 线上不需要「局域网扫码」按钮，自动隐藏

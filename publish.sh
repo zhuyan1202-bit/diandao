@@ -2,7 +2,7 @@
 # =============================================================
 #  点到 · 一键发布到 GitHub Pages
 #  用法：  ./publish.sh
-#  作用：  重新打包 dist/ → 推送到 gh-pages 分支 → 线上网页自动更新
+#  作用：  重新打包 dist/ → 自动打缓存版本号 → 推送 gh-pages → 线上更新
 # =============================================================
 set -e
 cd "$(dirname "$0")"
@@ -10,15 +10,15 @@ cd "$(dirname "$0")"
 BRANCH="gh-pages"
 WORKTREE=".gh-pages-tmp"
 
-echo "▶ 1/4 检查远程仓库…"
+echo "▶ 1/5 检查远程仓库…"
 if ! git remote get-url origin >/dev/null 2>&1; then
-  echo "❌ 还没有配置远程仓库。请先在 GitHub 上创建一个空仓库，然后执行："
-  echo "   git remote add origin https://github.com/<你的用户名>/<仓库名>.git"
+  echo "❌ 还没有配置远程仓库。请先执行："
+  echo "   git remote add origin https://github.com/zhuyan1202-bit/diandao.git"
   exit 1
 fi
 echo "   远程：$(git remote get-url origin)"
 
-echo "▶ 2/4 打包静态站点到 dist/ …"
+echo "▶ 2/5 打包静态站点到 dist/ …"
 rm -rf dist
 mkdir -p dist
 cp index.html app.js chat_engine.js styles.css manifest.json icon.svg \
@@ -41,9 +41,27 @@ add = anchor + '''
 if anchor in s and "location.hostname" not in s:
     open(p, "w").write(s.replace(anchor, add, 1))
 PYEOF
-echo "   已打包 $(ls dist | wc -l | tr -d ' ') 个文件"
+echo "   已打包 $(ls -A dist | wc -l | tr -d ' ') 个文件"
 
-echo "▶ 3/4 推送到 $BRANCH 分支…"
+echo "▶ 3/5 给所有 JS / CSS 打缓存版本号…"
+python3 - << 'PYEOF'
+import re, time
+stamp = time.strftime("%Y%m%d%H%M%S")
+p = "dist/index.html"
+s = open(p).read()
+hit = []
+def fix(m):
+    hit.append(m.group(2))
+    return '%s="%s?v=%s"' % (m.group(1), m.group(2), stamp)
+# 只匹配本地相对路径（字符类不含 ":"，故 https:// 外链不会被误伤）
+s = re.sub(r'\b(src|href)="([A-Za-z0-9_\-./]+\.(?:js|css))(?:\?v=[^"]*)?"', fix, s)
+open(p, "w").write(s)
+print("   版本号 v=%s，已标记 %d 个文件" % (stamp, len(hit)))
+for f in hit:
+    print("     · " + f)
+PYEOF
+
+echo "▶ 4/5 推送到 $BRANCH 分支…"
 rm -rf "$WORKTREE"
 git worktree prune
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
@@ -61,14 +79,11 @@ git push -u origin "$BRANCH" --force
 cd ..
 git worktree remove "$WORKTREE" --force
 
-echo "▶ 4/4 完成！"
+echo "▶ 5/5 完成！"
 REPO_URL=$(git remote get-url origin)
 USER_REPO=$(echo "$REPO_URL" | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$##')
 USER_NAME=$(echo "$USER_REPO" | cut -d/ -f1)
 REPO_NAME=$(echo "$USER_REPO" | cut -d/ -f2)
 echo ""
-echo "🌐 你的网址（首次发布约等 1–2 分钟生效）："
-echo "   https://${USER_NAME}.github.io/${REPO_NAME}/"
-echo ""
-echo "💡 首次发布后，请到 GitHub 仓库页面 Settings → Pages，"
-echo "   把 Source 设为 “Deploy from a branch”，分支选 gh-pages / (root)，保存即可。"
+echo "🌐 https://${USER_NAME}.github.io/${REPO_NAME}/"
+echo "   （约 30 秒~1 分钟生效；已自动打版本号，手机刷新即可看到新版）"

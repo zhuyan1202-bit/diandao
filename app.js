@@ -406,38 +406,39 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let tone, headline, detail;
     if (r.status === "insufficient") {
-      tone = "#f59e0b";
+      tone = "warn";
       headline = "证据还不够，先不下结论";
       detail = `目前有效证据 ${r.weight} 分，判定线是 ${r.minWeight} 分。`
              + (r.noSignal ? `你填的年份里有 ${r.noSignal} 条在几个盘上都说得通，分不出来。` : "")
              + `再多填几个年份会准得多。`;
     } else if (r.status === "tie") {
-      tone = "#f59e0b";
+      tone = "warn";
       headline = "两个盘咬得太近，现在还分不开";
       detail = `领先幅度只有 ${Math.round(r.leadRatio * 100)}%，没到 ${Math.round(r.minLead * 100)}% 的判定线。`
              + `这种时候硬定一个，后面所有分析都会跟着错。`;
     } else {
-      tone = "#10b981";
+      tone = "ok";
       headline = `【${r.top.c.shichenName}】明显对得上`;
       detail = `在 ${r.weight} 分有效证据里领先 ${Math.round(r.leadRatio * 100)}%，超过了 ${Math.round(r.minLead * 100)}% 的判定线。`;
     }
     if (r.unsure) detail += `（${r.unsure} 项你选了“说不准”，没计分）`;
 
+    // 按钮一律走 CSS 类，不再写死颜色 —— 之前的 rgba(255,255,255,.08) 在浅色主题下是白底白字
     const btns = [];
     if (r.status === "confident") {
-      btns.push(`<button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#10b981,#059669); font-size:13px;" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">✨ 采纳：锁定【${r.top.c.shichenName}】并更新全盘</button>`);
+      btns.push(`<button type="button" class="rx-btn rx-btn-primary" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">✨ 采纳：锁定【${r.top.c.shichenName}】并更新全盘</button>`);
     } else {
-      btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">先按目前领先的【${r.top.c.shichenName}】用着（随时可改）</button>`);
+      btns.push(`<button type="button" class="rx-btn rx-btn-ghost" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">先按目前领先的【${r.top.c.shichenName}】用着（随时可改）</button>`);
     }
-    btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__sendRectifyToAI()">💬 把已填的内容交给 AI，让它继续追问</button>`);
+    btns.push(`<button type="button" class="rx-btn rx-btn-ghost" onclick="window.__sendRectifyToAI()">💬 把已填的内容交给 AI，让它继续追问</button>`);
 
     box.style.display = "block";
     box.innerHTML = `
-      <div style="font-size:14px; font-weight:700; color:${tone}; margin-bottom:8px;">🎯 ${headline}</div>
+      <div class="rx-verdict-h ${tone}">🎯 ${headline}</div>
       <div class="rx-bars">${bars}</div>
       <div class="rx-lines">${detailHtml}</div>
-      <div style="color:var(--text-sub); margin:10px 0; font-size:12.5px; line-height:1.6;">${detail}</div>
-      <div style="display:flex; flex-direction:column; gap:8px;">${btns.join("")}</div>`;
+      <div class="rx-detail">${detail}</div>
+      <div class="rx-act">${btns.join("")}</div>`;
   }
 
   window.__applyRectifiedChart = function(clockH, clockM, shichenName) {

@@ -41,6 +41,11 @@
         <div class="mini-profile-details" id="mini-profile-text">—</div>
       </div>
 
+      <div class="profile-actions">
+        <button class="profile-action-btn" id="btn-open-drawer">🪢 命盘设置</button>
+        <button class="profile-action-btn is-accent" id="btn-open-rectify">🧭 精准定盘</button>
+      </div>
+
       <div class="sidebar-sessions" id="sessions-container">
         <div class="session-group-title">历史推演</div>
         <div id="session-items-list"></div>
@@ -73,8 +78,6 @@
           <div class="chat-current-title" id="chat-title-text">新的推演</div>
         </div>
         <div class="top-bar-right">
-          <button class="bar-pill-btn rectify-pill-btn" id="btn-open-rectify" onclick="window.__openRectifyModal()">🧭 <span>四维精准定盘</span></button>
-          <button class="bar-pill-btn" id="btn-open-drawer">🪢 <span>本人命盘设置</span></button>
           <button class="bar-pill-btn" id="btn-export-chat">📥 <span>导出手记</span></button>
         </div>
       </header>
@@ -196,15 +199,7 @@
 
           <!-- 区间模式输入区 -->
           <div id="drawer-interval-wrap" style="margin-top:8px;">
-            <label class="form-label-xs">⏳ 大致出生时间区间（可点选下方常见时段或手动选择起止时间）</label>
-            <div class="preset-range-chips" style="display:flex; flex-wrap:wrap; gap:5px; margin:5px 0 8px 0;">
-              <button type="button" class="range-chip" data-start="06:00" data-end="09:00">早晨 06–09点</button>
-              <button type="button" class="range-chip active" data-start="09:00" data-end="12:00">上午 09–12点</button>
-              <button type="button" class="range-chip" data-start="11:00" data-end="14:00">中午 11–14点</button>
-              <button type="button" class="range-chip" data-start="13:00" data-end="17:00">下午 13–17点</button>
-              <button type="button" class="range-chip" data-start="17:00" data-end="20:00">傍晚 17–20点</button>
-              <button type="button" class="range-chip" data-start="20:00" data-end="23:30">夜晚 20–23点半</button>
-            </div>
+            <label class="form-label-xs">⏳ 大致出生时间区间</label>
             <div class="form-row" style="align-items:center;">
               <div class="form-col">
                 <span style="font-size:11.5px;color:var(--text-muted);">最早可能时间</span>
@@ -327,16 +322,17 @@
     </div>
   </div>
 
-  <!-- ========== 四维互动精准定盘弹窗 ========== -->
+  <!-- ========== 精准定盘弹窗 ========== -->
   <div class="modal-overlay" id="modal-rectify">
-    <div class="modal-box rectify-modal-box" style="max-width:680px; width:94vw; max-height:88vh; overflow-y:auto;">
+    <div class="modal-box rectify-modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h3 style="font-size:17px; display:flex; align-items:center; gap:7px;">🧭 <span>四维互动精准定盘向导（解决区间跨时辰难题）</span></h3>
+        <h3 style="font-size:17px; display:flex; align-items:center; gap:7px;">🧭 <span>精准定盘</span></h3>
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-rectify')">×</button>
       </div>
       <p style="font-size:12.5px; color:var(--text-sub); margin-bottom:14px; line-height:1.55;">
-        当您只知道<strong>大致出生时间区间</strong>，或因<strong>出生地真太阳时修正</strong>跨越了两个候选时辰（候选盘 A vs 候选盘 B）难以抉择时，单凭一句性格描述容易产生模糊感。<br>
-        请对照以下 <strong>4 个客观维度（核心依据为 2024–2025 过往真实应事回溯）</strong>勾选最符合您真实情况的选项，系统将实时计算铁证权重并为您锁定真命盘：
+        只知道大致区间，或者真太阳时修正后跨了两个时辰时，命盘就不唯一，得先定下来。<br>
+        下面每道题问的都是<strong>已经发生过的事实</strong>（过往应事、身体体感、家庭氛围），不是性格描述 —— 事实比感觉可靠得多。<br>
+        边答边算吻合度；如果两个时辰分数咬得很近，答完可以把结果交给 AI 再多问几轮。
       </p>
       <div id="rectify-quiz-container" class="rectify-quiz-container"></div>
       <div id="rectify-verdict-box" class="rectify-verdict-box" style="display:none;"></div>

@@ -290,92 +290,167 @@ document.addEventListener("DOMContentLoaded", () => {
     if (verdictBox) verdictBox.style.display = "none";
 
     if (container && currentRectifyQuiz) {
-      container.innerHTML = currentRectifyQuiz.questions.map((q, qIdx) => `
-        <div class="rectify-quiz-q" data-q-id="${q.id}">
-          <div class="rectify-quiz-dim">${escapeHtml(q.dimension)}</div>
-          <div class="rectify-quiz-title">${qIdx + 1}. ${escapeHtml(q.question)}</div>
-          <div class="rectify-opts-list">
-            ${q.options.map((opt, oIdx) => `
-              <button type="button" class="rectify-opt-btn" onclick="window.__selectRectifyOpt(${qIdx}, ${opt.candIdx}, this)">
-                <strong>选项 ${String.fromCharCode(65 + oIdx)}：</strong>${escapeHtml(opt.label)}
-              </button>
-            `).join("")}
-          </div>
-        </div>
-      `).join("");
+      rectifyVisibleRounds = 1;
+      flattenRectifyQuiz();
+      renderRectifyQuiz();
     }
 
     openModal("modal-rectify");
   };
 
+  /* ================= 定盘：多轮渐进式出题 + 置信度判定 ================= */
+  let rectifyVisibleRounds = 1;
+  let rectifyFlat = [];   // [{ q, round }]，把所有轮次的题拍平，索引即全局题号
+
+  function flattenRectifyQuiz() {
+    rectifyFlat = [];
+    if (!currentRectifyQuiz) return;
+    const rounds = currentRectifyQuiz.rounds || [currentRectifyQuiz.questions || []];
+    rounds.forEach((r, ri) => r.forEach(q => rectifyFlat.push({ q: q, round: ri })));
+  }
+
+  function renderRectifyQuiz() {
+    const container = document.getElementById("rectify-quiz-container");
+    if (!container || !currentRectifyQuiz) return;
+    let html = "";
+    rectifyFlat.forEach((item, gIdx) => {
+      if (item.round >= rectifyVisibleRounds) return;
+      const q = item.q;
+      const picked = rectifyAnswers[gIdx];
+      html += `
+        <div class="rectify-quiz-q" data-q-id="${q.id}">
+          <div class="rectify-quiz-dim">${escapeHtml(q.dimension)}</div>
+          <div class="rectify-quiz-title">${gIdx + 1}. ${escapeHtml(q.question)}</div>
+          <div class="rectify-opts-list">
+            ${q.options.map((opt, oIdx) => `
+              <button type="button" class="rectify-opt-btn${picked === opt.candIdx ? " selected" : ""}" onclick="window.__selectRectifyOpt(${gIdx}, ${opt.candIdx}, this)">
+                <strong>选项 ${String.fromCharCode(65 + oIdx)}：</strong>${escapeHtml(opt.label)}
+              </button>
+            `).join("")}
+            <button type="button" class="rectify-opt-btn is-unsure${picked === -1 ? " selected" : ""}" onclick="window.__selectRectifyOpt(${gIdx}, -1, this)">
+              🤷 <strong>说不准</strong> —— 两边都像，或这段时间我没什么印象（此题不计分）
+            </button>
+          </div>
+        </div>`;
+    });
+    container.innerHTML = html;
+  }
+
   window.__selectRectifyOpt = function(qIdx, candIdx, btnEl) {
     if (!currentRectifyQuiz) return;
     const parent = btnEl.closest(".rectify-opts-list");
-    if (parent) {
-      parent.querySelectorAll(".rectify-opt-btn").forEach(b => b.classList.remove("selected"));
-    }
+    if (parent) parent.querySelectorAll(".rectify-opt-btn").forEach(b => b.classList.remove("selected"));
     btnEl.classList.add("selected");
     rectifyAnswers[qIdx] = candIdx;
     evaluateRectifyQuiz();
   };
 
+  window.__revealNextRectifyRound = function() {
+    const total = (currentRectifyQuiz && currentRectifyQuiz.rounds) ? currentRectifyQuiz.rounds.length : 1;
+    if (rectifyVisibleRounds >= total) return;
+    rectifyVisibleRounds++;
+    renderRectifyQuiz();
+    evaluateRectifyQuiz();
+    let firstNew = 0;
+    for (let i = 0; i < rectifyFlat.length; i++) {
+      if (rectifyFlat[i].round === rectifyVisibleRounds - 1) { firstNew = i; break; }
+    }
+    const qs = document.querySelectorAll("#rectify-quiz-container .rectify-quiz-q");
+    if (qs[firstNew]) qs[firstNew].scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  // 判定门槛：权重不够或领先不够，一律不给结论，避免"答一题就 100% 吻合"的假精确
+  const RECTIFY_MIN_WEIGHT = 60;   // 已计分权重下限
+  const RECTIFY_MIN_LEAD   = 0.34; // 领先幅度须占已计分权重的 1/3 以上
+
   function evaluateRectifyQuiz() {
     if (!currentRectifyQuiz) return;
-    const weights = [20, 35, 20, 15, 40]; // 第2题与第5题（过往真实年份大事件铁证）权重最高，专门打破性格平局 // 第2题（2024-2025真实应事铁证）权重最高
-    const scores = {};
-    let totalAnsweredWeight = 0;
-
-    currentRectifyQuiz.candidates.forEach((c, idx) => { scores[idx] = 0; });
-
-    Object.keys(rectifyAnswers).forEach(qIdxStr => {
-      const qIdx = parseInt(qIdxStr, 10);
-      const cIdx = rectifyAnswers[qIdx];
-      const w = weights[qIdx] || 25;
-      scores[cIdx] = (scores[cIdx] || 0) + w;
-      totalAnsweredWeight += w;
-    });
-
-    const answeredCount = Object.keys(rectifyAnswers).length;
     const verdictBox = document.getElementById("rectify-verdict-box");
-    if (!verdictBox || answeredCount === 0) return;
+    if (!verdictBox) return;
 
-    // 找出得分最高的候选盘
-    let bestIdx = 0;
-    let bestScore = -1;
-    currentRectifyQuiz.candidates.forEach((c, idx) => {
-      if (scores[idx] > bestScore) {
-        bestScore = scores[idx];
-        bestIdx = idx;
-      }
+    const cands = currentRectifyQuiz.candidates;
+    const scores = {};
+    cands.forEach((c, i) => { scores[i] = 0; });
+
+    let answeredWeight = 0, unsureCount = 0, answeredCount = 0;
+    Object.keys(rectifyAnswers).forEach(k => {
+      const gi = parseInt(k, 10);
+      const item = rectifyFlat[gi];
+      if (!item) return;
+      answeredCount++;
+      const cIdx = rectifyAnswers[gi];
+      if (cIdx < 0) { unsureCount++; return; }   // "说不准" 不计分
+      const w = item.q.weight || 25;
+      scores[cIdx] = (scores[cIdx] || 0) + w;
+      answeredWeight += w;
     });
 
-    const winCand = currentRectifyQuiz.candidates[bestIdx];
-    const matchPct = Math.round((bestScore / Math.max(1, totalAnsweredWeight)) * 100);
+    if (answeredCount === 0) { verdictBox.style.display = "none"; return; }
 
-    const scoreBreakdown = currentRectifyQuiz.candidates.map((c, idx) => {
-      const pct = Math.round(((scores[idx] || 0) / Math.max(1, totalAnsweredWeight)) * 100);
-      return `<span style="margin-right:12px;">${idx === bestIdx ? "🏆 " : ""}<strong>${c.shichenName}盘（命宫${c.mingStars}）</strong>：匹配度 <b>${pct}%</b></span>`;
+    const ranked = cands.map((c, i) => ({ i: i, c: c, s: scores[i] || 0 })).sort((a, b) => b.s - a.s);
+    const top = ranked[0];
+    const second = ranked[1] || { s: 0 };
+    const lead = top.s - second.s;
+    const leadRatio = answeredWeight > 0 ? lead / answeredWeight : 0;
+
+    let status = "confident";
+    if (answeredWeight < RECTIFY_MIN_WEIGHT) status = "insufficient";
+    else if (leadRatio < RECTIFY_MIN_LEAD) status = "tie";
+
+    const totalRounds = (currentRectifyQuiz.rounds || [currentRectifyQuiz.questions]).length;
+    const hasMore = rectifyVisibleRounds < totalRounds;
+    const visibleCount = rectifyFlat.filter(x => x.round < rectifyVisibleRounds).length;
+
+    const breakdown = ranked.map(r => {
+      const pct = answeredWeight > 0 ? Math.round((r.s / answeredWeight) * 100) : 0;
+      const crown = (r.i === top.i && status === "confident") ? "🏆 " : "";
+      return `<span style="margin-right:14px;">${crown}<strong>${r.c.shichenName}盘（命宫${r.c.mingStars}）</strong>：${pct}%</span>`;
     }).join("");
+
+    let tone, headline, detail;
+    if (status === "insufficient") {
+      tone = "#f59e0b";
+      headline = "证据还不够，暂不下结论";
+      detail = `已计分权重 ${answeredWeight}（判定线 ${RECTIFY_MIN_WEIGHT}）`
+             + (unsureCount ? `，其中 ${unsureCount} 题选了「说不准」不计分` : "")
+             + `。再多答几题才谈得上定盘。`;
+    } else if (status === "tie") {
+      tone = "#f59e0b";
+      headline = "两盘咬得很近，现在还分不开";
+      detail = `领先幅度只有 ${Math.round(leadRatio * 100)}%，没到 ${Math.round(RECTIFY_MIN_LEAD * 100)}% 的判定线`
+             + (unsureCount ? `；另有 ${unsureCount} 题你选了「说不准」` : "")
+             + `。这种情况下硬定一个盘，后面所有分析都会跟着错。`;
+    } else {
+      tone = "#10b981";
+      headline = `【${top.c.shichenName}盘】明显领先`;
+      detail = `在已计分的 ${answeredWeight} 点权重里领先 ${Math.round(leadRatio * 100)}%，超过了 ${Math.round(RECTIFY_MIN_LEAD * 100)}% 的判定线`
+             + (unsureCount ? `（${unsureCount} 题「说不准」未计入）` : "")
+             + `。`;
+    }
+
+    const btns = [];
+    if (status === "confident") {
+      btns.push(`<button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#10b981,#059669); font-size:13px;" onclick="window.__applyRectifiedChart(${top.c.clockHour}, ${top.c.clockMinute}, '${top.c.shichenName}')">✨ 采纳：锁定【${top.c.shichenName}盘】并更新全盘</button>`);
+      if (hasMore) {
+        btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__revealNextRectifyRound()">➕ 再验证一组题（更稳妥）</button>`);
+      }
+    } else if (hasMore) {
+      btns.push(`<button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9); font-size:13px;" onclick="window.__revealNextRectifyRound()">➕ 展开下一组题，继续缩小范围</button>`);
+    } else {
+      btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__applyRectifiedChart(${top.c.clockHour}, ${top.c.clockMinute}, '${top.c.shichenName}')">按目前领先的【${top.c.shichenName}盘】先用着（随时可改）</button>`);
+    }
+    btns.push(`<button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__sendRectifyToAI()">💬 把已答内容交给 AI，让它继续追问</button>`);
 
     verdictBox.style.display = "block";
     verdictBox.innerHTML = `
-      <div style="font-size:14px; font-weight:700; color:#a78bfa; margin-bottom:6px;">
-        🎯 定盘实时诊断（已核对 ${answeredCount}/${currentRectifyQuiz.questions.length} 项）
+      <div style="font-size:14px; font-weight:700; color:${tone}; margin-bottom:6px;">
+        🎯 ${headline}（已答 ${answeredCount}/${visibleCount} 题）
       </div>
       <div style="margin-bottom:8px; padding:7px 10px; background:rgba(255,255,255,0.05); border-radius:6px;">
-        ${scoreBreakdown}
+        ${breakdown}
       </div>
-      <div style="color:#e2e8f0; margin-bottom:10px;">
-        💡 <strong>定盘诊断结论：</strong>根据您勾选的真实经历（特别是过往流年应事与骨相体感），您的命盘特征高度契合 <strong>【${winCand.shichenName}盘】（八字时柱：${winCand.hourPillar} · 紫微命宫坐【${winCand.mingStars}】 · 夫妻宫坐【${winCand.spouseStars}】）</strong>，综合铁证吻合度达 <strong>${matchPct}%</strong>！
-      </div>
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <button type="button" class="save-chart-btn" style="background:linear-gradient(135deg,#10b981,#059669); font-size:13px;" onclick="window.__applyRectifiedChart(${winCand.clockHour}, ${winCand.clockMinute}, '${winCand.shichenName}')">
-          ✨ 采纳定盘结果：正式锁定【${winCand.shichenName}盘】并更新全盘
-        </button>
-        <button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__sendRectifyToAI()">
-          💬 还是拿不准？把核对结果交给 AI，多问几轮再定
-        </button>
-      </div>
+      <div style="color:#e2e8f0; margin-bottom:10px; font-size:12.5px; line-height:1.6;">${detail}</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">${btns.join("")}</div>
     `;
   }
 
@@ -393,13 +468,24 @@ document.addEventListener("DOMContentLoaded", () => {
       `候选盘${String.fromCharCode(65 + i)}：【${c.shichenName}】（时柱${c.hourPillar}，紫微命宫${c.mingStars}，夫妻宫${c.spouseStars}）`
     ).join(" vs ");
 
-    const userChoices = currentRectifyQuiz.questions.map((q, qIdx) => {
-      const chosenIdx = rectifyAnswers[qIdx];
-      const chosenOpt = chosenIdx !== undefined ? q.options[chosenIdx] : null;
-      return `· ${q.dimension}：我选择了「${chosenOpt ? chosenOpt.label : "暂未确定"}」`;
-    }).join("\n");
+    const answered = [], unsure = [], skipped = [];
+    rectifyFlat.forEach((item, gIdx) => {
+      if (item.round >= rectifyVisibleRounds) return;
+      const q = item.q;
+      const cIdx = rectifyAnswers[gIdx];
+      if (cIdx === undefined) { skipped.push(`· ${q.dimension}：未作答`); return; }
+      if (cIdx < 0) { unsure.push(`· ${q.dimension}：我分辨不出来，两边都像`); return; }
+      const opt = q.options.find(o => o.candIdx === cIdx);
+      answered.push(`· ${q.dimension}：我选了「${opt ? opt.label : "（选项缺失）"}」`);
+    });
 
-    const prompt = `我的出生时间在一个模糊区间内，目前在以下候选时辰之间拿不准：\n${candDesc}\n\n我在【精准定盘】里的真实情况反馈如下：\n${userChoices}\n\n请结合我的上述真实过往经历与体感反馈，直接用大白话帮我做最终定盘：我到底属于哪个时辰盘？并基于锁定后的真命盘，直接分析我当下的核心运势与感情事业重点！`;
+    const userChoices = [
+      answered.length ? "【我能确定的部分】\n" + answered.join("\n") : "",
+      unsure.length   ? "\n\n【我分辨不出来的部分 —— 这些正是需要你追问的地方】\n" + unsure.join("\n") : "",
+      skipped.length  ? "\n\n【我还没答的部分】\n" + skipped.join("\n") : ""
+    ].filter(Boolean).join("");
+
+    const prompt = `我的出生时间只知道一个大致区间，现在在这几个时辰盘之间还没定下来：\n${candDesc}\n\n以下是我在【精准定盘】问卷里的真实回答：\n${userChoices}\n\n请严格按下面三步来，不要跳步，也不要直接附和问卷的打分结果：\n\n第一步：先判断现有信息够不够定盘。如果不够，就直接说不够，不要硬给结论。\n\n第二步：针对我「分辨不出来」的维度，以及这几个候选盘差异最大的地方，向我提 2–3 个追问。追问必须满足：只能用客观事实回答（某年具体发生过什么事、身体某个部位是否真的出过问题、某段时间住在哪里），不要问"你觉得自己是不是比较内向"这类性格感受题——那种题我会不自觉顺着你的话选。\n\n第三步：等我回答完你的追问之后，再收敛结论。如果到那时仍然分不开，请明确告诉我分不开，并说明还需要什么信息才能分开。不要为了给个答案而勉强下判断。`;
     send(prompt);
   };
 

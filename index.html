@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260918194939">
+  <link rel="stylesheet" href="styles.css?v=20260918200553">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -138,7 +138,7 @@
         <div class="dock-wrapper">
           <div class="chart-context-strip">
             <span id="chart-context-tag">—</span>
-            <span class="switch-chart-btn" id="btn-modify-chart-trigger">修改本人出生时间 ✎</span>
+            <span class="switch-chart-btn" id="btn-modify-chart-trigger"><span class="sc-full">修改本人出生时间</span><span class="sc-mini">改时间</span> ✎</span>
           </div>
 
           <div class="input-box-container">
@@ -146,7 +146,7 @@
             <button class="send-btn" id="btn-send-msg" title="发送">↑</button>
           </div>
           <div class="dock-disclaimer">
-            点到 · 严格依据本人实盘干支与底层命理规则推演 · 结论清晰直白，仅供个人决策参考
+            <span class="dc-full">点到 · 严格依据本人实盘干支与底层命理规则推演 · 结论清晰直白，仅供个人决策参考</span><span class="dc-mini">点到 · 依你的实盘推演，仅供个人参考</span>
           </div>
         </div>
       </footer>
@@ -289,7 +289,10 @@
 
         <div class="drawer-section">
           <div class="drawer-section-title">🪐 紫微斗数 · 十二宫全盘</div>
-          <div id="ziwei-grid" class="ziwei-grid"></div>
+          <div class="ziwei-grid-scroll">
+            <div id="ziwei-grid" class="ziwei-grid"></div>
+          </div>
+          <div class="ziwei-scroll-hint">← 左右滑动查看完整命盘 →</div>
           <div id="ziwei-warnings" class="ziwei-warnings"></div>
         </div>
 
@@ -398,18 +401,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260918194939"></script>
-  <script src="calendar_core.js?v=20260918194939"></script>
-  <script src="ziwei_engine.js?v=20260918194939"></script>
-  <script src="bazi_analyze.js?v=20260918194939"></script>
+  <script src="vsop87.js?v=20260918200553"></script>
+  <script src="calendar_core.js?v=20260918200553"></script>
+  <script src="ziwei_engine.js?v=20260918200553"></script>
+  <script src="bazi_analyze.js?v=20260918200553"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260918194939"></script>
-  <script src="kb_retrieve.js?v=20260918194939"></script>
-  <script src="bazi_kb.js?v=20260918194939"></script>
-  <script src="bazi_retrieve.js?v=20260918194939"></script>
-  <script src="tarot_data.js?v=20260918194939"></script>
-  <script src="ziwei_bazi_core.js?v=20260918194939"></script>
-  <script src="chat_engine.js?v=20260918194939"></script>
-  <script src="app.js?v=20260918194939"></script>
+  <script src="knowledge_base.js?v=20260918200553"></script>
+  <script src="kb_retrieve.js?v=20260918200553"></script>
+  <script src="bazi_kb.js?v=20260918200553"></script>
+  <script src="bazi_retrieve.js?v=20260918200553"></script>
+  <script src="tarot_data.js?v=20260918200553"></script>
+  <script src="ziwei_bazi_core.js?v=20260918200553"></script>
+  <script src="chat_engine.js?v=20260918200553"></script>
+  <script src="app.js?v=20260918200553"></script>
 </body>
 </html>

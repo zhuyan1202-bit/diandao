@@ -61,7 +61,8 @@ body {
   color: var(--text-main);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   height: 100vh;
-  width: 100vw;
+  width: 100%;
+  max-width: 100vw;
   overflow: hidden;
   display: flex;
   font-size: 15px;
@@ -1035,4 +1036,114 @@ body {
   .chat-top-bar { min-height: 46px; }
   .greeting-card { padding: 10px; }
   .chat-bottom-dock { padding: 6px 12px calc(env(safe-area-inset-bottom) + 6px); }
+}
+
+
+/* =====================================================================
+   移动端修复层（置于文件末尾，优先级最高）
+   修复四类问题：横向溢出 / 输入框上方信息条堆叠 / 弹窗被截断 / 命盘不可读
+   ===================================================================== */
+
+/* ---------- 1. 横向溢出根治 ----------
+   .main-chat-container 是 flex:1 子元素，默认 min-width:auto，
+   任何宽内容（表格、长横幅）都会把它撑破 100vw，导致整页可左右拖动。 */
+html, body { max-width: 100%; overflow-x: hidden; }
+.main-chat-container { min-width: 0; }
+.chat-messages-scroll,
+.messages-wrapper,
+.dock-wrapper,
+.chat-top-bar,
+.room-kb-lock-banner,
+.kb-entrance-bar { min-width: 0; max-width: 100%; }
+.kb-lock-left, .kb-lock-right, .kb-tab, .kb-tab-info, .form-col, .zw-cell { min-width: 0; }
+.message-bubble { overflow-wrap: anywhere; word-break: break-word; }
+.message-bubble img,
+.message-bubble table,
+.message-bubble pre,
+.message-bubble code { max-width: 100%; }
+.kb-tab-title, .kb-tab-sub { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- 2. 命盘横向滚动容器（桌面端不生效，宽度够时无滚动条） ---------- */
+.ziwei-grid-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.ziwei-grid-scroll::-webkit-scrollbar { height: 4px; }
+.ziwei-scroll-hint { display: none; text-align: center; font-size: 10.5px; color: var(--text-muted); margin-top: 5px; }
+
+/* ---------- 3. 「修改出生时间」按钮的长短两套文案 ---------- */
+.sc-mini, .dc-mini { display: none; }
+
+
+@media (max-width: 820px) {
+
+  /* ---------- 输入框上方信息条：强制单行 + 省略号，不再堆成好几行 ---------- */
+  .chart-context-strip {
+    gap: 8px;
+    font-size: 11px;
+    flex-wrap: nowrap;
+    padding: 0 2px;
+  }
+  #chart-context-tag {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chart-context-strip .switch-chart-btn { flex: 0 0 auto; white-space: nowrap; }
+  .sc-full { display: none; }
+  .sc-mini { display: inline; }
+
+  /* 免责声明：手机上换成短文案，避免截断成半句话 */
+  .dock-disclaimer { font-size: 10px; line-height: 1.4; }
+  .dc-full { display: none; }
+  .dc-mini { display: inline; }
+
+  /* ---------- 弹窗：用 dvh 代替 vh，避免底部按钮被地址栏盖住 ---------- */
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .modal-box {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 18px 18px 0 0;
+    /* vh 在 iOS 上等于「地址栏隐藏时」的高度，会把底部按钮顶出可视区 */
+    max-height: 85vh;
+    max-height: 85dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 16px 16px calc(env(safe-area-inset-bottom) + 20px);
+  }
+  /* 顶部加一条可视抓手，提示这是可上滑的卡片 */
+  .modal-box::before {
+    content: "";
+    display: block;
+    width: 38px; height: 4px;
+    margin: -4px auto 14px;
+    border-radius: 3px;
+    background: var(--border-strong);
+  }
+  .modal-box h3 { font-size: 16px; }
+
+  /* ---------- 紫微十二宫盘：改为横向滚动，字号放大到可读 ---------- */
+  .ziwei-grid-scroll {
+    margin: 0 -14px;
+    padding: 0 14px 4px;
+  }
+  .ziwei-grid {
+    min-width: 520px;
+    font-size: 11px;
+    grid-template-rows: repeat(4, minmax(86px, auto));
+  }
+  .zw-cell { min-height: 86px; padding: 5px 6px; }
+  .zw-main { font-size: 12.5px; }
+  .zw-aux, .zw-peach { font-size: 10.2px; }
+  .zw-hua { font-size: 9.5px; }
+  .ziwei-scroll-hint { display: block; }
+}
+
+@media (max-width: 380px) {
+  /* 超小屏仍保持同一可读尺寸，靠横向滚动而不是继续缩字 */
+  .ziwei-grid { min-width: 500px; font-size: 10.8px; }
+  .chart-context-strip { font-size: 10.5px; }
 }

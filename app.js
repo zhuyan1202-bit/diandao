@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const state = {
     userChart: null,
+    chartKey: null,          // 命盘指纹：变了就说明用户改了生辰八字
     sessions: [],
     currentSessionId: null,
     soundEnabled: true,
@@ -479,10 +480,60 @@ document.addEventListener("DOMContentLoaded", () => {
     send(prompt);
   };
 
+  function chartKeyOf(p) {
+    return [p.year, p.month, p.day, p.hour, p.minute || 0, p.city || "", p.gender || ""].join("|");
+  }
+
+  /**
+   * 改了生辰八字之后，旧对话里的分析全部作废。
+   * 不删记录（你可能还想翻），只插一条分隔线，并从此不再把分隔线之前的内容发给模型。
+   */
+  function markChartChanged(chart) {
+    const p = chart.profile;
+    const pad = n => String(n).padStart(2, "0");
+    const b = chart.bazi;
+    const label = `命盘已改为 ${p.year}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute || 0)}`
+      + (p.city ? ` · ${p.city}` : "")
+      + `（${p.gender === "female" ? "坤造" : "乾造"} · ${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}）`
+      + `。以上内容算的是旧盘，已不再作为后续分析的依据。`;
+
+    let touched = false;
+    (state.sessions || []).forEach(sess => {
+      [sess.ziweiMessages, sess.baziMessages].forEach(arr => {
+        if (!arr || !arr.length) return;
+        const last = arr[arr.length - 1];
+        if (last && last.role === "chart-change") {   // 连着改好几次只留一条
+          last.content = label; last.ck = state.chartKey;
+        } else {
+          arr.push({ role: "chart-change", content: label, ck: state.chartKey });
+        }
+        touched = true;
+      });
+    });
+    if (!touched) return;
+    saveSessions();
+    const cur = state.sessions.find(x => x.id === state.currentSessionId);
+    if (cur) renderMessages(getRoomMessages(cur, state.kbMode));
+  }
+
+  // 只把【当前命盘】的对话发给模型，避免它照着旧盘的旧结论继续算
+  function historyForLLM(roomMsgs, dropTail) {
+    const arr = roomMsgs.slice(0, dropTail);
+    let start = 0;
+    for (let i = 0; i < arr.length; i++) {
+      if (arr[i].role === "chart-change" || (arr[i].ck && arr[i].ck !== state.chartKey)) start = i + 1;
+    }
+    return arr.slice(start).filter(m => m.role === "user" || m.role === "ai");
+  }
+
   function updateChart(p, persist = true) {
     const chart = AstrologyCore.analyzeFullNatalChart(p);
     state.userChart = chart;
     if (persist) localStorage.setItem("starbook_user_profile", JSON.stringify(p));
+
+    const newKey = chartKeyOf(chart.profile);
+    const changed = Boolean(state.chartKey) && state.chartKey !== newKey;
+    state.chartKey = newKey;
 
     const g = chart.profile.gender === "female" ? "坤造" : "乾造";
     const sp = chart.ziwei.spousePalace;
@@ -537,6 +588,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     renderZiweiGrid(chart);
     renderDynamicPrompts(chart);
+
+    if (changed) markChartChanged(chart);
   }
 
   function getPalaceStarLabel(chart, palaceName) {
@@ -840,6 +893,9 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function msgHtml(m) {
+    if (m.role === "chart-change") {
+      return `<div class="chart-change-divider"><span>\u{1F504} ${escapeHtml(m.content)}</span></div>`;
+    }
     const ai = m.role === "ai";
     let tarot = "";
     if (m.tarotWidget) {
@@ -925,7 +981,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!s) return;
     const roomMsgs = getRoomMessages(s, state.kbMode);
 
-    roomMsgs.push({ role: "user", content: text });
+    roomMsgs.push({ role: "user", content: text, ck: state.chartKey });
     if (roomMsgs.length === 1 && s.title === "命理推演档案") {
       s.title = (state.kbMode === "bazi" ? "[八字] " : "[紫微] ") + text.slice(0, 12) + (text.length > 12 ? "…" : "");
       document.getElementById("chat-title-text").textContent = s.title;
@@ -954,6 +1010,7 @@ document.addEventListener("DOMContentLoaded", () => {
       role: "ai",
       content: "",
       streaming: true,
+      ck: state.chartKey,
       kbMode: state.kbMode,
       activeStepIdx: 0,
       reasoningSteps
@@ -986,7 +1043,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (useLLM) {
       /* ---------- 大模型：后台静默收集 + 思考匣进度更新 + 整段一次性优雅浮现 ---------- */
-      const history = roomMsgs.slice(0, -2); // 不含刚push的用户消息和ai占位消息
+      const history = historyForLLM(roomMsgs, -2); // 不含刚 push 的两条，且已剔除旧命盘时代的对话
       try {
         const full = await ChatEngine.callLiveAPIStream(
           text, state.userChart, history, state.settings,
@@ -1031,7 +1088,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     /* ---------- 内置引擎：思考匣推演 + 整段一次性呈现 ---------- */
     try {
-      const res = await ChatEngine.generateChatResponse(text, state.userChart, roomMsgs.slice(0, -1), state.settings);
+      const res = await ChatEngine.generateChatResponse(text, state.userChart, historyForLLM(roomMsgs, -1), state.settings);
       clearInterval(stepTimer);
       const elapsed = Date.now() - startTime;
       if (elapsed < 1500) {

@@ -1128,6 +1128,7 @@ ${blk}
 - 当前农历日期：${t.lunarStr}
 - 当前节气与四柱干支：流年【${t.yPillar}年】 · 流月【${t.mPillar}月（当前节气：${t.termName}）】 · 流日【${t.dPillar}日】 · 流时【${t.hPillar}时】
 - 提问者当前实足虚岁：${age}岁（出生于公历 ${chart.profile.year}年${chart.profile.month}月${chart.profile.day}日）
+- ⚠️ 本条系统提示里的出生数据与排盘结果是唯一权威来源。若对话历史里出现过不同的出生日期、时辰或四柱，说明用户已经改过命盘，一律以本条为准，并彻底丢弃历史中基于旧盘得出的任何结论。
 ⚠️ 绝对时间铁律：
 1. 今天就是【公历 ${t.solarDateOnly}，${t.lunarStr}，${t.yPillar}年${t.mPillar}月${t.dPillar}日】！若问及日期，必须直接准确报出！
 2. 分析流年、流月或近期趋势时，必须以【当前已经是 ${t.Y}年${t.M}月（${t.lunarStr}，${t.mPillar}月）】为时间起点！今年前八个月已过去，分析“接下来/近期/今年剩余时间”必须聚焦于【当下本月（${t.lMonthLabel}·${t.mPillar}月）及接下来的秋冬月份（农历九月戊戌、十月己亥、十一月庚子、十二月辛丑）与明年（${t.Y + 1}年）】！

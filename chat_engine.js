@@ -962,8 +962,9 @@
 
     const lines = [];
     lines.push(`【⏰ 当前实时天文历法基准】公历：${t.solarStr} ｜ ${t.lunarStr} ｜ 实时干支：${t.ganzhiFull}`);
+    const statusLabel = { single: "单身", dating: "恋爱中", broken: "断联/冷战中", married: "已婚" }[p.status];
     lines.push(`性别：${p.gender === "female" ? "女（坤造）" : "男（乾造）"}　本年虚岁：${age}岁　当前情感状态：${
-      { single: "单身", dating: "恋爱中", broken: "断联/冷战中", married: "已婚" }[p.status] || "未填写" }`);
+      statusLabel || "本人未提供 —— 命盘只能看姻缘格局与时机，看不出当下事实，因此严禁假设或推断其婚恋现状；若分析确实需要，请直接开口询问" }`);
     const tst = p.trueSolarTime || {};
     const tstInfo = tst.isCalibrated
       ? `出生地点：${tst.city}（东经${tst.longitude}°）｜钟表时间 ${tst.clockTimeStr} → 校准后真太阳时 ${tst.trueTimeStr}（差值 ${tst.totalDeltaMin >= 0 ? "+" : ""}${tst.totalDeltaMin} 分钟，排盘已严格按真太阳时时辰起盘）`

@@ -254,7 +254,7 @@ document.addEventListener("DOMContentLoaded", () => {
       timeMode: "exact",
       city: city,
       gender: document.getElementById("drawer-gender")?.value || "female",
-      status: document.getElementById("drawer-status")?.value || "single"
+      status: document.getElementById("drawer-status")?.value || ""
     }, true);
     sound.chime();
     document.getElementById("chart-drawer")?.classList.remove("open");
@@ -269,7 +269,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const [y, m, dd] = d.split("-").map(Number);
     const city = document.getElementById("drawer-city")?.value || "默认 (东经120°标准时)";
     const gender = document.getElementById("drawer-gender")?.value || "female";
-    const status = document.getElementById("drawer-status")?.value || "single";
+    const status = document.getElementById("drawer-status")?.value || "";
     const rStart = document.getElementById("drawer-range-start")?.value || "09:00";
     const rEnd   = document.getElementById("drawer-range-end")?.value || "12:00";
     const [sh, sm] = rStart.split(":").map(Number);
@@ -891,7 +891,6 @@ document.addEventListener("DOMContentLoaded", () => {
         ${tarot}
         ${!m.streaming ? `<div class="message-actions">
             <button class="msg-action-btn" onclick="window.__copy(this)">复制</button>
-            <button class="msg-action-btn" onclick="window.__poster(this)">生成手记</button>
           </div>` : ""}
         ${follow}
       </div></div>`;
@@ -1240,7 +1239,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-download-poster")?.addEventListener("click", () => {
       const c = document.getElementById("poster-canvas");
       const a = document.createElement("a");
-      a.download = `点到手记_${Date.now()}.png`;
+      a.download = `点到命盘_${Date.now()}.png`;
       a.href = c.toDataURL("image/png");
       a.click();
     });
@@ -1249,83 +1248,294 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------------- 复制 / 长图 ---------------- */
   window.__copy = btn => {
     const b = btn.closest(".message-bubble");
-    const t = b ? b.innerText.replace(/复制|生成手记/g, "").trim() : "";
+    const t = b ? b.innerText.replace(/复制/g, "").trim() : "";
     navigator.clipboard.writeText(t).then(() => {
       btn.textContent = "已复制";
       setTimeout(() => btn.textContent = "复制", 1400);
     });
   };
 
-  window.__poster = btn => {
-    const b = btn.closest(".message-bubble");
-    drawPoster(b ? b.innerText.replace(/复制|生成手记/g, "").trim() : "");
-  };
+  /* ---------------- 导出命盘图 ---------------- */
+
+  const HUA_COLOR = { "禄": "#3f8f5c", "权": "#b4743a", "科": "#4a7fae", "忌": "#b5544b" };
+  const PF_SERIF = "'Noto Serif SC','Songti SC','STSong',serif";
+  const PF_SANS  = "'PingFang SC','Heiti SC','Hiragino Sans GB',sans-serif";
 
   function exportPoster() {
-    const s = state.sessions.find(x => x.id === state.currentSessionId);
-    if (!s || !s.messages.length) { alert("当前还没有对话内容"); return; }
-    const last = [...s.messages].reverse().find(m => m.role === "ai");
-    drawPoster(last ? last.content : s.messages[0].content);
+    const chart = state.userChart;
+    if (!chart || !chart.ziwei || !chart.ziwei.palaces) {
+      alert("还没有排盘。请先在左侧「命盘设置」里填写出生时间。");
+      return;
+    }
+    drawChartImage(chart);
   }
 
-  function drawPoster(raw) {
+  function ciRoundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // 四化色块，返回占宽
+  function ciHua(ctx, hua, x, baseY, size) {
+    const s = size || 11;
+    const box = s + 4;
+    const prevAlign = ctx.textAlign;
+    ctx.fillStyle = HUA_COLOR[hua] || "#8a5e33";
+    ciRoundRect(ctx, x, baseY - box + 3, box, box, 3);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold " + (s - 1) + "px " + PF_SANS;
+    ctx.textAlign = "center";
+    ctx.fillText(hua, x + box / 2, baseY);
+    ctx.textAlign = prevAlign;
+    return box;
+  }
+
+  // 命 / 身 徽章，返回占宽
+  function ciBadge(ctx, txt, x, baseY) {
+    const box = 15;
+    const prevAlign = ctx.textAlign;
+    ctx.fillStyle = "rgba(154,107,63,.16)";
+    ciRoundRect(ctx, x, baseY - box + 3, box, box, 3);
+    ctx.fill();
+    ctx.fillStyle = "#8a5e33";
+    ctx.font = "bold 10.5px " + PF_SANS;
+    ctx.textAlign = "center";
+    ctx.fillText(txt, x + box / 2, baseY);
+    ctx.textAlign = prevAlign;
+    return box + 3;
+  }
+
+  // 辅星 / 桃花星流式排版，返回新的基线 y
+  function ciStarRun(ctx, stars, x, y, maxW, color, size, withHua) {
+    let cx = x, cy = y;
+    for (const s of stars) {
+      const nm = (s && s.name) ? s.name : String(s);
+      ctx.font = size + "px " + PF_SANS;
+      const wNm = ctx.measureText(nm).width;
+      const wHua = (withHua && s && s.sihua) ? (size + 3) : 0;
+      if (cx > x && cx + wNm + wHua > x + maxW) { cx = x; cy += size + 5; }
+      ctx.fillStyle = color;
+      ctx.font = size + "px " + PF_SANS;
+      ctx.fillText(nm, cx, cy);
+      cx += wNm + 1;
+      if (withHua && s && s.sihua) cx += ciHua(ctx, s.sihua, cx, cy, size - 1.5);
+      cx += 5;
+    }
+    return cy + size + 4;
+  }
+
+  function ciPalaceCell(ctx, pal, x, y, w, h) {
+    if (!pal) return;
+    ctx.fillStyle = pal.name === "命宫"   ? "rgba(181,84,75,.09)"
+                  : pal.name === "夫妻宫" ? "rgba(154,107,63,.12)"
+                  : "rgba(255,255,255,.55)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "rgba(154,107,63,.38)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+
+    const px = x + 10;
+    const innerW = w - 20;
+    let cy = y + 26;
+    ctx.textAlign = "left";
+
+    const mains = pal.mainStars || [];
+    if (mains.length) {
+      for (const s of mains.slice(0, 4)) {
+        let tx = px;
+        ctx.fillStyle = "#3a2f24";
+        ctx.font = "bold 15px " + PF_SANS;
+        ctx.fillText(s.name, tx, cy);
+        tx += ctx.measureText(s.name).width + 2;
+        if (s.brightness) {
+          ctx.fillStyle = "#a08a6c";
+          ctx.font = "10px " + PF_SANS;
+          ctx.fillText(s.brightness, tx, cy - 5);
+          tx += ctx.measureText(s.brightness).width + 3;
+        }
+        if (s.sihua) ciHua(ctx, s.sihua, tx, cy, 11.5);
+        cy += 21;
+      }
+    } else {
+      ctx.fillStyle = "rgba(58,47,36,.35)";
+      ctx.font = "14px " + PF_SANS;
+      ctx.fillText("空宫", px, cy);
+      cy += 21;
+    }
+
+    const auxes = pal.auxStars || [];
+    if (auxes.length) cy = ciStarRun(ctx, auxes, px, cy + 3, innerW, "#6f5c45", 11.5, true);
+    const peaches = pal.peachStars || [];
+    if (peaches.length) ciStarRun(ctx, peaches, px, cy + 1, innerW, "#a8749b", 11, false);
+
+    const fy = y + h - 13;
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#8a5e33";
+    ctx.font = "bold 13px " + PF_SANS;
+    ctx.fillText(pal.name || "", px, fy);
+    let bx = px + ctx.measureText(pal.name || "").width + 5;
+    if (pal.isMing) bx += ciBadge(ctx, "命", bx, fy);
+    if (pal.isShen) bx += ciBadge(ctx, "身", bx, fy);
+
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#6f5c45";
+    ctx.font = "12px " + PF_SANS;
+    ctx.fillText((pal.gan || "") + (pal.branch || ""), x + w - 10, fy - 14);
+    if (pal.daxian) {
+      ctx.fillStyle = "#a08a6c";
+      ctx.font = "11px " + PF_SANS;
+      ctx.fillText(pal.daxian.start + "-" + pal.daxian.end, x + w - 10, fy);
+    }
+    ctx.textAlign = "left";
+  }
+
+  function ciCenterBox(ctx, chart, x, y, w, h) {
+    ctx.fillStyle = "rgba(255,255,255,.75)";
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = "rgba(154,107,63,.38)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+
+    const p  = chart.profile || {};
+    const zw = chart.ziwei || {};
+    const bz = chart.bazi || {};
+    const sy = zw.sihuaYear || {};
+    const p2 = n => String(n).padStart(2, "0");
+    const cx = x + w / 2;
+    ctx.textAlign = "center";
+
+    let cy = y + 74;
+    ctx.fillStyle = "#8a5e33";
+    ctx.font = "bold 20px " + PF_SERIF;
+    ctx.fillText((p.gender === "female" ? "坤造" : "乾造") + " · " + (zw.juName || ""), cx, cy);
+
+    cy += 17;
+    ctx.strokeStyle = "rgba(154,107,63,.3)";
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - 72, cy); ctx.lineTo(cx + 72, cy); ctx.stroke();
+
+    cy += 36;
+    ctx.fillStyle = "#4a3d30";
+    ctx.font = "14px " + PF_SANS;
+    ctx.fillText("公历 " + p.year + "-" + p2(p.month) + "-" + p2(p.day) + " " + p2(p.hour) + ":" + p2(p.minute || 0), cx, cy);
+
+    cy += 26;
+    ctx.fillText("农历 " + ((chart.lunar ? (chart.lunar.lMonthLabel + chart.lunar.lDayLabel) : "") || ""), cx, cy);
+
+    if (p.city) {
+      cy += 25;
+      ctx.fillStyle = "#6f5c45";
+      ctx.font = "13px " + PF_SANS;
+      ctx.fillText("出生地 " + p.city, cx, cy);
+    }
+
+    cy += 32;
+    ctx.fillStyle = "#3a2f24";
+    ctx.font = "bold 16px " + PF_SANS;
+    ctx.fillText([bz.yearPillar, bz.monthPillar, bz.dayPillar, bz.hourPillar].join("  "), cx, cy);
+
+    cy += 26;
+    ctx.fillStyle = "#6f5c45";
+    ctx.font = "13px " + PF_SANS;
+    ctx.fillText("纳音 " + (zw.nayin || ""), cx, cy);
+
+    cy += 32;
+    ctx.fillStyle = "#8a5e33";
+    ctx.font = "13px " + PF_SANS;
+    ctx.fillText("生年四化（" + (sy.gan || "") + "）", cx, cy);
+
+    cy += 25;
+    const items = ["禄", "权", "科", "忌"].map(k => ({ k: k, v: sy[k] || "" })).filter(o => o.v);
+    if (items.length) {
+      ctx.font = "bold 13.5px " + PF_SANS;
+      const gap = 10;
+      let total = 0;
+      const ws = items.map(o => { const d = ctx.measureText(o.v + o.k).width; total += d; return d; });
+      total += gap * (items.length - 1);
+      let ix = cx - total / 2;
+      ctx.textAlign = "left";
+      items.forEach((o, i) => {
+        ctx.fillStyle = HUA_COLOR[o.k] || "#8a5e33";
+        ctx.fillText(o.v + o.k, ix, cy);
+        ix += ws[i] + gap;
+      });
+      ctx.textAlign = "center";
+    }
+  }
+
+  function drawChartImage(chart) {
     const c = document.getElementById("poster-canvas");
+    if (!c) return;
     const ctx = c.getContext("2d");
-    const W = 750, H = 1100;
-    c.width = W; c.height = H;
+    const W = 900, H = 1080, R = 2;
+    c.width = W * R;
+    c.height = H * R;
+    ctx.setTransform(R, 0, 0, R, 0, 0);
+    ctx.textBaseline = "alphabetic";
 
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, "#fdfbf6"); g.addColorStop(.5, "#f6f1e8"); g.addColorStop(1, "#efe8dc");
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    // 背景与双层边框
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#fdfbf6");
+    bg.addColorStop(.5, "#f6f1e8");
+    bg.addColorStop(1, "#efe8dc");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = "rgba(154,107,63,.45)";
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(16, 16, W - 32, H - 32);
+    ctx.strokeStyle = "rgba(154,107,63,.18)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(24, 24, W - 48, H - 48);
 
-    ctx.strokeStyle = "rgba(154,107,63,.45)"; ctx.lineWidth = 2.5;
-    ctx.strokeRect(32, 32, W - 64, H - 64);
-    ctx.strokeStyle = "rgba(154,107,63,.2)"; ctx.lineWidth = 1;
-    ctx.strokeRect(40, 40, W - 80, H - 80);
-
+    // 标题
+    const p = chart.profile || {};
+    const p2 = n => String(n).padStart(2, "0");
     ctx.textAlign = "center";
     ctx.fillStyle = "#8a5e33";
-    ctx.font = "bold 32px 'Noto Serif SC', 'Songti SC', serif";
-    ctx.fillText("✦ 星 书 · 灵 犀 手 记 ✦", W / 2, 95);
-    ctx.font = "13px sans-serif"; ctx.fillStyle = "#a89a86";
-    ctx.fillText("STARBOOK · AI DESTINY COUNSELING", W / 2, 122);
+    ctx.font = "bold 30px " + PF_SERIF;
+    ctx.fillText("点 到 · 紫 微 命 盘", W / 2, 70);
+    ctx.fillStyle = "#a08a6c";
+    ctx.font = "13.5px " + PF_SANS;
+    ctx.fillText(
+      (p.gender === "female" ? "坤造" : "乾造") + " · " +
+      p.year + "年" + p.month + "月" + p.day + "日 " + p2(p.hour) + ":" + p2(p.minute || 0) +
+      (p.city ? " · " + p.city : ""),
+      W / 2, 96
+    );
 
-    ctx.fillStyle = "rgba(154,107,63,.08)";
-    ctx.fillRect(60, 150, W - 120, 56);
-    ctx.fillStyle = "#8a5e33"; ctx.font = "bold 15px sans-serif";
-    ctx.fillText(state.userChart ? state.userChart.summaryText : "", W / 2, 184);
+    // 十二宫网格
+    const M = 40, GT = 122, GS = W - M * 2, CS = GS / 4;
+    const palaces = chart.ziwei.palaces;
+    GRID_LAYOUT.forEach(spec => {
+      ciPalaceCell(ctx, palaces[spec[0]], M + (spec[2] - 1) * CS, GT + (spec[1] - 1) * CS, CS, CS);
+    });
+    ciCenterBox(ctx, chart, M + CS, GT + CS, CS * 2, CS * 2);
 
-    ctx.textAlign = "left"; ctx.fillStyle = "#3a332b"; ctx.font = "15px sans-serif";
-    const clean = String(raw).replace(/###\s*/g, "\n◆ ").replace(/\*\*/g, "").replace(/^>\s*/gm, "");
-    wrap(ctx, clean, 70, 250, W - 140, 25, 900);
-
-    ctx.save();
-    ctx.strokeStyle = "#b5443f"; ctx.lineWidth = 2;
-    ctx.strokeRect(W / 2 - 48, 930, 96, 40);
-    ctx.fillStyle = "#b5443f"; ctx.font = "bold 17px 'Noto Serif SC', serif";
-    ctx.textAlign = "center"; ctx.fillText("点到", W / 2, 957);
-    ctx.restore();
-
-    ctx.textAlign = "center"; ctx.fillStyle = "#a89a86"; ctx.font = "12.5px sans-serif";
-    ctx.fillText("点到 · 一语点到，心中有数", W / 2, 1020);
+    // 页脚
+    const fy = GT + GS + 46;
+    ctx.textAlign = "center";
+    ctx.strokeStyle = "#b5443f";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(W / 2 - 44, fy - 26, 88, 36);
+    ctx.fillStyle = "#b5443f";
+    ctx.font = "bold 18px " + PF_SERIF;
+    ctx.fillText("点到", W / 2, fy);
+    ctx.fillStyle = "#a08a6c";
+    ctx.font = "13px " + PF_SANS;
+    ctx.fillText("一语点到，心中有数", W / 2, fy + 36);
+    ctx.fillStyle = "#b8ab98";
+    ctx.font = "11.5px " + PF_SANS;
+    let dstr = "";
+    try { dstr = new Date().toLocaleDateString("zh-CN"); } catch (e) { dstr = ""; }
+    ctx.fillText("生成于 " + dstr + " · 仅供参考，不作决策依据", W / 2, fy + 58);
 
     openModal("modal-poster");
-  }
-
-  function wrap(ctx, text, x, y, maxW, lh, maxY) {
-    let cy = y;
-    for (const para of text.split("\n")) {
-      if (!para.trim()) { cy += lh * .5; continue; }
-      let line = "";
-      for (const ch of para) {
-        if (ctx.measureText(line + ch).width > maxW) {
-          ctx.fillText(line, x, cy); line = ch; cy += lh;
-          if (cy > maxY) return;
-        } else line += ch;
-      }
-      ctx.fillText(line, x, cy); cy += lh;
-      if (cy > maxY) return;
-    }
   }
 
   /* ---------------- 手机端：侧边栏抽屉与遮罩 ---------------- */

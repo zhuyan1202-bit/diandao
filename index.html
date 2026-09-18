@@ -78,7 +78,7 @@
           <div class="chat-current-title" id="chat-title-text">新的推演</div>
         </div>
         <div class="top-bar-right">
-          <button class="bar-pill-btn" id="btn-export-chat">📥 <span>导出手记</span></button>
+          <button class="bar-pill-btn" id="btn-export-chat">🖼 <span>导出命盘图</span></button>
         </div>
       </header>
 
@@ -145,7 +145,7 @@
           </div>
 
           <div class="input-box-container">
-            <textarea id="chat-input" rows="1" placeholder="在此输入你本人的具体问题（系统将基于你本人的排盘数据与底层命理规则直接用大白话分析，Enter 发送）…"></textarea>
+            <textarea id="chat-input" rows="1" placeholder="想问什么…"></textarea>
             <button class="send-btn" id="btn-send-msg" title="发送">↑</button>
           </div>
           <div class="dock-disclaimer">
@@ -174,9 +174,10 @@
               </select>
             </div>
             <div class="form-col">
-              <label class="form-label-xs">当前状态</label>
+              <label class="form-label-xs">当前感情状态（可不填）</label>
               <select class="form-select-xs" id="drawer-status">
-                <option value="single" selected>单身</option>
+                <option value="" selected>暂不填写</option>
+                <option value="single">单身</option>
                 <option value="dating">恋爱中</option>
                 <option value="broken">断联 / 冷战</option>
                 <option value="married">已婚</option>
@@ -387,13 +388,13 @@
 
   <!-- ========== 海报弹窗 ========== -->
   <div class="modal-overlay" id="modal-poster">
-    <div class="modal-box" style="max-width:430px; text-align:center;">
+    <div class="modal-box" style="max-width:560px; text-align:center;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 style="font-size:16.5px;">✦ 命理手记</h3>
+        <h3 style="font-size:16.5px;">🪐 命盘图</h3>
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-poster')">×</button>
       </div>
-      <canvas id="poster-canvas" width="750" height="1100" style="width:100%;height:auto;border-radius:12px;margin-bottom:14px;box-shadow:var(--shadow-md);"></canvas>
-      <button class="save-chart-btn" id="btn-download-poster">📥 下载长图</button>
+      <canvas id="poster-canvas" style="width:100%;height:auto;border-radius:12px;margin-bottom:14px;box-shadow:var(--shadow-md);"></canvas>
+      <button class="save-chart-btn" id="btn-download-poster">📥 保存到相册 / 下载</button>
     </div>
   </div>
 

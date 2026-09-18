@@ -1,0 +1,14 @@
+{
+  "name": "点到 — AI 命理分析与人生决策顾问",
+  "short_name": "点到",
+  "description": "基于紫微斗数与四柱八字实盘的 AI 命理分析对话应用",
+  "start_url": "index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f7f3ec",
+  "theme_color": "#f7f3ec",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

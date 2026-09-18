@@ -517,13 +517,163 @@
     "父母宫": "处理与长辈父母健康、直属领导变更、体制单位或重要文书契约/牌照资质相关的事务"
   };
 
+  /* ==========================================================
+   * 定盘 v2
+   *   主证据：人生大事年份。用户只填自己一定记得的年份，
+   *            系统再去算这个年份在哪个候选盘上对得更准。
+   *            填的时候看不到会算到哪边，所以无法被引导。
+   *   辅助：单盘特征陈述。一次只描述一个盘，四档作答，不做二选一；
+   *            两盘该维度星曜相同时直接不出题。
+   * ========================================================== */
+
+  // 人生大事 → 这件事应该落在紫微盘的哪些宫位
+  const LIFE_EVENT_DEFS = [
+    { id: "leave_home", label: "第一次长期离开家生活",
+      hint: "住校、去外地读书或工作，连续几个月以上不住在家里",
+      core: ["迁移宫", "命宫"], near: ["父母宫", "田宅宫"], tone: "neutral" },
+    { id: "first_job", label: "第一份正式工作 / 开始自己挣钱",
+      hint: "短期实习不算，以第一次拿稳定收入为准",
+      core: ["官禄宫", "财帛宫"], near: ["命宫", "迁移宫"], tone: "good" },
+    { id: "union", label: "结婚，或确立最重要的那段长期关系",
+      hint: "领证、办酒、同居、订婚都算，填最早的那一次",
+      core: ["夫妻宫"], near: ["福德宫", "子女宫", "命宫"], tone: "good" },
+    { id: "breakup", label: "重大的分手、离婚或感情破裂",
+      hint: "对你影响最大的那一次",
+      core: ["夫妻宫"], near: ["福德宫", "疾厄宫"], tone: "bad" },
+    { id: "child", label: "第一个孩子出生",
+      hint: "",
+      core: ["子女宫"], near: ["田宅宫", "夫妻宫"], tone: "good" },
+    { id: "home", label: "买房，或搬进真正属于自己的住处",
+      hint: "第一次独立置业，或第一次长期定居下来",
+      core: ["田宅宫"], near: ["迁移宫", "财帛宫"], tone: "good" },
+    { id: "career_turn", label: "最重要的一次跳槽、转行或创业",
+      hint: "改变了你职业轨迹的那一次",
+      core: ["官禄宫"], near: ["迁移宫", "命宫", "财帛宫"], tone: "neutral" },
+    { id: "family_crisis", label: "家里的重大变故",
+      hint: "亲人重病或过世、父母离异、家里经济骤变",
+      core: ["父母宫", "田宅宫"], near: ["疾厄宫", "兄弟宫"], tone: "bad" },
+    { id: "self_health", label: "你自己的一次重大健康事件",
+      hint: "住院、手术，或持续较久的治疗",
+      core: ["疾厄宫"], near: ["命宫", "父母宫"], tone: "bad" }
+  ];
+
+  const EVENT_WEIGHT     = 22;   // 每个「能区分出盘」的年份锚点的权重
+  const EVENT_MIN_MARGIN = 1.0;  // 两盘得分差小于此值 → 这条线索分不开，不计分
+  const RECTIFY_MIN_WEIGHT = 50; // 已计分权重下限
+  const RECTIFY_MIN_LEAD   = 0.34;
+
+  const ganOfYear = y => TIANGAN[(((y - 4) % 10) + 10) % 10];
+  const zhiOfYear = y => DIZHI[(((y - 4) % 12) + 12) % 12];
+
+  const palacesOf = chart => (chart && chart.ziwei && chart.ziwei.palaces) || [];
+
+  function palaceByBranch(chart, branch) {
+    return palacesOf(chart).filter(p => p.branch === branch)[0] || null;
+  }
+  function palaceHoldingStar(chart, starName) {
+    if (!starName) return null;
+    const pals = palacesOf(chart);
+    for (let i = 0; i < pals.length; i++) {
+      const all = (pals[i].mainStars || []).concat(pals[i].auxStars || []);
+      if (all.some(s => s.name === starName)) return pals[i];
+    }
+    return null;
+  }
+  function daxianPalaceAt(chart, age) {
+    return palacesOf(chart).filter(p => p.daxian && age >= p.daxian.start && age <= p.daxian.end)[0] || null;
+  }
+  function oppositePalaceOf(chart, pal) {
+    const pals = palacesOf(chart);
+    const i = pals.indexOf(pal);
+    return i >= 0 ? pals[(i + 6) % 12] : null;
+  }
+  function primaryStarOfPalace(chart, palName) {
+    const pals = palacesOf(chart);
+    const idx = pals.findIndex(x => x.name === palName);
+    if (idx < 0) return "";
+    const ms = (pals[idx].mainStars || []).map(s => s.name);
+    if (ms.length) return ms[0];
+    const opp = pals[(idx + 6) % 12];
+    const oms = ((opp && opp.mainStars) || []).map(s => s.name);
+    return oms.length ? oms[0] : "";
+  }
+  function huaJiPalaceName(chart) {
+    const pals = palacesOf(chart);
+    const sy = (chart.ziwei && chart.ziwei.sihuaYear) || {};
+    const jiStar = sy["忌"];
+    for (let i = 0; i < pals.length; i++) {
+      const all = (pals[i].mainStars || []).concat(pals[i].auxStars || []);
+      if (all.some(s => s.sihua === "忌" || (jiStar && s.name === jiStar))) return pals[i].name;
+    }
+    return "";
+  }
+
   /**
-   * 动态差异最大化定盘问卷生成器：
-   * 根据用户具体的出生日期与候选时辰盘（A盘 vs B盘），实时计算两盘在【生年化忌痛点】【疾厄生理体感】【原生家庭父母管教】【2024-2025真实流年事件】上的最大差异断口，生成专属定盘题！
+   * 这一年的这件事，在这张盘上对得有多准。
+   * 参考：流年命宫落宫 · 当时所处大限 · 流年四化落宫
    */
+  function scoreEventOnChart(chart, def, year, birthYear) {
+    const age = year - birthYear + 1;   // 虚岁
+    const lnPal = palaceByBranch(chart, zhiOfYear(year));
+    const dxPal = daxianPalaceAt(chart, age);
+    const sh = (ZW && ZW.SIHUA) ? ZW.SIHUA[ganOfYear(year)] : null;
+
+    let s = 0;
+    const hits = [];
+    if (lnPal) {
+      if (def.core.indexOf(lnPal.name) >= 0)      { s += 3;   hits.push("流年行至" + lnPal.name); }
+      else if (def.near.indexOf(lnPal.name) >= 0) { s += 1.5; hits.push("流年行至" + lnPal.name); }
+      else {
+        const op = oppositePalaceOf(chart, lnPal);
+        if (op && def.core.indexOf(op.name) >= 0) { s += 1; hits.push("流年对冲" + op.name); }
+      }
+    }
+    if (dxPal) {
+      if (def.core.indexOf(dxPal.name) >= 0)      { s += 2; hits.push("大限在" + dxPal.name); }
+      else if (def.near.indexOf(dxPal.name) >= 0) { s += 1; hits.push("大限在" + dxPal.name); }
+    }
+    if (sh) {
+      ["禄", "权", "科"].forEach(k => {
+        const pp = palaceHoldingStar(chart, sh[k]);
+        if (pp && def.core.indexOf(pp.name) >= 0) {
+          s += (def.tone === "bad" ? 0.5 : 1.2);
+          hits.push("流年" + k + "入" + pp.name);
+        }
+      });
+      const jp = palaceHoldingStar(chart, sh["忌"]);
+      if (jp && def.core.indexOf(jp.name) >= 0) {
+        s += (def.tone === "bad" ? 1.8 : 0.7);
+        hits.push("流年忌入" + jp.name);
+      }
+    }
+    return { score: s, hits: hits };
+  }
+
+  // 辅助特征维度（两盘一致则不出题）
+  const TRAIT_DIMS = [
+    { id: "ming", weight: 14, dimension: "性格底色",
+      question: "下面这段话，符合你吗？",
+      keyOf: ch => primaryStarOfPalace(ch, "命宫"),
+      textOf: k => MING_RECTIFY_TRAITS[k] },
+    { id: "ji", weight: 12, dimension: "人生最容易卡住的地方",
+      question: "下面这段话，是不是你反复在吃亏的地方？",
+      keyOf: ch => huaJiPalaceName(ch),
+      textOf: k => SIHUA_JI_PAIN[k] },
+    { id: "fumu", weight: 10, dimension: "原生家庭",
+      question: "下面这段话，符合你从小长大的家庭吗？",
+      keyOf: ch => primaryStarOfPalace(ch, "父母宫"),
+      textOf: k => FUMU_FAMILY_TRAITS[k] },
+    { id: "jie", weight: 10, dimension: "身体容易出状况的地方",
+      question: "下面这段话，符合你的身体情况吗？",
+      keyOf: ch => primaryStarOfPalace(ch, "疾厄宫"),
+      textOf: k => JIE_HEALTH_TRAITS[k] }
+  ];
+
   function buildRectifyQuiz(candidates) {
-    if (!candidates || !candidates.length) return [];
+    if (!candidates || !candidates.length) return null;
     let cands = candidates;
+
+    // 只有一个候选时，拉前一个时辰做对照（报错时辰是最常见的情况）
     if (cands.length === 1 && cands[0].chart) {
       const p = cands[0].chart.profile;
       const prevH = (p.hour - 2 + 24) % 24;
@@ -552,172 +702,124 @@
       ];
     }
 
-    const getPalaceByBranch = (chart, branchName) => {
-      const pals = (chart.ziwei && chart.ziwei.palaces) || [];
-      return pals.find(x => x.branch === branchName) || { name: "命宫", mainStars: [] };
+    const prof = cands[0].chart.profile;
+    const birthYear = prof.year;
+    const nowYear = new Date().getFullYear();
+
+    const events = LIFE_EVENT_DEFS.map(d => ({ id: d.id, label: d.label, hint: d.hint }));
+
+    // 两盘该维度完全一样就不问，避免白问；描述对象轮流，避免偏向某一个盘
+    const traits = [];
+    TRAIT_DIMS.forEach((dim, di) => {
+      const keys = cands.map(c => dim.keyOf(c.chart));
+      const uniq = keys.filter((k, i) => keys.indexOf(k) === i);
+      if (uniq.length < 2) return;
+      const target = di % cands.length;
+      const text = dim.textOf(keys[target]);
+      if (!text) return;
+      traits.push({
+        id: "t_" + dim.id,
+        weight: dim.weight,
+        forCand: target,
+        dimension: dim.dimension,
+        question: dim.question,
+        statement: text
+      });
+    });
+
+    return {
+      candidates: cands,
+      birthYear: birthYear,
+      minYear: birthYear,
+      maxYear: nowYear,
+      events: events,
+      traits: traits,
+      minWeight: RECTIFY_MIN_WEIGHT,
+      minLead: RECTIFY_MIN_LEAD
     };
-    const getPalaceByName = (chart, name) => {
-      const pals = (chart.ziwei && chart.ziwei.palaces) || [];
-      return pals.find(x => x.name === name) || { name, mainStars: [] };
-    };
-    const getPrimaryStar = (chart, palName) => {
-      const pal = getPalaceByName(chart, palName);
-      const ms = (pal.mainStars || []).map(s => s.name);
-      if (ms.length) return ms[0];
-      // 若本宫空宫，取对宫主星
-      const pals = (chart.ziwei && chart.ziwei.palaces) || [];
-      const idx = pals.findIndex(x => x.name === palName);
-      if (idx >= 0) {
-        const opp = pals[(idx + 6) % 12];
-        const oms = (opp && opp.mainStars || []).map(s => s.name);
-        if (oms.length) return oms[0];
-      }
-      return "天机";
-    };
-
-    // 找出每个候选盘中【生年化忌】落入的宫位名称
-    const getHuaJiPalaceName = chart => {
-      const pals = (chart.ziwei && chart.ziwei.palaces) || [];
-      const sy = (chart.ziwei && chart.ziwei.sihuaYear) || {};
-      const jiStar = sy["忌"];
-      for (let i = 0; i < pals.length; i++) {
-        const allS = (pals[i].mainStars || []).concat(pals[i].auxStars || []);
-        if (allS.some(s => s.sihua === "忌" || (jiStar && s.name === jiStar))) {
-          return { palName: pals[i].name, starName: jiStar || "主星" };
-        }
-      }
-      return { palName: "福德宫", starName: "主星" };
-    };
-
-    const sampleProfile = cands[0].chart.profile;
-    const birthYearStr = `${sampleProfile.year}年${sampleProfile.month}月${sampleProfile.day}日`;
-
-    // ==================== 题目 1：生年化忌落宫痛点核对（100% 随生年天干与时辰移位！） ====================
-    const q1 = {
-      id: "q1",
-      dimension: `第一维 · 专属生年化忌落宫核对（${birthYearStr}出生者核心痛点分水岭）`,
-      question: `根据你的出生年天干，不同出生时辰会导致你命盘的「生年化忌（人生最容易卡壳、反复磨合或吃亏的领域）」落入截然不同的宫位。回顾你过往的人生体验，哪一项是你最明显的“痛点”？`,
-      options: cands.map((c, idx) => {
-        const jiInfo = getHuaJiPalaceName(c.chart);
-        const painDesc = SIHUA_JI_PAIN[jiInfo.palName] || SIHUA_JI_PAIN["福德宫"];
-        return {
-          candIdx: idx,
-          shichenName: c.shichenName,
-          label: `生年化忌落入【${jiInfo.palName}】：${painDesc}。（对应${c.shichenName}盘 · 时柱${c.hourPillar}）`
-        };
-      })
-    };
-
-    // ==================== 题目 2：2024甲辰 / 2025乙巳 过往真实应事铁证 ====================
-    const q2 = {
-      id: "q2",
-      dimension: "第二维 · 2024–2025 过往两年真实经历回溯（客观事件铁证 · 权重最高）",
-      question: "性格可以模棱两可，但发生过的事不会撒谎。回想刚刚过去的 2024年（甲辰年）与 2025年（乙巳年），你现实生活中最核心的精力牵扯或变动发生在哪条主线上？",
-      options: cands.map((c, idx) => {
-        const pal2024 = getPalaceByBranch(c.chart, "辰");
-        const pal2025 = getPalaceByBranch(c.chart, "巳");
-        const d24 = PALACE_EVENT_DESC[pal2024.name] || "个人事务调整";
-        const d25 = PALACE_EVENT_DESC[pal2025.name] || "外部环境变化";
-        return {
-          candIdx: idx,
-          shichenName: c.shichenName,
-          label: `2024年重心在【${pal2024.name}】（${d24}） ➔ 2025年重心转向【${pal2025.name}】（${d25}）。（对应${c.shichenName}盘）`
-        };
-      })
-    };
-
-    // ==================== 题目 3：疾厄宫生理体质与身体敏感部位核对 ====================
-    const q3 = {
-      id: "q3",
-      dimension: "第三维 · 先天生理体质与身体敏感部位（疾厄宫星曜与五行分野）",
-      question: "中医与命理同源，不同时辰的疾厄宫星曜直接对应你身体的先天薄弱环节。从小到大当你劳累、熬夜或换季时，身体最容易亮红灯的是哪个部位？",
-      options: cands.map((c, idx) => {
-        const jieStar = getPrimaryStar(c.chart, "疾厄宫");
-        const healthDesc = JIE_HEALTH_TRAITS[jieStar] || "肠胃消化与睡眠节律偏敏感";
-        return {
-          candIdx: idx,
-          shichenName: c.shichenName,
-          label: `疾厄宫坐【${jieStar}】：${healthDesc}。（对应${c.shichenName}盘）`
-        };
-      })
-    };
-
-    // ==================== 题目 4：原生家庭与父母早年管教风格核对 ====================
-    const q4 = {
-      id: "q4",
-      dimension: "第四维 · 原生家庭氛围与父母管教底色（父母宫与早年印记）",
-      question: "回想你从小长大的原生家庭氛围，以及父母（尤其是当家一方）对你的管教方式，以下哪种描述更符合事实？",
-      options: cands.map((c, idx) => {
-        const fumuStar = getPrimaryStar(c.chart, "父母宫");
-        const famDesc = FUMU_FAMILY_TRAITS[fumuStar] || "父母注重实际，对你既有期望又强调独立";
-        return {
-          candIdx: idx,
-          shichenName: c.shichenName,
-          label: `父母宫坐【${fumuStar}】：${famDesc}。（对应${c.shichenName}盘 · 命宫坐【${c.mingStars}】）`
-        };
-      })
-    };
-
-    // ==================== 题目 5（终极决胜题 · 当出现平局或拿不准时一锤定音）：2022壬寅 / 2023癸卯 往事大事件核对 ====================
-    const q5 = {
-      id: "q5",
-      dimension: "第五维 · 2022–2023 往事转折点核对（当性格体感相近时的终极一锤定音铁证）",
-      question: "如果前面几项你觉得两边都有点像（命理上称为“格局交叠”），请回想更早一点的 2022年（壬寅年）与 2023年（癸卯年），以下哪条轨迹更符合你当时的真实处境？",
-      options: cands.map((c, idx) => {
-        const pal2022 = getPalaceByBranch(c.chart, "寅");
-        const pal2023 = getPalaceByBranch(c.chart, "卯");
-        const d22 = PALACE_EVENT_DESC[pal2022.name] || "个人事务调整";
-        const d23 = PALACE_EVENT_DESC[pal2023.name] || "外部环境变化";
-        return {
-          candIdx: idx,
-          shichenName: c.shichenName,
-          label: `2022年核心事件在【${pal2022.name}】（${d22}） ➔ 2023年核心事件在【${pal2023.name}】（${d23}）。（对应${c.shichenName}盘）`
-        };
-      })
-    };
-
-    // 每题自带权重（原先写死在 app.js 的数组里，一加题就会错位）
-    q1.weight = 20; q2.weight = 35; q3.weight = 20; q4.weight = 15; q5.weight = 40;
-
-    // ==================== 追加轮次：继续用「过往流年应事」逐对回溯 ====================
-    // 性格题容易被引导着选，过往某年具体发生过什么则很难自欺，因此后续轮次全部用流年事件。
-    const ganOf = y => TIANGAN[((y - 4) % 10 + 10) % 10];
-    const zhiOf = y => DIZHI[((y - 4) % 12 + 12) % 12];
-    const birthYear = sampleProfile.year;
-    let _seq = 6;
-
-    const makeYearPairQ = (yA, yB, weight) => {
-      const bA = zhiOf(yA), bB = zhiOf(yB);
-      return {
-        id: "q" + (_seq++),
-        weight: weight,
-        dimension: `${yA}–${yB} 年往事回溯（客观事件铁证）`,
-        question: `再往前回想：${yA}年（${ganOf(yA)}${bA}年）和 ${yB}年（${ganOf(yB)}${bB}年）这两年，你身上最主要的变动、或者最耗你精力的事，更接近下面哪一条？`,
-        options: cands.map((c, idx) => {
-          const pA = getPalaceByBranch(c.chart, bA);
-          const pB = getPalaceByBranch(c.chart, bB);
-          const dA = PALACE_EVENT_DESC[pA.name] || "个人事务调整";
-          const dB = PALACE_EVENT_DESC[pB.name] || "外部环境变化";
-          return {
-            candIdx: idx,
-            shichenName: c.shichenName,
-            label: `${yA}年重心在【${pA.name}】（${dA}） ➔ ${yB}年重心在【${pB.name}】（${dB}）。（对应${c.shichenName}盘）`
-          };
-        })
-      };
-    };
-
-    // 只问出生满 6 周岁之后的年份 —— 更早的事当事人多半没有可靠记忆
-    const YEAR_PAIRS = [[2020, 2021, 35], [2018, 2019, 32], [2016, 2017, 30], [2014, 2015, 28]];
-    const extraQs = YEAR_PAIRS
-      .filter(pr => pr[0] - birthYear >= 6)
-      .map(pr => makeYearPairQ(pr[0], pr[1], pr[2]));
-
-    const rounds = [[q1, q2, q3, q4, q5]];
-    for (let i = 0; i < extraQs.length; i += 2) rounds.push(extraQs.slice(i, i + 2));
-
-    return { candidates: cands, questions: rounds[0], rounds: rounds };
   }
+
+  /**
+   * answers = {
+   *   events: { 事件id: 年份数字 },     // 没填 / 跳过的不出现在这里
+   *   traits: { 题id: "yes"|"kinda"|"no"|"unsure" }
+   * }
+   */
+  function scoreRectify(quiz, answers) {
+    if (!quiz) return null;
+    const cands = quiz.candidates;
+    const n = cands.length;
+    const scores = cands.map(() => 0);
+    const evLines = [], trLines = [];
+    let weight = 0, filled = 0, noSignal = 0, unsure = 0;
+
+    const evAns = (answers && answers.events) || {};
+    LIFE_EVENT_DEFS.forEach(def => {
+      const y = parseInt(evAns[def.id], 10);
+      if (!y || isNaN(y)) return;
+      filled++;
+      const per = cands.map((c, i) => {
+        const r = scoreEventOnChart(c.chart, def, y, quiz.birthYear);
+        return { i: i, s: r.score, hits: r.hits };
+      });
+      const ranked = per.slice().sort((a, b) => b.s - a.s);
+      const margin = ranked[0].s - (ranked[1] ? ranked[1].s : 0);
+      if (ranked[0].s <= 0 || margin < EVENT_MIN_MARGIN) {
+        noSignal++;
+        evLines.push({ ok: false, year: y, label: def.label,
+          text: `${def.label}（${y} 年）：几个盘都对得上，这条分不开` });
+        return;
+      }
+      // 线索越弱，计的分越少 —— 避免一条勉强的线索被当成铁证
+      const strength = Math.max(0.4, Math.min(1, margin / 3));
+      const w = Math.round(EVENT_WEIGHT * strength);
+      const sLabel = margin >= 3 ? "强" : (margin >= 1.8 ? "中" : "弱");
+      scores[ranked[0].i] += w;
+      weight += w;
+      evLines.push({ ok: true, year: y, label: def.label, cand: ranked[0].i, w: w, strength: sLabel,
+        text: `${def.label}（${y} 年）→ 指向【${cands[ranked[0].i].shichenName}】（${sLabel}线索 ${w} 分）`,
+        why: ranked[0].hits.join(" · ") });
+    });
+
+    const trAns = (answers && answers.traits) || {};
+    (quiz.traits || []).forEach(t => {
+      const a = trAns[t.id];
+      if (!a) return;
+      const who = cands[t.forCand] ? cands[t.forCand].shichenName : "";
+      if (a === "unsure") { unsure++; trLines.push({ ok: false, text: `${t.dimension}：说不准，不计分` }); return; }
+      if (a === "yes") {
+        scores[t.forCand] += t.weight; weight += t.weight;
+        trLines.push({ ok: true, text: `${t.dimension}：很符合 → 指向【${who}】` });
+      } else if (a === "kinda") {
+        scores[t.forCand] += t.weight * 0.4; weight += t.weight * 0.4;
+        trLines.push({ ok: true, text: `${t.dimension}：有点像 → 弱指向【${who}】` });
+      } else if (a === "no") {
+        const share = t.weight / Math.max(1, n - 1);
+        for (let i = 0; i < n; i++) if (i !== t.forCand) scores[i] += share;
+        weight += t.weight;
+        trLines.push({ ok: true, text: `${t.dimension}：不符合 → 排除【${who}】` });
+      }
+    });
+
+    const ranked = cands.map((c, i) => ({ i: i, c: c, s: scores[i] })).sort((a, b) => b.s - a.s);
+    const top = ranked[0];
+    const second = ranked[1] || { s: 0 };
+    const lead = top.s - second.s;
+    const leadRatio = weight > 0 ? lead / weight : 0;
+
+    let status = "confident";
+    if (weight < RECTIFY_MIN_WEIGHT) status = "insufficient";
+    else if (leadRatio < RECTIFY_MIN_LEAD) status = "tie";
+
+    return {
+      scores: scores, ranked: ranked, top: top,
+      weight: weight, lead: lead, leadRatio: leadRatio, status: status,
+      filled: filled, noSignal: noSignal, unsure: unsure,
+      evLines: evLines, trLines: trLines,
+      minWeight: RECTIFY_MIN_WEIGHT, minLead: RECTIFY_MIN_LEAD
+    };
+  }
+
   function analyzeTimeInterval(params) {
     const {
       year, month, day,
@@ -905,6 +1007,8 @@
     computeTrueSolarTime,
     analyzeTimeInterval,
     buildRectifyQuiz,
+    scoreRectify,
+    LIFE_EVENT_DEFS,
     CITY_LONGITUDES,
     computeBazi,
     deriveZiweiPalaces,

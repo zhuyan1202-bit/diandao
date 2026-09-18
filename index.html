@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260918211315">
+  <link rel="stylesheet" href="styles.css?v=20260918214143">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -331,9 +331,9 @@
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-rectify')">×</button>
       </div>
       <p style="font-size:12.5px; color:var(--text-sub); margin-bottom:14px; line-height:1.55;">
-        只知道大致区间，或者真太阳时修正后跨了两个时辰时，命盘就不唯一，得先定下来。<br>
-        下面每道题问的都是<strong>已经发生过的事实</strong>（过往应事、身体体感、家庭氛围），不是性格描述 —— 事实比感觉可靠得多。<br>
-        边答边算吻合度；如果两个时辰分数咬得很近，答完可以把结果交给 AI 再多问几轮。
+        只知道大致区间，或真太阳时修正后跨了两个时辰时，命盘就不唯一，得先定下来。<br>
+        这里<strong>不让你判断“哪段描述更像你”</strong>，只请你填几件人生大事的<strong>年份</strong>。你填的时候看不到这个年份会算到哪个盘，所以不存在被带节奏。<br>
+        没发生过、记不清的直接留空或点「没有过」—— 填几件算几件；证据不够时系统会直说不够，不会硬给结论。
       </p>
       <div id="rectify-quiz-container" class="rectify-quiz-container"></div>
       <div id="rectify-verdict-box" class="rectify-verdict-box" style="display:none;"></div>
@@ -398,18 +398,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260918211315"></script>
-  <script src="calendar_core.js?v=20260918211315"></script>
-  <script src="ziwei_engine.js?v=20260918211315"></script>
-  <script src="bazi_analyze.js?v=20260918211315"></script>
+  <script src="vsop87.js?v=20260918214143"></script>
+  <script src="calendar_core.js?v=20260918214143"></script>
+  <script src="ziwei_engine.js?v=20260918214143"></script>
+  <script src="bazi_analyze.js?v=20260918214143"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260918211315"></script>
-  <script src="kb_retrieve.js?v=20260918211315"></script>
-  <script src="bazi_kb.js?v=20260918211315"></script>
-  <script src="bazi_retrieve.js?v=20260918211315"></script>
-  <script src="tarot_data.js?v=20260918211315"></script>
-  <script src="ziwei_bazi_core.js?v=20260918211315"></script>
-  <script src="chat_engine.js?v=20260918211315"></script>
-  <script src="app.js?v=20260918211315"></script>
+  <script src="knowledge_base.js?v=20260918214143"></script>
+  <script src="kb_retrieve.js?v=20260918214143"></script>
+  <script src="bazi_kb.js?v=20260918214143"></script>
+  <script src="bazi_retrieve.js?v=20260918214143"></script>
+  <script src="tarot_data.js?v=20260918214143"></script>
+  <script src="ziwei_bazi_core.js?v=20260918214143"></script>
+  <script src="chat_engine.js?v=20260918214143"></script>
+  <script src="app.js?v=20260918214143"></script>
 </body>
 </html>

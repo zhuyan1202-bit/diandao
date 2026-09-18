@@ -964,7 +964,7 @@
     lines.push(`【⏰ 当前实时天文历法基准】公历：${t.solarStr} ｜ ${t.lunarStr} ｜ 实时干支：${t.ganzhiFull}`);
     const statusLabel = { single: "单身", dating: "恋爱中", broken: "断联/冷战中", married: "已婚" }[p.status];
     lines.push(`性别：${p.gender === "female" ? "女（坤造）" : "男（乾造）"}　本年虚岁：${age}岁　当前情感状态：${
-      statusLabel || "本人未提供 —— 命盘只能看姻缘格局与时机，看不出当下事实，因此严禁假设或推断其婚恋现状；若分析确实需要，请直接开口询问" }`);
+      statusLabel || "本人未提供（不要为此反问，也不要假设。直接按命盘格局把模式与时机讲透；若不同状态下结论确实不同，就分情况各给一句结论）" }`);
     const tst = p.trueSolarTime || {};
     const tstInfo = tst.isCalibrated
       ? `出生地点：${tst.city}（东经${tst.longitude}°）｜钟表时间 ${tst.clockTimeStr} → 校准后真太阳时 ${tst.trueTimeStr}（差值 ${tst.totalDeltaMin >= 0 ? "+" : ""}${tst.totalDeltaMin} 分钟，排盘已严格按真太阳时时辰起盘）`
@@ -1049,6 +1049,332 @@
       if (flown.length) lines.push(`【${t.Y}年（${t.yPillar}）流年四化飞入本命宫位】${flown.join("　")}`);
     }
     return lines.join("\n");
+  }
+
+
+  /* ============================================================
+   * 7.1.5 预推演台（Forecast Desk）
+   * 大模型不会心算流年/流月/大限/大运，让它自己推就只能给空话。
+   * 这里用排盘引擎把「本题相关宫位 + 当前大限/大运 + 未来三年流年 +
+   * 未来六个月流月」全部精确算好，直接塞进 prompt 让它引用。
+   * ============================================================ */
+
+  function idx60(gz) {
+    const g = TIANGAN.indexOf(String(gz).charAt(0)), z = DIZHI.indexOf(String(gz).charAt(1));
+    if (g < 0 || z < 0) return 0;
+    for (let i = 0; i < 60; i++) if (i % 10 === g && i % 12 === z) return i;
+    return 0;
+  }
+  function gzOf60(i) { const k = ((i % 60) + 60) % 60; return TIANGAN[k % 10] + DIZHI[k % 12]; }
+
+  function branchRel(a, b) {
+    if (!a || !b) return "";
+    const r = [];
+    if (a === b) r.push("伏吟");
+    if (LIUCHONG[a] === b) r.push("相冲");
+    if (LIUHE[a] === b) r.push("六合");
+    if ((SANHE[a] || []).indexOf(b) >= 0) r.push("三合");
+    return r.join("、");
+  }
+
+  // 五虎遁：年干 -> 寅月月干
+  const YINYUE_GAN = { "甲":"丙","己":"丙","乙":"戊","庚":"戊","丙":"庚","辛":"庚","丁":"壬","壬":"壬","戊":"甲","癸":"甲" };
+  function monthGanOf(yearGan, zhi) {
+    const base = TIANGAN.indexOf(YINYUE_GAN[yearGan] || "丙");
+    const n = ((DIZHI.indexOf(zhi) - 2) % 12 + 12) % 12;
+    return TIANGAN[(base + n) % 10];
+  }
+
+  /* ---------- 紫微：本题宫位 / 大限 / 流年 / 流月 ---------- */
+  function ziweiForecast(chart, dom, t) {
+    const ZWE = global.ZiweiEngine;
+    const zw = chart.ziwei || {};
+    if (!ZWE || !zw.raw || !zw.raw.palaces || zw.raw.palaces.length !== 12) return "";
+    const P = zw.raw.palaces;                 // 0=子 … 11=亥
+    const NAMES = ZWE.PALACE_NAMES;
+    const p = chart.profile;
+    const L = [];
+
+    function starsOf(i) {
+      const pa = P[i];
+      const main = pa.mainStars.length
+        ? pa.mainStars.map(function (x) {
+            return x.name + "(" + x.brightness + ")" + (x.sihua ? "[化" + x.sihua + "]" : "");
+          }).join(" ")
+        : ("空宫·借对宫" + (P[(i + 6) % 12].mainStars.map(function (x) { return x.name; }).join("") || "（亦无主星）"));
+      const aux = pa.auxStars.map(function (x) {
+        return x.name + (x.sihua ? "[化" + x.sihua + "]" : "");
+      }).join(" ");
+      const pea = pa.peachStars.map(function (x) { return x.name; }).join(" ");
+      return main + (aux ? "｜辅煞：" + aux : "") + (pea ? "｜杂曜：" + pea : "");
+    }
+    function palIdx(name) { for (let i = 0; i < 12; i++) if (P[i].name === name) return i; return -1; }
+    function findStarPal(nm) {
+      for (let i = 0; i < 12; i++) {
+        if (P[i].mainStars.some(function (x) { return x.name === nm; })) return P[i];
+        if (P[i].auxStars.some(function (x) { return x.name === nm; })) return P[i];
+      }
+      return null;
+    }
+    function sihuaLine(gan) {
+      const sh = ZWE.SIHUA[gan];
+      if (!sh) return "—";
+      return ["禄", "权", "科", "忌"].map(function (k) {
+        const pa = findStarPal(sh[k]);
+        return sh[k] + "化" + k + "→" + (pa ? "本命【" + pa.name + "】" : "此星不在本盘");
+      }).join("　");
+    }
+
+    const tIdx = palIdx(dom.palName);
+    const kTarget = NAMES.indexOf(dom.palName);
+
+    if (tIdx >= 0) {
+      const opp = (tIdx + 6) % 12, s1 = (tIdx + 4) % 12, s2 = (tIdx + 8) % 12;
+      L.push("【本题锁定宫位 · 三方四正全貌】（本题属「" + dom.domainLabel + "」）");
+      L.push("  ▸ 本宫【" + dom.palName + "】" + P[tIdx].gan + P[tIdx].branch + "：" + starsOf(tIdx));
+      L.push("  ▸ 对宫【" + P[opp].name + "】" + P[opp].branch + "：" + starsOf(opp));
+      L.push("  ▸ 三合【" + P[s1].name + "】" + P[s1].branch + "：" + starsOf(s1));
+      L.push("  ▸ 三合【" + P[s2].name + "】" + P[s2].branch + "：" + starsOf(s2));
+      L.push("");
+    }
+
+    // 大限
+    const age = t.Y - p.year + 1;
+    let dxIdx = -1;
+    for (let i = 0; i < 12; i++) {
+      if (P[i].daxian && age >= P[i].daxian.start && age <= P[i].daxian.end) dxIdx = i;
+    }
+    if (dxIdx >= 0) {
+      const dx = P[dxIdx].daxian;
+      L.push("【当前大限（10年运）】" + dx.start + "–" + dx.end + "岁，本人虚岁" + age +
+             "，已走到大限第 " + (age - dx.start + 1) + " 年（共10年）");
+      L.push("  ▸ 大限命宫＝本命【" + P[dxIdx].name + "】" + P[dxIdx].gan + P[dxIdx].branch + "：" + starsOf(dxIdx));
+      L.push("  ▸ 大限四化（以大限宫干【" + P[dxIdx].gan + "】飞）：" + sihuaLine(P[dxIdx].gan));
+      if (kTarget >= 0) {
+        const j = ((dxIdx - kTarget) % 12 + 12) % 12;
+        L.push("  ▸ 大限" + dom.palName + "＝本命【" + P[j].name + "】" + P[j].branch + "：" + starsOf(j));
+      }
+      let nxt = -1;
+      for (let i = 0; i < 12; i++) if (P[i].daxian && P[i].daxian.start === dx.end + 1) nxt = i;
+      if (nxt >= 0) {
+        L.push("  ▸ 下一大限：" + P[nxt].daxian.start + "–" + P[nxt].daxian.end + "岁（公历约" +
+               (p.year + P[nxt].daxian.start - 1) + "年起）走本命【" + P[nxt].name + "】：" + starsOf(nxt));
+      }
+      L.push("");
+    }
+
+    // 流年（今年起三年）
+    L.push("【流年推演 · " + t.Y + "–" + (t.Y + 2) + "】");
+    for (let yy = t.Y; yy <= t.Y + 2; yy++) {
+      const gz = yearGanZhi(yy), gan = gz.charAt(0), zhi = gz.charAt(1);
+      const lm = DIZHI.indexOf(zhi);
+      L.push("  ◆ " + yy + "年（" + gz + "，虚岁" + (yy - p.year + 1) + "）流年命宫＝本命【" +
+             P[lm].name + "】" + zhi + "：" + starsOf(lm));
+      if (kTarget >= 0) {
+        const j = ((lm - kTarget) % 12 + 12) % 12;
+        L.push("     · 流年" + dom.palName + "＝本命【" + P[j].name + "】" + P[j].branch + "：" + starsOf(j));
+      }
+      L.push("     · 流年四化（" + gan + "干）：" + sihuaLine(gan));
+      if (tIdx >= 0) {
+        const rel = branchRel(zhi, P[tIdx].branch);
+        L.push("     · 岁支【" + zhi + "】对本题宫支【" + P[tIdx].branch + "】：" + (rel || "无刑冲会合"));
+      }
+    }
+    L.push("");
+
+    // 流月（斗君法，未来六个农历月，公历起始日精确到日）
+    const CC = global.CalendarCore;
+    const hourZhi = String((chart.bazi || {}).hourPillar || "").charAt(1);
+    const birthLM = chart.lunar ? chart.lunar.lMonth : 0;
+    if (CC && hourZhi && birthLM) {
+      const hIdx = DIZHI.indexOf(hourZhi);
+      function douJun(lyear) {                       // 该流年的「斗君」＝正月命宫所在
+        const st = DIZHI.indexOf(yearZhi(lyear));
+        return ((st - (birthLM - 1) + hIdx) % 12 + 12) % 12;
+      }
+      try {
+        const cur = CC.newMoonOnOrBefore(CC.dayNumber(t.Y, t.M, t.D));
+        const rows = [];
+        for (let sft = 0; sft < 6; sft++) {
+          const dn = CC.newMoonDayNum(cur.k + sft);
+          const g = CC.jdToGregorian(dn - 0.5);
+          const gd = Math.floor(g.d);
+          const lu = CC.solarToLunar(g.y, g.m, gd);
+          if (!lu) continue;
+          const i = (douJun(lu.lYear) + (lu.lMonth - 1)) % 12;
+          const flag = (tIdx >= 0 && i === tIdx) ? "　⚑【流月命宫正落本题宫，本月是关键引动点】" : "";
+          rows.push("  · " + (lu.isLeap ? "闰" : "") + lu.lMonthLabel + "（公历" + g.m + "月" + gd + "日 起）：流月命宫＝本命【" +
+                    P[i].name + "】" + P[i].branch + "：" + starsOf(i) + flag);
+        }
+        if (rows.length) {
+          L.push("【未来六个月 · 流月命宫（斗君法已精确排定，直接用，勿自行推算）】");
+          L.push(rows.join("\n"));
+        }
+      } catch (e) {}
+    }
+    return L.join("\n");
+  }
+
+  /* ---------- 八字：大运 / 流年 / 流月 ---------- */
+  let _dayunCache = { key: "", val: null };
+  function computeDayun(chart) {
+    const CC = global.CalendarCore;
+    const b = chart.bazi, p = chart.profile;
+    if (!CC || !b || !b.monthPillar) return null;
+    const key = [p.year, p.month, p.day, p.hour, p.minute || 0, p.gender].join("|");
+    if (_dayunCache.key === key) return _dayunCache.val;
+
+    const yGan = String(b.yearPillar).charAt(0);
+    const yangYear = TIANGAN.indexOf(yGan) % 2 === 0;
+    const male = p.gender !== "female";
+    const forward = (yangYear === male);            // 阳男阴女顺行，阴男阳女逆行
+
+    const jdBirth = CC.gregorianToJD(p.year, p.month, p.day + (p.hour + (p.minute || 0) / 60) / 24);
+    let prevJD = null, nextJD = null;
+    for (let yy = p.year - 1; yy <= p.year + 1; yy++) {
+      for (let k = 0; k < 24; k += 2) {             // 偶数 k 为「节」
+        const j = CC.solarTermJD(yy, k);
+        if (j <= jdBirth && (prevJD === null || j > prevJD)) prevJD = j;
+        if (j > jdBirth && (nextJD === null || j < nextJD)) nextJD = j;
+      }
+    }
+    if (prevJD === null || nextJD === null) return null;
+    const days = forward ? (nextJD - jdBirth) : (jdBirth - prevJD);
+    const ageF = days / 3;                          // 三日折一年
+    let startY = Math.floor(ageF);
+    let startM = Math.round((ageF - startY) * 12);
+    if (startM >= 12) { startY += 1; startM = 0; }          // 免得出现「7岁12个月」
+
+    const m60 = idx60(b.monthPillar);
+    const list = [];
+    for (let s2 = 1; s2 <= 9; s2++) {
+      const from = startY + (s2 - 1) * 10;
+      list.push({
+        gz: gzOf60(m60 + (forward ? s2 : -s2)),
+        fromAge: from, toAge: from + 9,
+        fromYear: p.year + from, toYear: p.year + from + 9
+      });
+    }
+    const val = { forward: forward, startY: startY, startM: startM, list: list };
+    _dayunCache = { key: key, val: val };
+    return val;
+  }
+
+  function baziForecast(chart, dom, t) {
+    const b = chart.bazi || {};
+    const p = chart.profile;
+    const dg = b.dayMaster;
+    const CC = global.CalendarCore;
+    const AC = global.AstrologyCore;
+    if (!dg || !AC || !AC.getTenGod) return "";
+    const god = function (g) { return AC.getTenGod(dg, g); };
+    const dayZhi = String(b.dayPillar).charAt(1);
+    const yrZhi = String(b.yearPillar).charAt(1);
+    const moZhi = String(b.monthPillar).charAt(1);
+    const L = [];
+
+    L.push("【本题切入口】" + dom.domainLabel + " —— 重点看：" + dom.baziAspect +
+           "（日元【" + dg + b.wuxing + "】｜日支婚姻宫【" + dayZhi + "】｜月令【" + moZhi + "】）");
+    L.push("");
+
+    const dy = computeDayun(chart);
+    let curDy = null;
+    if (dy) {
+      const realAge = t.Y - p.year;
+      L.push("【大运】" + (dy.forward ? "顺行" : "逆行") + "，起运 " + dy.startY + " 岁 " + dy.startM +
+             " 个月（约公历 " + (p.year + dy.startY) + " 年上运），每十年一换");
+      dy.list.forEach(function (d) {
+        if (realAge >= d.fromAge && realAge <= d.toAge) curDy = d;
+      });
+      dy.list.slice(0, 9).forEach(function (d) {
+        if (d.toYear < t.Y - 10 || d.fromYear > t.Y + 20) return;
+        const mark = (d === curDy) ? "★当前" : "  ";
+        const g2 = String(d.gz).charAt(0), z2 = String(d.gz).charAt(1);
+        const rels = [];
+        const r1 = branchRel(z2, dayZhi); if (r1) rels.push("与日支" + dayZhi + r1);
+        const r2 = branchRel(z2, yrZhi);  if (r2) rels.push("与年支" + yrZhi + r2);
+        const r3 = branchRel(z2, moZhi);  if (r3) rels.push("与月支" + moZhi + r3);
+        L.push("  " + mark + " " + d.gz + "运（" + d.fromYear + "–" + d.toYear + "，" + d.fromAge + "–" + d.toAge +
+               "岁）｜运干" + g2 + "＝【" + god(g2) + "】｜运支" + z2 +
+               (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+      });
+      if (curDy) {
+        L.push("  ▸ 本人目前走在【" + curDy.gz + "运】第 " + (t.Y - curDy.fromYear + 1) + " 年（共10年），" +
+               (t.Y - curDy.fromYear + 1 >= 6 ? "已进入后五年（运支主事）" : "尚在前五年（运干主事）"));
+      }
+      L.push("");
+    }
+
+    L.push("【流年推演 · " + t.Y + "–" + (t.Y + 2) + "】");
+    for (let yy = t.Y; yy <= t.Y + 2; yy++) {
+      const gz = yearGanZhi(yy), g2 = gz.charAt(0), z2 = gz.charAt(1);
+      const rels = [];
+      const r1 = branchRel(z2, dayZhi); if (r1) rels.push("与日支" + dayZhi + r1);
+      const r2 = branchRel(z2, yrZhi);  if (r2) rels.push("与年支" + yrZhi + r2);
+      const r3 = branchRel(z2, moZhi);  if (r3) rels.push("与月支" + moZhi + r3);
+      if (curDy) {
+        const r4 = branchRel(z2, String(curDy.gz).charAt(1));
+        if (r4) rels.push("与大运支" + String(curDy.gz).charAt(1) + r4);
+      }
+      L.push("  ◆ " + yy + "年 " + gz + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
+             "】｜年支" + z2 + (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+    }
+    L.push("");
+
+    // 流月：未来六个节气月（起始日精确到日）
+    if (CC) {
+      try {
+        const nowJD = CC.gregorianToJD(t.Y, t.M, t.D + (t.H + t.Min / 60) / 24);
+        const terms = [];
+        for (let yy = t.Y; yy <= t.Y + 1; yy++) {
+          for (let k = 0; k < 24; k += 2) {
+            const d = CC.solarTermDate(yy, k);
+            terms.push({ k: k, y: yy, jd: d.jd, m: d.m, d: d.d, name: d.name });
+          }
+        }
+        terms.sort(function (a, c) { return a.jd - c.jd; });
+        let st = 0;
+        for (let i = 0; i < terms.length; i++) if (terms[i].jd <= nowJD) st = i;
+        const rows = [];
+        for (let i = st; i < st + 6 && i + 1 < terms.length; i++) {
+          const cu = terms[i], nx = terms[i + 1];
+          const zi = ((cu.k / 2) + 1) % 12;
+          const z2 = DIZHI[zi];
+          const lyY = (cu.k === 0) ? cu.y - 1 : cu.y;       // 小寒(丑月)仍属上一命理年
+          const g2 = monthGanOf(ganOfYear(lyY), z2);
+          const rels = [];
+          const r1 = branchRel(z2, dayZhi); if (r1) rels.push("与日支" + dayZhi + r1);
+          const r2 = branchRel(z2, moZhi);  if (r2) rels.push("与月令" + moZhi + r2);
+          const r3 = branchRel(z2, yrZhi);  if (r3) rels.push("与年支" + yrZhi + r3);
+          if (curDy) {
+            const dz = String(curDy.gz).charAt(1);
+            const r4 = branchRel(z2, dz);
+            if (r4) rels.push("与大运支" + dz + r4);
+          }
+          rows.push("  · " + g2 + z2 + "月（" + cu.name + " " + cu.m + "/" + cu.d + " – " + nx.name + " " + nx.m + "/" + nx.d +
+                    "）｜月干" + g2 + "＝【" + god(g2) + "】" + (rels.length ? "｜" + rels.join("，") : ""));
+        }
+        if (rows.length) {
+          L.push("【未来六个节气月（公历起讫已算好，给时间点必须落到这些区间里）】");
+          L.push(rows.join("\n"));
+        }
+      } catch (e) {}
+    }
+    return L.join("\n");
+  }
+
+  function ganOfYear(y) { return TIANGAN[((((y - 4) % 10) + 10) % 10)]; }
+
+  function buildForecastDesk(chart, question, mode) {
+    try {
+      const t = getCurrentTimeAnchor();
+      const dom = resolveDomainAndPalace(question, chart);
+      const body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
+      if (!body) return "";
+      return "\n════════ 【🧮 预推演台：以下岁运数据已由排盘引擎精确算出，直接引用，严禁自行心算或改动】 ════════\n" +
+             body +
+             "\n══════════════════════════════════════════════════════════════════\n";
+    } catch (e) { return ""; }
   }
 
   /* ---------- 7.2 系统提示词（含典籍 RAG） ---------- */
@@ -1137,7 +1463,7 @@ ${blk}
 ════════ 本人真实排盘数据（天文历法精确排出，严禁篡改） ════════
 ${buildChartDossier(chart, mode)}
 ══════════════════════════════════════════════════════════════════
-${kbBlock}${baziKbBlock}
+${buildForecastDesk(chart, question, mode)}${kbBlock}${baziKbBlock}
 
 【绝对命令 · 表达风格与排版准则（违反即为严重错误）】
 1. **严禁展示任何古籍引用或书名**：
@@ -1159,10 +1485,19 @@ ${kbBlock}${baziKbBlock}
 - 解释清楚为什么你的命盘会有这种特征、在现实生活和人际/感情/事业里具体表现为什么行为模式（把知识库规则自然融入分析中，不留引文痕迹）。
 
 ### 📅 三、明确时间节点与行动建议
-- **具体时间节点**：基于当前时间（${t.Y}年${t.M}月·${t.lMonthLabel}），明确指出当下本月（${t.mPillar}月）以及接下来秋冬各月（农历九月、十月、十一月、十二月）或明年的吉凶发力点与避坑点。
-- **针对性行动策略**：给出 2 条**具体、直白、立刻能执行**的现实应对策略（拒绝“多沟通”、“提升自我”之类的空话）。
+- **必须逐条引用上方【🧮 预推演台】里的真实数据**。至少点名 **3 个具体时间窗口**，每个窗口都要写成「公历 X 月 X 日–X 月 X 日（某月）＋ 该段时间盘面上具体发生了什么（哪颗星飞入哪个宫／哪个干支冲合哪个柱）＋ 所以你会遇到什么事」三件套。
+- 只给「今年年底」「明年」这种粗颗粒时间＝不合格；必须精确到**月**，并写出该月对应的公历起讫日。
+- 未来三年里若有明显的转折年，直接点名是哪一年、因为盘上什么。
+- **针对性行动策略**：给出 2 条**具体到可以照做**的建议（要写清「在什么时间、对谁、做什么动作」）。严禁“多沟通”“提升自我”“保持好心态”这类空话。
 
-篇幅控制在 550–850 字，干净利落，客观锋利，全篇现代大白话，不掉书袋！`;
+【❗具体性铁律 —— 这是本次回答的最高优先级】
+1. **每一个判断都必须挂在具体盘面证据上**。紫微席：点名具体宫位＋具体星曜＋庙旺＋四化＋飞入哪一宫；八字席：点名具体干支柱＋十神＋冲合刑害＋大运流年。凡是拿掉这些字也照样成立的句子（例如“你感情上会有波折”“要注意人际关系”），一律视为废话，禁止出现。
+2. **禁止反问用户、禁止索要更多信息**。信息不足就按盘面分情况给结论，不要把问题抛回去。
+3. **禁止免责式表达**：不要写“仅供参考”“命运掌握在自己手里”“具体还要看个人努力”。
+4. **禁止空泛的正能量收尾**。最后一句必须是一个可执行动作或一个明确判断。
+5. 上方【🧮 预推演台】的数据是精确排出来的，**你必须用，而且不能改**；不要自己另算流年流月，算错了就是硬伤。
+
+篇幅 800–1200 字。密度优先：宁可少讲一个点，也要把讲到的每个点讲到能落地。全篇现代大白话，客观锋利，不掉书袋。`;
   }
 
   /* ---------- 7.2.5 上游请求：本地代理 或 浏览器直连（静态网站模式） ---------- */
@@ -1199,7 +1534,7 @@ ${kbBlock}${baziKbBlock}
         "Content-Type": "application/json",
         "Authorization": "Bearer " + key
       },
-      body: JSON.stringify({ model, messages, temperature: 0.85, stream: true })
+      body: JSON.stringify({ model, messages, temperature: 0.75, stream: true })
     });
 
     if (!resp.ok) {
@@ -1229,7 +1564,7 @@ ${kbBlock}${baziKbBlock}
           model: config.modelName || "",
           endpoint: config.apiEndpoint || "",
           messages,
-          temperature: 0.85,
+          temperature: 0.75,
           stream: true
         })
       });

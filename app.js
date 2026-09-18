@@ -253,12 +253,29 @@ document.addEventListener("DOMContentLoaded", () => {
       year: y, month: m, day: dd,
       hour: clockH, minute: clockM,
       timeMode: "exact",
+      // 原始区间留着，以后想重新定盘还能接着用
+      rangeStart: document.getElementById("drawer-range-start")?.value || "",
+      rangeEnd: document.getElementById("drawer-range-end")?.value || "",
+      rectified: true,
+      rectifiedShichen: shichenName || "",
       city: city,
       gender: document.getElementById("drawer-gender")?.value || "female",
       status: document.getElementById("drawer-status")?.value || ""
     }, true);
-    sound.chime();
-    document.getElementById("chart-drawer")?.classList.remove("open");
+    if (sound && sound.chime) sound.chime();
+
+    // 不再静默关掉——直接把命盘档案开给用户看，并把刚改动的地方高亮
+    const drawer = document.getElementById("chart-drawer");
+    if (drawer) {
+      drawer.classList.add("open");
+      if (window.__toggleMobileSidebar) window.__toggleMobileSidebar(false);
+      const prev = document.getElementById("drawer-tst-preview");
+      if (prev) {
+        prev.classList.add("flash-ok");
+        setTimeout(() => prev.classList.remove("flash-ok"), 2400);
+        setTimeout(() => { try { prev.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} }, 60);
+      }
+    }
   };
 
   /* ================= 精准定盘 v2 =================
@@ -480,6 +497,38 @@ document.addEventListener("DOMContentLoaded", () => {
     send(prompt);
   };
 
+  /**
+   * 侧边栏「命盘档案」卡片 —— 全局只能有这一处写它。
+   * 之前 updateChart 与 renderDynamicPrompts 各写一遍，后者会把生辰和定盘状态覆盖掉。
+   */
+  function renderMiniProfile(chart) {
+    const mini = document.getElementById("mini-profile-text");
+    if (!mini || !chart) return;
+    const pad = n => String(n).padStart(2, "0");
+    const pr = chart.profile, b = chart.bazi, sp = chart.ziwei.spousePalace;
+    const g = pr.gender === "female" ? "\u5764\u9020" : "\u4e7e\u9020";
+    const shichen = String(b.hourPillar || "").slice(-1);
+    const isInterval = pr.timeMode === "interval";
+    const pending = isInterval && Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1;
+    const timeTxt = pending
+      ? pr.rangeStart + "\u2013" + pr.rangeEnd + " \u4e4b\u95f4"
+      : pad(pr.hour) + ":" + pad(pr.minute || 0) + " \u00b7 " + shichen + "\u65f6";
+    const flag = pending
+      ? '<span class="mini-flag warn">\u65f6\u8fb0\u5f85\u5b9a</span>'
+      : (pr.rectified ? '<span class="mini-flag ok">\u5df2\u5b9a\u76d8</span>' : "");
+
+    const spouse = (sp.mainStarNames && sp.mainStarNames.length)
+      ? sp.mainStarNames.join("\u00b7") : "\u7a7a\u5bab\uff08\u501f\u5bf9\u5bab\uff09";
+    const starLine = (state.kbMode === "bazi")
+      ? "\u56db\u67f1 <b>" + escapeHtml([b.yearPillar, b.monthPillar, b.dayPillar, b.hourPillar].join(" ")) + "</b>"
+      : "\u547d\u5bab <b>" + escapeHtml(getPalaceStarLabel(chart, "\u547d\u5bab")) + "</b> \u00b7 \u592b\u59bb\u5bab <b>" + escapeHtml(spouse) + "</b>";
+
+    mini.innerHTML =
+        '<div class="mini-line strong">' + pr.year + "-" + pad(pr.month) + "-" + pad(pr.day) + " \u00b7 " + timeTxt + flag + "</div>"
+      + '<div class="mini-line">' + escapeHtml(pr.city || "") + " \u00b7 " + g + " \u00b7 \u65e5\u5143 <b>" + escapeHtml(b.dayMaster + b.wuxing) + "</b></div>"
+      + '<div class="mini-line">' + starLine + "</div>";
+  }
+
   function chartKeyOf(p) {
     return [p.year, p.month, p.day, p.hour, p.minute || 0, p.city || "", p.gender || ""].join("|");
   }
@@ -531,6 +580,15 @@ document.addEventListener("DOMContentLoaded", () => {
     state.userChart = chart;
     if (persist) localStorage.setItem("starbook_user_profile", JSON.stringify(p));
 
+    // analyzeFullNatalChart 只返回命理所需字段，会把 timeMode / 区间 / 定盘标记全部丢掉，
+    // 导致命盘档案每次都回退到「区间模式」—— 定盘结果因此看不见。这里原样带回去。
+    chart.profile.timeMode = p.timeMode || "interval";
+    if (p.rangeStart) chart.profile.rangeStart = p.rangeStart;
+    if (p.rangeEnd)   chart.profile.rangeEnd   = p.rangeEnd;
+    chart.profile.intervalCandidates = p.intervalCandidates || null;
+    chart.profile.rectified = Boolean(p.rectified);
+    chart.profile.rectifiedShichen = p.rectifiedShichen || "";
+
     const newKey = chartKeyOf(chart.profile);
     const changed = Boolean(state.chartKey) && state.chartKey !== newKey;
     state.chartKey = newKey;
@@ -539,8 +597,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sp = chart.ziwei.spousePalace;
     const b = chart.bazi;
 
-    const mini = document.getElementById("mini-profile-text");
-    if (mini) mini.innerHTML = `${g} · 日元 <b>${b.dayMaster}${b.wuxing}</b><br>夫妻宫 <b>${b.marriageBranch}</b> 坐 <b>${sp.primaryStar}</b>`;
+    renderMiniProfile(chart);
 
     const tag = document.getElementById("chart-context-tag");
     if (tag) tag.textContent = `✦ ${g} · 日元${b.dayMaster}${b.wuxing} · 夫妻宫${b.marriageBranch}坐${sp.primaryStar}（${sp.sihua}）`;
@@ -618,8 +675,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const marriageBranch = b.marriageBranch;
     const mode = state.kbMode === "bazi" ? "bazi" : "ziwei";
 
-    const mini = document.getElementById("mini-profile-text");
-    if (mini) mini.innerHTML = `${g} · 日元 <b>${dmLabel}</b> · 命宫 <b>${mingStar}</b><br>夫妻宫 <b>${sp.primaryStar}</b> · 官禄宫 <b>${careerStar}</b>`;
+    renderMiniProfile(chart);
 
     const tag = document.getElementById("chart-context-tag");
     if (tag) {
@@ -1209,6 +1265,7 @@ document.addEventListener("DOMContentLoaded", () => {
           timeMode: "interval",
           rangeStart: rStart,
           rangeEnd: rEnd,
+          rectified: false,
           intervalCandidates: res.candidates.map(c => ({
             shichenName: c.shichenName, prob: c.prob, hourPillar: c.hourPillar,
             mingStars: c.mingStars, spouseStars: c.spouseStars, traitText: c.traitText
@@ -1224,6 +1281,7 @@ document.addEventListener("DOMContentLoaded", () => {
           minute: isNaN(min) ? 30 : min,
           timeMode: "exact",
           intervalCandidates: null,
+          rectified: false,
           city, gender, status
         }, true);
       }

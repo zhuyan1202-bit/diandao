@@ -206,18 +206,11 @@ document.addEventListener("DOMContentLoaded", () => {
         el.innerHTML = `✅ <strong>无需知道具体几分！命盘 100% 唯一确定！</strong><br>📍 您的出生区间（钟表 ${rStart}–${rEnd}）经【${city}】真太阳时校准后（${res.tstStart.trueTimeStr}–${res.tstEnd.trueTimeStr}），<strong>全部落在同一个时辰【${c.shichenName}（八字时柱：${c.hourPillar} · 紫微命宫：${c.mingStars}）】内</strong>！<br>💡 八字与紫微均以两小时为一个时辰，同一时辰内任何分钟排出的命盘完全一致！`;
       } else {
         el.className = "tst-preview-box shifted";
-        const cardsHtml = res.candidates.map((c, idx) => `
-          <div class="rectify-candidate-card">
-            <div class="rectify-candidate-head">
-              <span>候选盘 ${String.fromCharCode(65 + idx)}：【${c.shichenName}盘】（区间占比 ${c.prob}% · 时柱【${c.hourPillar}】 · 命宫【${c.mingStars}】）</span>
-              <button type="button" class="rectify-lock-btn" onclick="window.__lockCandidateShichen(${c.clockHour}, ${c.clockMinute}, '${c.shichenName}')">✓ 这更像我 · 锁定此盘</button>
-            </div>
-            <div style="color:#cbd5e1; margin-top:3px;">💡 <strong>定盘性格核对：</strong>${c.traitText}</div>
-            <div style="color:#94a3b8; font-size:11.2px; margin-top:2px;">🔮 夫妻宫主星：${c.spouseStars}</div>
-          </div>
-        `).join("");
-        const wizBtn = `<button type="button" class="drawer-open-rectify-btn" onclick="window.__openRectifyModal()">🧭 候选盘 A 与 B 拿不准？点击开启【四维互动精准定盘（4道客观题锁定真盘）】</button>`;
-        el.innerHTML = `🔍 <strong>区间跨时辰提醒（共跨越 ${res.candidates.length} 个候选时辰盘）：</strong><br>您的出生区间（${rStart}–${rEnd}）经【${city}】真太阳时校准后为 <strong>${res.tstStart.trueTimeStr}–${res.tstEnd.trueTimeStr}</strong>。<br>👇 <strong>您可以直接核对下方特征锁定，或者点击下方金色按钮通过「过往真实经历 + 骨相睡眠」四维定盘：</strong>${cardsHtml}${wizBtn}`;
+        const names = res.candidates.map(c => `【${c.shichenName}】`).join(" 或 ");
+        el.innerHTML = `⚠️ <strong>这个区间跨了 ${res.candidates.length} 个时辰，命盘还不唯一</strong><br>`
+          + `你填的区间（${rStart}–${rEnd}）经【${city}】真太阳时校准后是 <strong>${res.tstStart.trueTimeStr}–${res.tstEnd.trueTimeStr}</strong>，可能落在 ${names}。`
+          + `<span class="tst-note">时辰不同，命宫主星与八字时柱完全不同，结论会差很远。用几道客观题就能定到唯一一盘。</span>`
+          + `<button type="button" class="drawer-open-rectify-btn" onclick="window.__openRectifyModal()">🧭 开始精准定盘</button>`;
       }
       return;
     }
@@ -367,7 +360,7 @@ document.addEventListener("DOMContentLoaded", () => {
     verdictBox.style.display = "block";
     verdictBox.innerHTML = `
       <div style="font-size:14px; font-weight:700; color:#a78bfa; margin-bottom:6px;">
-        🎯 五维铁证定盘实时诊断报告（已完成 ${answeredCount}/${currentRectifyQuiz.questions.length} 维核对）
+        🎯 定盘实时诊断（已核对 ${answeredCount}/${currentRectifyQuiz.questions.length} 项）
       </div>
       <div style="margin-bottom:8px; padding:7px 10px; background:rgba(255,255,255,0.05); border-radius:6px;">
         ${scoreBreakdown}
@@ -380,7 +373,7 @@ document.addEventListener("DOMContentLoaded", () => {
           ✨ 采纳定盘结果：正式锁定【${winCand.shichenName}盘】并更新全盘
         </button>
         <button type="button" class="save-chart-btn" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.22); font-size:12.2px;" onclick="window.__sendRectifyToAI()">
-          💬 还是有点拿不准？将我的 4 维核对结果发给 AI 深度交互定盘
+          💬 还是拿不准？把核对结果交给 AI，多问几轮再定
         </button>
       </div>
     `;
@@ -406,7 +399,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return `· ${q.dimension}：我选择了「${chosenOpt ? chosenOpt.label : "暂未确定"}」`;
     }).join("\n");
 
-    const prompt = `我的出生时间在一个模糊区间内，目前在以下候选时辰之间拿不准：\n${candDesc}\n\n我在【四维定盘向导】中的真实情况反馈如下：\n${userChoices}\n\n请结合我的上述真实过往经历与体感反馈，直接用大白话帮我做最终定盘：我到底属于哪个时辰盘？并基于锁定后的真命盘，直接分析我当下的核心运势与感情事业重点！`;
+    const prompt = `我的出生时间在一个模糊区间内，目前在以下候选时辰之间拿不准：\n${candDesc}\n\n我在【精准定盘】里的真实情况反馈如下：\n${userChoices}\n\n请结合我的上述真实过往经历与体感反馈，直接用大白话帮我做最终定盘：我到底属于哪个时辰盘？并基于锁定后的真命盘，直接分析我当下的核心运势与感情事业重点！`;
     send(prompt);
   };
 
@@ -1017,10 +1010,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const drawer = document.getElementById("chart-drawer");
-    const open = () => drawer?.classList.add("open");
+    // 打开命盘抽屉时，顺手收起手机端的侧边抽屉，避免两层叠在一起
+    const open = () => { drawer?.classList.add("open"); toggleMobileSidebar(false); };
     const close = () => drawer?.classList.remove("open");
     document.getElementById("btn-open-drawer")?.addEventListener("click", open);
-    document.getElementById("btn-open-rectify")?.addEventListener("click", () => window.__openRectifyModal());
+    document.getElementById("btn-open-rectify")?.addEventListener("click", () => {
+      toggleMobileSidebar(false);
+      window.__openRectifyModal();
+    });
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", open);
     document.getElementById("btn-modify-chart-trigger")?.addEventListener("click", open);
     document.getElementById("btn-close-drawer")?.addEventListener("click", close);
@@ -1050,18 +1047,6 @@ document.addEventListener("DOMContentLoaded", () => {
     ["drawer-birthdate", "drawer-birthtime", "drawer-city", "drawer-time-mode", "drawer-range-start", "drawer-range-end"].forEach(id => {
       document.getElementById(id)?.addEventListener("change", triggerLiveTst);
       document.getElementById(id)?.addEventListener("input", triggerLiveTst);
-    });
-
-    document.querySelectorAll(".range-chip").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.querySelectorAll(".range-chip").forEach(b => b.classList.remove("active"));
-        btn.classList.add("active");
-        const rs = document.getElementById("drawer-range-start");
-        const re = document.getElementById("drawer-range-end");
-        if (rs) rs.value = btn.dataset.start;
-        if (re) re.value = btn.dataset.end;
-        triggerLiveTst();
-      });
     });
 
     document.getElementById("btn-save-chart")?.addEventListener("click", () => {

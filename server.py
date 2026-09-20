@@ -22,6 +22,7 @@ import socketserver
 import os
 import sys
 import json
+import re
 import webbrowser
 import urllib.request
 import urllib.error
@@ -190,7 +191,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         url = payload.get('endpoint') or default_url
         model = payload.get('model') or default_model
         messages = payload.get('messages') or []
-        temperature = payload.get('temperature', 0.85)
+        temperature = payload.get('temperature')      # 推理模型不传这个字段
+        is_reasoner = bool(re.search(
+            r'reasoner|reasoning|deepseek-r1|(^|[^a-z])r1([^a-z]|$)|qwq|-z1|thinking',
+            str(model), re.I))
         stream = bool(payload.get('stream', True))
 
         # key 优先取环境变量，其次取前端传入
@@ -202,12 +206,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not messages:
             return self._json_error(400, "messages 为空")
 
-        req_body = json.dumps({
+        upstream = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
-            "stream": stream,
-        }, ensure_ascii=False).encode('utf-8')
+            "stream": stream
+        }
+        if temperature is not None and not is_reasoner:
+            upstream["temperature"] = temperature
+        req_body = json.dumps(upstream, ensure_ascii=False).encode('utf-8')
 
         req = urllib.request.Request(
             url,

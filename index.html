@@ -397,8 +397,17 @@
           </div>
         </div>
         <div>
-          <label class="form-label-xs">模型名（留空用默认）</label>
-          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-chat" style="width:100%;">
+          <label class="deep-think-row">
+            <input type="checkbox" id="settings-deep-think">
+            <span>
+              <b>深度思考</b>
+              <em>换成推理模型（DeepSeek-R1 等），会先想一遍再回答，能看到真实思考过程。更慢、更贵，但推演更细。</em>
+            </span>
+          </label>
+        </div>
+        <div>
+          <label class="form-label-xs">模型名（留空按上面的开关自动选）</label>
+          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-chat / deepseek-reasoner" style="width:100%;">
         </div>
         <div>
           <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>

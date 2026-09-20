@@ -1629,7 +1629,47 @@
     return out.filter(function (x) { return x && x.length; }).slice(0, 6);
   }
 
-  function buildSystemPrompt(chart, question, kbMode = "ziwei") {
+
+  /* ---------- 追问去重：把上几轮已经讲过的东西挑出来，禁止再讲一遍 ---------- */
+  const PALACE_VOCAB = ["命宫","兄弟宫","夫妻宫","子女宫","财帛宫","疾厄宫",
+                        "迁移宫","交友宫","官禄宫","田宅宫","福德宫","父母宫"];
+  const STAR_VOCAB = ["紫微","天机","太阳","武曲","天同","廉贞","天府","太阴","贪狼","巨门",
+                      "天相","天梁","七杀","破军","左辅","右弼","文昌","文曲","天魁","天钺",
+                      "擎羊","陀罗","火星","铃星","地空","地劫","红鸾","天喜","天姚","咸池"];
+  const GOD_VOCAB = ["比肩","劫财","食神","伤官","正财","偏财","正官","七杀","正印","偏印"];
+
+  function collectCovered(history) {
+    const txt = (history || [])
+      .filter(function (h) { return h.role === "ai" || h.role === "assistant"; })
+      .map(function (h) { return String(h.content || ""); })
+      .join("\n");
+    if (!txt.trim()) return null;
+    const uniq = function (a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }); };
+    const hit = function (arr) { return arr.filter(function (w) { return txt.indexOf(w) >= 0; }); };
+    return {
+      palaces: hit(PALACE_VOCAB),
+      stars: hit(STAR_VOCAB).slice(0, 12),
+      gods: hit(GOD_VOCAB),
+      dates: uniq(txt.match(/\d{1,2}月\d{1,2}日/g) || []).slice(0, 10),
+      years: uniq(txt.match(/20\d\d年/g) || []).slice(0, 6)
+    };
+  }
+
+  function coveredBlock(cov) {
+    if (!cov) return "";
+    const L = [];
+    if (cov.palaces.length) L.push("  · 已经分析过的宫位：" + cov.palaces.join("、"));
+    if (cov.stars.length)   L.push("  · 已经点过的星曜：" + cov.stars.join("、"));
+    if (cov.gods.length)    L.push("  · 已经讲过的十神：" + cov.gods.join("、"));
+    if (cov.dates.length)   L.push("  · 已经给过的具体日期：" + cov.dates.join("、"));
+    if (cov.years.length)   L.push("  · 已经提过的年份：" + cov.years.join("、"));
+    if (!L.length) return "";
+    return "\n【⛔ 这些你在本窗口已经讲过了，不许再讲第二遍】\n" + L.join("\n") +
+           "\n  上面这些内容用户已经看过。要用到就一句话带过（例如「还是那个 11 月的节点」），" +
+           "把篇幅全部让给这个新问题带来的新东西。\n";
+  }
+
+  function buildSystemPrompt(chart, question, kbMode = "ziwei", ctx = {}) {
     const mode = kbMode === "bazi" ? "bazi" : "ziwei";
     const t = getCurrentTimeAnchor();
     const age = t.Y - chart.profile.year + 1;
@@ -1692,7 +1732,9 @@ ${blk}
 - 只给「今年年底」「明年」这种粗颗粒＝不合格，必须精确到月并带公历起讫日。
 - 未来三年若有明显转折年，直接点名是哪一年、因为什么。`;
 
-    const sectionSpec = mode === "ziwei" ?
+    const turn = ctx.turn || 1;
+    const followUp = turn > 1;
+    const fullSpec = mode === "ziwei" ?
 `### 🎯 一、直断
 - 第一行：${timeBase}
 - 接着 2–3 句大白话把话说死：这件事成不成、卡在哪、哪个月见分晓。
@@ -1730,6 +1772,22 @@ ${commonTiming}
 - 最后给 2 条趋避动作，必须带上喜用五行对应的具体做法（方位／行业／该找什么人／避开什么）。
   禁止“多沟通”“提升自我”这类空话。`;
 
+    // 同一个窗口里的第 2 句话开始，就不要再把命盘从头介绍一遍了 ——
+    // 这是用户反馈「一直出现重复的内容、反复强调」的根因。
+    const followSpec =
+`【本窗口第 ${turn} 轮 · 追问模式】
+用户已经看过你对这张盘的完整分析了，他现在问的是一个新问题，不是让你复述。
+- ❌ **不要**再写「🕒 推演时间基准」那一行。
+- ❌ **不要**再用三段式标题（一、二、三），直接说人话。
+- ❌ **不要**重新介绍这张盘的总体格局${mode === "ziwei" ? "（命宫、主星、整体性格）" : "（日元旺衰、喜用忌神、格局层次）"} ——
+     除非用户这次问的正好就是这个。
+- ❌ **不要**把上几轮点过的时间窗口再抄一遍。
+- ✅ 只回答**这个新问题**，只讲它带来的**新东西**：新的${mode === "ziwei" ? "宫位、星曜、四化" : "干支、十神、冲合"}、新的角度、新的结论。
+- ✅ 开门见山第一句就给答案，然后讲依据，最后给 1 条能照做的动作。
+- ✅ 如果这个问题的答案和上一轮其实是同一件事，就**直接说「这个和刚才那个是同一回事」并只补充增量**，不要硬凑篇幅。`;
+
+    const sectionSpec = followUp ? followSpec : fullSpec;
+
     return `${roomIdentity}
 
 ════════ 【⏰ 当前真实绝对时间与天文历法基准（回答必须100%以此为准）】 ════════
@@ -1746,7 +1804,7 @@ ${commonTiming}
 ════════ 本人真实排盘数据（天文历法精确排出，严禁篡改） ════════
 ${buildChartDossier(chart, mode)}
 ══════════════════════════════════════════════════════════════════
-${buildForecastDesk(chart, question, mode)}${kbBlock}${baziKbBlock}
+${buildForecastDesk(chart, question, mode)}${kbBlock}${baziKbBlock}${coveredBlock(ctx.covered)}
 
 【绝对命令 · 表达风格与排版准则（违反即为严重错误）】
 1. **严禁展示任何古籍引用或书名**：
@@ -1767,8 +1825,13 @@ ${sectionSpec}
 5. 上方【🧮 预推演台】的数据是精确排出来的，**你必须用，而且不能改**；不要自己另算流年流月，算错了就是硬伤。
 6. **守住本席边界**。用户会同时开着另一个窗口用另一套体系问同一个问题；如果你越界去讲对方的内容，
    两边就会给出雷同的回答，这是本产品最严重的失败。宁可在本体系内挖深，也不要往外扩。
+7. **同一件事只说一次 —— 这一条用户专门提过意见，违反了就是不合格**。
+   - 各段之间严禁互相复述：第一段给结论，第二段给依据，第三段给时间与动作，**同一个论点不许出现两次**。
+   - 不要"先预告再展开再总结"。没有总结段，讲完就停。
+   - 写之前先想清楚：这段要说的东西，上面是不是已经说过了？说过就删掉，换新的说。
+   - 同一个星曜／干支如果要在两处提到，第二处只写它带来的新结论，不要把它的含义再解释一遍。
 
-篇幅 800–1200 字。密度优先：宁可少讲一个点，也要把讲到的每个点讲到能落地。全篇现代大白话，客观锋利，不掉书袋。`;
+${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已经说过的话。" : "篇幅 700–1000 字。密度优先：宁可少讲一个点，也不要把一个点翻来覆去说三遍。"}全篇现代大白话，客观锋利，不掉书袋。`;
   }
 
   /* ---------- 7.2.5 上游请求：本地代理 或 浏览器直连（静态网站模式） ---------- */
@@ -1869,7 +1932,10 @@ ${sectionSpec}
    * @returns {Promise<string>} 完整回答
    */
   async function callLiveAPIStream(question, chart, history, config, onDelta) {
-    const messages = [{ role: "system", content: buildSystemPrompt(chart, question, config.kbMode || "ziwei") }];
+    const hist = history || [];
+    const turn = hist.filter(function (h) { return h.role === "ai" || h.role === "assistant"; }).length + 1;
+    const ctx = { turn: turn, covered: collectCovered(hist) };
+    const messages = [{ role: "system", content: buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
     // 最近 3 轮对话（6 条），保留追问上下文
     history.slice(-6).forEach(function (h) {
       messages.push({

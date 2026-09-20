@@ -1366,16 +1366,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     let auditHtml = "";
     if (ai && !m.streaming && m.audit && m.audit.length) {
+      // 这条是「点到」在回答生成之后自动拿实盘复核出来的，不是 AI 自己写的。
+      // 原来标题只有「自检 / 排盘校验」两个词，用户根本不知道这块是什么、出了冲突该信谁。
+      const allDay = m.audit.every(function (x) { return x.kind === "dayPrecision"; });
       auditHtml = '<div class="audit-strip">' +
-        '<div class="audit-head">⚠️ ' +
-        (m.audit.every(function (x) { return x.kind === "dayPrecision"; })
-          ? '自检：上面有 ' + m.audit.length + ' 处说得比命盘能给的更精确'
-          : '排盘校验：上面有 ' + m.audit.length + ' 处和实盘对不上') + '</div>' +
+        '<div class="audit-head">⚠️ 自动核对：这段回答有 ' + m.audit.length +
+        (allDay ? ' 处把时间说得太死了' : ' 处和你的实盘对不上') + '</div>' +
         m.audit.map(function (x) {
           return '<div class="audit-item"><s>' + escapeHtml(x.claim) + '</s> 实际是 <b>' +
                  escapeHtml(x.actual) + '</b>' +
                  (x.hint ? '<span class="audit-hint">' + escapeHtml(x.hint) + '</span>' : '') + '</div>';
-        }).join("") + '</div>';
+        }).join("") +
+        '<div class="audit-foot">这几条是回答写完后，「点到」拿你的实盘逐条比对出来的，' +
+        '不是 AI 自己说的。有冲突时以这里为准。</div>' + '</div>';
     }
     let follow = "";
     if (ai && !m.streaming && m.followups && m.followups.length) {

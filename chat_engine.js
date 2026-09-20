@@ -1154,6 +1154,22 @@
       : ("相合（" + key + "→化" + hua + "；月令" + moZhi + "，化神无根，合而不化：互相牵绊、决断打折）");
   }
 
+  /* 十二长生：日干在某地支上的生旺死绝。
+     阳干顺行、阴干逆行；这是判断「日元在这根支上有没有气」最直接的一把尺。 */
+  const CS_NAMES = ["长生","沐浴","冠带","临官","帝旺","衰","病","死","墓","绝","胎","养"];
+  const CS_START = { "甲":"亥","丙":"寅","戊":"寅","庚":"巳","壬":"申",
+                     "乙":"午","丁":"酉","己":"酉","辛":"子","癸":"卯" };
+  const YANG_GAN = ["甲","丙","戊","庚","壬"];
+  function changSheng(gan, zhi) {
+    const st = CS_START[gan];
+    if (!st || !zhi) return "";
+    const a = DIZHI.indexOf(st), b = DIZHI.indexOf(zhi);
+    if (a < 0 || b < 0) return "";
+    const yang = YANG_GAN.indexOf(gan) >= 0;
+    const step = yang ? ((b - a) % 12 + 12) % 12 : ((a - b) % 12 + 12) % 12;
+    return CS_NAMES[step];
+  }
+
   // 五虎遁：年干 -> 寅月月干
   const YINYUE_GAN = { "甲":"丙","己":"丙","乙":"戊","庚":"戊","丙":"庚","辛":"庚","丁":"壬","壬":"壬","戊":"甲","癸":"甲" };
   function monthGanOf(yearGan, zhi) {
@@ -1238,6 +1254,19 @@
         if (pa && pa.index === i) selfs.push({ i: i, k: k, star: sh0[k] });
       });
     }
+    let shenIdx = -1;
+    for (let i = 0; i < 12; i++) if (P[i].isShen) shenIdx = i;
+    if (shenIdx >= 0) {
+      const same = (P[shenIdx].name === "命宫");
+      L.push("【身宫 —— 后天的着力点（命宫是先天本性，身宫是他后半生实际把力气花在哪）】");
+      L.push("  ▸ 身宫落【" + P[shenIdx].name + "】" + P[shenIdx].gan + P[shenIdx].branch + "：" + starsOf(shenIdx));
+      L.push(same
+        ? "  ▸ 身命同宫：本性和后天用力方向一致，人比较「一以贯之」，但也意味着缺少第二条退路，一条路走到黑。"
+        : "  ▸ 命宫管他天生是什么人，身宫管他三十五岁以后实际经营的是什么。两者不同宫时，中年前后会有一次明显的重心转移，从【命宫】那套活法挪到【" + P[shenIdx].name + "】这套上来。");
+      L.push("  ▸ 本题若与【" + P[shenIdx].name + "】有关，权重要加大：那是他真正肯投入的地方。");
+      L.push("");
+    }
+
     L.push("【宫干自化 —— 离心力（生年四化是向内聚，自化是向外漏，方向相反，绝不能混为一谈）】");
     if (selfs.length) {
       selfs.forEach(function (x) {
@@ -1590,6 +1619,11 @@
       }
       if (st.avoid.length) L.push("  ▸ 忌神五行：【" + st.avoid.join("、") + "】（这几类环境、行业、人少碰）");
       if (st.tiaohou) L.push("  ▸ ⚠️ 调候：" + st.tiaohou);
+      const hZhi = String(b.hourPillar).charAt(1);
+      L.push("  ▸ 日元【" + dg + "】的十二长生（这根支上日元有没有气，一眼可判）：" +
+             "年支" + yrZhi + "＝" + changSheng(dg, yrZhi) + "　月令" + moZhi + "＝" + changSheng(dg, moZhi) +
+             "　日支" + dayZhi + "＝" + changSheng(dg, dayZhi) + "　时支" + hZhi + "＝" + changSheng(dg, hZhi));
+      L.push("     · 临官／帝旺＝当令有力；长生／冠带＝有气可用；衰病死墓绝＝无气，别硬说他这块强");
       L.push("");
     }
 
@@ -1627,6 +1661,7 @@
         L.push("  " + mark + " " + d.gz + "运（" + d.fromYear + "–" + d.toYear + "，" + d.fromAge + "–" + d.toAge +
                "岁）｜运干" + g2 + "＝【" + god(g2) + "】" +
                (gRels.length ? "｜天干：" + gRels.join("，") : "") + "｜运支" + z2 +
+               "（日元在此＝" + changSheng(dg, z2) + "）" +
                (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
       });
       if (curDy) {
@@ -1656,7 +1691,8 @@
       }
       L.push("  ◆ " + yy + "年 " + gz + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
              "】" + (gRels.length ? "｜天干：" + gRels.join("，") : "") +
-             "｜年支" + z2 + (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+             "｜年支" + z2 + "（日元在此＝" + changSheng(dg, z2) + "）" +
+             (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
     }
     L.push("");
 

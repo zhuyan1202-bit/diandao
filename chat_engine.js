@@ -1409,6 +1409,65 @@
     ];
   }
 
+
+  /**
+   * 极简「思考便签」：给聊天气泡上方那条折叠的思考条用。
+   * 只写真实算出来的关键坐标，每条尽量 ≤ 26 字，4–5 条即可。
+   * 和旧的四步仪式感文案不同 —— 这里不写「正在检索古籍」这种废话。
+   */
+  function buildThinkingNotes(question, chart, kbMode) {
+    const out = [];
+    try {
+      const t = getCurrentTimeAnchor();
+      const dom = resolveDomainAndPalace(question, chart);
+      const p = chart.profile;
+      if (kbMode === "bazi") {
+        const b = chart.bazi || {};
+        out.push("四柱 " + b.yearPillar + " " + b.monthPillar + " " + b.dayPillar + " " + b.hourPillar);
+        out.push("日元" + b.dayMaster + b.wuxing + "生" + String(b.monthPillar).charAt(1) + "月，看" + dom.baziAspect);
+        const dy = computeDayun(chart);
+        if (dy) {
+          const realAge = t.Y - p.year;
+          let cur = null;
+          dy.list.forEach(function (d) { if (realAge >= d.fromAge && realAge <= d.toAge) cur = d; });
+          if (cur) {
+            out.push("大运 " + cur.gz + "（" + cur.fromYear + "–" + cur.toYear + "），走到第 " +
+                     (t.Y - cur.fromYear + 1) + " 年");
+          }
+        }
+        const yg = yearGanZhi(t.Y);
+        out.push("流年 " + yg + "：年干" + yg.charAt(0) + "为" +
+                 (global.AstrologyCore ? global.AstrologyCore.getTenGod(b.dayMaster, yg.charAt(0)) : "—"));
+        out.push("比对未来六个节气月与大运、日支的冲合");
+      } else {
+        const zw = chart.ziwei || {};
+        const mp = (zw.palaces || []).find(function (x) { return x.name === "命宫"; });
+        if (mp) {
+          out.push("命宫 " + mp.gan + mp.branch + "：" +
+                   (mp.mainStars.map(function (x) { return x.name; }).join("") || "空宫借对宫"));
+        }
+        out.push("本题锁定【" + dom.palName + "】" + dom.starDesc.replace(/\[化(.)\]/g, "化$1"));
+        out.push("对宫【" + (dom.opp.name || "对宫") + "】" + dom.oppDesc.replace(/\[化(.)\]/g, "化$1"));
+        const ZWE = global.ZiweiEngine;
+        if (ZWE && zw.raw && zw.raw.palaces) {
+          const P2 = zw.raw.palaces;
+          const age = t.Y - p.year + 1;
+          for (let i = 0; i < 12; i++) {
+            if (P2[i].daxian && age >= P2[i].daxian.start && age <= P2[i].daxian.end) {
+              out.push("大限 " + P2[i].daxian.start + "–" + P2[i].daxian.end + "岁走【" + P2[i].name + "】");
+              break;
+            }
+          }
+          const yg = yearGanZhi(t.Y);
+          const li = DIZHI.indexOf(yg.charAt(1));
+          if (li >= 0) out.push("流年 " + yg + "：流年命宫入本命【" + P2[li].name + "】");
+        }
+        out.push("推未来六个月流月命宫落点");
+      }
+    } catch (e) {}
+    return out.filter(function (x) { return x && x.length; }).slice(0, 6);
+  }
+
   function buildSystemPrompt(chart, question, kbMode = "ziwei") {
     const mode = kbMode === "bazi" ? "bazi" : "ziwei";
     const t = getCurrentTimeAnchor();
@@ -1658,6 +1717,6 @@ ${buildForecastDesk(chart, question, mode)}${kbBlock}${baziKbBlock}
   global.ChatEngine = {
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
-    followupsFor, buildReasoningSteps, getCurrentTimeAnchor
+    followupsFor, buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor
   };
 })(typeof window !== "undefined" ? window : global);

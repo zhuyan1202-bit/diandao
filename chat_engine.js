@@ -978,6 +978,20 @@
       lines.push(`  💡 提示：若用户尚未在排盘抽屉中点击锁定单一时辰，你在回答时可结合其年柱、月柱、日柱（前三柱100%确定）给出稳健定论，并顺带用1-2句大白话点出上述候选时辰在当前问题上的细微差异，帮用户自然核对。`);
     }
     if (chart.lunar) lines.push(`出生农历：${chart.lunar.lYear}年${chart.lunar.lMonthLabel}${chart.lunar.lDayLabel}`);
+
+    // 排盘引擎算出来的不确定性（节气跨界、晚子时流派、闰月分歧……）
+    // 以前只在界面上提示，从来没告诉过模型 —— 模型因此会把一个可能排错的柱当成铁案讲。
+    const warns = (chart.warnings || []).filter(function (w) {
+      return String(w || "").indexOf("\u5df2\u6821\u51c6") < 0;   // 纯报备的不算不确定性
+    });
+    if (warns.length) {
+      lines.push("\u3010\u26a0\ufe0f \u672c\u76d8\u7684\u4e0d\u786e\u5b9a\u6027\uff08\u6392\u76d8\u5f15\u64ce\u5b9e\u6d4b\uff0c\u4e0d\u662f\u5957\u8bdd\uff09\u3011");
+      warns.forEach(function (w, i) { lines.push("  " + (i + 1) + ". " + w); });
+      lines.push("  \u2192 \u7528\u6cd5\uff1a\u4e0d\u8981\u628a\u8fd9\u51e0\u6761\u5f53\u514d\u8d23\u58f0\u660e\u62c4\u51fa\u6765\uff0c\u4e5f\u4e0d\u8981\u6bcf\u6b21\u90fd\u63d0\u3002" +
+                 "\u53ea\u6709\u5f53\u4f60\u8fd9\u4e00\u8f6e\u7684\u7ed3\u8bba**\u6070\u597d\u5c31\u67b6\u5728\u8fd9\u4e2a\u4e0d\u786e\u5b9a\u7684\u67f1\u6216\u65f6\u8fb0\u4e0a**\u65f6\uff0c" +
+                 "\u7528\u4e00\u53e5\u8bdd\u70b9\u660e\uff08\u4f8b\u5982\u300c\u8fd9\u6761\u770b\u7684\u662f\u65f6\u67f1\uff0c\u4f60\u8fd9\u4e2a\u65f6\u8fb0\u5361\u5728\u8fb9\u4e0a\uff0c\u82e5\u5b9e\u9645\u662f\u2465\u65f6\u5219\u7ed3\u8bba\u76f8\u53cd\u300d\uff09\uff0c" +
+                 "\u7136\u540e\u7ed9\u51fa\u533a\u5206\u4e24\u79cd\u60c5\u51b5\u7684\u5224\u65ad\u3002\u5176\u4f59\u65f6\u5019\u4e00\u5b57\u4e0d\u63d0\u3002");
+    }
     lines.push("");
 
     if (mode === "bazi") {
@@ -1526,12 +1540,39 @@
 
   function ganOfYear(y) { return TIANGAN[((((y - 4) % 10) + 10) % 10)]; }
 
-  function buildForecastDesk(chart, question, mode) {
+  // 用户本轮是不是在问时间；是的话流月表必须留着
+  const TIME_QUESTION = /\u65f6\u95f4|\u4ec0\u4e48\u65f6\u5019|\u557a\u65f6\u5019|\u54ea\u5e74|\u54ea\u4e2a\u6708|\u51e0\u6708|\u51e0\u53f7|\u591a\u4e45|\u4f55\u65f6|\u5e74\u5e95|\u8fd1\u671f|\u6700\u8fd1|\u4eca\u5e74|\u660e\u5e74|\u540e\u5e74|\u4e0b\u534a\u5e74|\u4e0a\u534a\u5e74|\u7a97\u53e3|\u8282\u70b9/;
+
+  // 同一张盘里，流月表每轮都一模一样 —— 模型看到它就会再拄一遍。
+  // 追问轮只要不是在问时间，就把这块撑掉。
+  function trimDeskForFollowup(body, question, ctx) {
+    if (!ctx || !(ctx.turn > 1)) return body;
+    if (TIME_QUESTION.test(String(question || ""))) return body;
+    const src = String(body).split("\n");
+    const out = [];
+    let skipping = false, dropped = 0;
+    for (let i = 0; i < src.length; i++) {
+      const ln = src[i];
+      if (/^\u3010\u672a\u6765\u516d\u4e2a/.test(ln)) { skipping = true; dropped++; continue; }
+      if (skipping) {
+        if (/^\u3010/.test(ln)) skipping = false;
+        else { dropped++; continue; }
+      }
+      out.push(ln);
+    }
+    if (!dropped) return body;
+    return out.join("\n") +
+      "\n\u3010\u6d41\u6708\u8868\u672c\u8f6e\u5df2\u6491\u6389\u3011\u672a\u6765\u516d\u4e2a\u6708\u7684\u6392\u5e03\u4e0a\u51e0\u8f6e\u5df2\u7ecf\u7ed9\u8fc7\u7528\u6237\u4e86\u3002" +
+      "\u672c\u8f6e\u7981\u6b62\u518d\u5217\u6708\u4efd\u8868\u3001\u7981\u6b62\u9010\u6708\u70b9\u8bc4\uff1b\u786e\u6709\u5fc5\u8981\u5f15\u7528\u67d0\u4e2a\u6708\u65f6\uff0c\u4e00\u53e5\u8bdd\u5e26\u8fc7\u3002";
+  }
+
+  function buildForecastDesk(chart, question, mode, ctx) {
     try {
       const t = getCurrentTimeAnchor();
       const dom = resolveDomainAndPalace(question, chart);
-      const body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
+      let body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
       if (!body) return "";
+      body = trimDeskForFollowup(body, question, ctx);
       return "\n════════ 【🧮 预推演台：以下岁运数据已由排盘引擎精确算出，直接引用，严禁自行心算或改动】 ════════\n" +
              body +
              "\n══════════════════════════════════════════════════════════════════\n";
@@ -1655,6 +1696,49 @@
     };
   }
 
+  // 词表拦不住「同一个结论换个说法再说一遍」——
+  // 必须把上一轮的判断句原样摆给模型看。
+  const CONCLUSIVE = /[\u4f1a\u8981\u522b\u5e94\u8be5\u9002\u5408\u4e0d\u5b9c\u6700\u597d\u5efa\u8bae\u6ce8\u610f\u5bb9\u6613\u5fc5\u987b\u4e00\u5b9a\u53ef\u4ee5\u4e0d\u80fd\u96be\u7a33\u52a8\u51b2\u65fa\u5f31\u5148\u522b\u7b49]/;
+
+  function recentClaims(history) {
+    const ais = (history || []).filter(function (h) { return h.role === "ai" || h.role === "assistant"; });
+    if (!ais.length) return [];
+    const last = String(ais[ais.length - 1].content || "");
+    if (!last.trim()) return [];
+    const evid = new RegExp("(" + PALACE_VOCAB.concat(STAR_VOCAB, GOD_VOCAB).join("|") +
+                            "|20\\d\\d\u5e74|\\d{1,2}\u6708)");
+    const sents = last
+      .replace(/^#{1,6}.*$/gm, "")
+      .replace(/[*`>\-\u2014\u3001]/g, "")
+      .split(/[\u3002\uff01\uff1f\n]/)
+      .map(function (x) { return x.trim(); })
+      .filter(function (x) { return x.length >= 10 && x.length <= 60; });
+    const strong = sents.filter(function (x) { return CONCLUSIVE.test(x) && evid.test(x); });
+    return (strong.length ? strong : sents).slice(0, 5);
+  }
+
+  function claimsBlock(claims) {
+    if (!claims || !claims.length) return "";
+    return "\n\u3010\ud83d\udd01 \u4f60\u4e0a\u4e00\u8f6e\u5df2\u7ecf\u4e0b\u8fc7\u8fd9\u51e0\u4e2a\u5224\u65ad\uff08\u7528\u6237\u521a\u770b\u5b8c\uff09\u3011\n" +
+      claims.map(function (c, i) { return "  " + (i + 1) + ". " + c; }).join("\n") +
+      "\n  \u2757 \u4e0d\u8bb8\u628a\u4e0a\u9762\u4efb\u4f55\u4e00\u6761\u6362\u4e2a\u8bf4\u6cd5\u518d\u8bf4\u4e00\u904d\uff0c\u4e5f\u4e0d\u8bb8\u5148\u590d\u8ff0\u4e00\u904d\u518d\u5f80\u4e0b\u8bb2\u3002\n" +
+      "  \u672c\u8f6e\u8981\u4e48\u7ed9\u5168\u65b0\u7684\u5224\u65ad\uff0c\u8981\u4e48\u660e\u786e\u4fee\u6b63\uff0f\u63a8\u7ffb\u5176\u4e2d\u67d0\u4e00\u6761\u5e76\u8bf4\u6e05\u695a\u4e3a\u4ec0\u4e48\u3002\n";
+  }
+
+  // 上一轮是从哪个入口切进去的（用于强制换镜头）
+  function lastFocusOf(history, mode) {
+    const ais = (history || []).filter(function (h) { return h.role === "ai" || h.role === "assistant"; });
+    if (!ais.length) return "";
+    const last = String(ais[ais.length - 1].content || "");
+    // 八字答案里未必出现十神名，再兼容一批柱位词
+    const vocab = (mode === "bazi")
+      ? GOD_VOCAB.concat(["\u65e5\u5143","\u6708\u4ee4","\u5e74\u67f1","\u6708\u67f1","\u65e5\u67f1","\u65f6\u67f1","\u5927\u8fd0"])
+      : PALACE_VOCAB;
+    const found = vocab.filter(function (w) { return last.indexOf(w) >= 0; })
+                       .sort(function (x, y) { return last.indexOf(x) - last.indexOf(y); });
+    return found.length ? found[0] : "";
+  }
+
   function coveredBlock(cov) {
     if (!cov) return "";
     const L = [];
@@ -1670,6 +1754,7 @@
   }
 
   function buildSystemPrompt(chart, question, kbMode = "ziwei", ctx = {}) {
+    ctx = ctx || {};
     const mode = kbMode === "bazi" ? "bazi" : "ziwei";
     const t = getCurrentTimeAnchor();
     const age = t.Y - chart.profile.year + 1;
@@ -1784,7 +1869,12 @@ ${commonTiming}
 - ❌ **不要**把上几轮点过的时间窗口再抄一遍。
 - ✅ 只回答**这个新问题**，只讲它带来的**新东西**：新的${mode === "ziwei" ? "宫位、星曜、四化" : "干支、十神、冲合"}、新的角度、新的结论。
 - ✅ 开门见山第一句就给答案，然后讲依据，最后给 1 条能照做的动作。
-- ✅ 如果这个问题的答案和上一轮其实是同一件事，就**直接说「这个和刚才那个是同一回事」并只补充增量**，不要硬凑篇幅。`;
+- ✅ 如果这个问题的答案和上一轮其实是同一件事，就**直接说「这个和刚才那个是同一回事」并只补充增量**，不要硬凑篇幅。
+${ctx.lastFocus
+  ? "- \ud83d\udd04 **换个镜头**：上一轮你是从【" + ctx.lastFocus + "】切进去的。这一轮如果问题还落在同一块，\n" +
+    "     必须换一个入口（" + (mode === "ziwei" ? "三方四正的另一宫、或大限四化飞入的那一宫" : "另一柱、另一个十神、或下一步大运") + "），\n" +
+    "     不许站在同一个位置再讲一遍。"
+  : ""}`;
 
     // 追问预判：这一行会被前端拆成按钮，不会原样显示给用户
     const nextSpec =
@@ -1828,7 +1918,7 @@ ${mode === "ziwei"
 ════════ 本人真实排盘数据（天文历法精确排出，严禁篡改） ════════
 ${buildChartDossier(chart, mode)}
 ══════════════════════════════════════════════════════════════════
-${buildForecastDesk(chart, question, mode)}${kbBlock}${baziKbBlock}${coveredBlock(ctx.covered)}
+${buildForecastDesk(chart, question, mode, ctx)}${kbBlock}${baziKbBlock}${coveredBlock(ctx.covered)}${claimsBlock(ctx.claims)}
 
 【绝对命令 · 表达风格与排版准则（违反即为严重错误）】
 1. **严禁展示任何古籍引用或书名**：
@@ -1978,7 +2068,12 @@ ${nextSpec}`;
   async function callLiveAPIStream(question, chart, history, config, onDelta, onReason) {
     const hist = history || [];
     const turn = hist.filter(function (h) { return h.role === "ai" || h.role === "assistant"; }).length + 1;
-    const ctx = { turn: turn, covered: collectCovered(hist) };
+    const ctx = {
+      turn: turn,
+      covered: collectCovered(hist),
+      claims: recentClaims(hist),
+      lastFocus: lastFocusOf(hist, config.kbMode || "ziwei")
+    };
     const messages = [{ role: "system", content: buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
     // 最近 3 轮对话（6 条），保留追问上下文
     history.slice(-6).forEach(function (h) {
@@ -2137,6 +2232,7 @@ ${nextSpec}`;
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
     followupsFor, splitFollowups, stripNextBlock,
+    collectCovered, recentClaims, lastFocusOf,   // 供测试与调试使用
     buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor
   };
 })(typeof window !== "undefined" ? window : global);

@@ -2350,12 +2350,13 @@ ${nextSpec}`;
     const p = chart.profile || {};
     const issues = [];
     const seen = {};
-    const add = function (kind, claim, actual, hint) {
+    // internal=true 的条目只用于内部质量监控，不显示给用户（避免界面出现元信息噪音）
+    const add = function (kind, claim, actual, hint, internal) {
       if (!actual || claim === actual) return;
       const k = kind + "|" + claim;
       if (seen[k]) return;
       seen[k] = 1;
-      issues.push({ kind: kind, claim: claim, actual: actual, hint: hint || "" });
+      issues.push({ kind: kind, claim: claim, actual: actual, hint: hint || "", internal: !!internal });
     };
 
     let m;
@@ -2446,6 +2447,78 @@ ${nextSpec}`;
       const n = parseInt(m[1], 10);
       if (n !== realAge && n !== realAge - 1) {
         add("age", "今年 " + n + " 岁", "今年 " + realAge + " 岁（虚岁）", "");
+      }
+    }
+
+    /* ⑧ 紫微：星曜落宫说错 —— 这是紫微 AI 最高发的幻觉 */
+    if (mode === "ziwei" && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
+      const PZ = chart.ziwei.raw.palaces;
+      const homeOf = {};
+      PZ.forEach(function (pa) {
+        (pa.mainStars || []).forEach(function (x) { homeOf[x.name] = pa.name; });
+        (pa.auxStars  || []).forEach(function (x) { homeOf[x.name] = pa.name; });
+      });
+      const reStar = new RegExp("(" + STAR_VOCAB.join("|") + ")(?:星)?[】\\]]?\\s*(?:独)?(?:坐守|坐镇|坐|落在|落入|入驻|入|守|在)\\s*(?:于)?\\s*[【\\[]?(" +
+                                PALACE_VOCAB.join("|") + ")[】\\]]?", "g");
+      while ((m = reStar.exec(t)) !== null) {
+        const star = m[1], said = m[2], real = homeOf[star];
+        // 「对宫」「三合」「大限夫妻宫」这类说法是另一套坐标，不误报
+        const pre = t.slice(Math.max(0, m.index - 9), m.index);
+        if (/对宫|三合|三方|大限|流年|流月|借|会照|冲照/.test(pre)) continue;
+        const mid = t.slice(m.index, m.index + m[0].length);
+        if (/大限|流年|流月/.test(mid)) continue;
+        if (!real) {
+          add("starMissing", star, "本盘无此星", "这张盘里根本没有【" + star + "】，不能拿它下判断");
+        } else if (real !== said) {
+          add("starPalace", star + "在" + said, star + "在" + real, "本盘【" + star + "】坐【" + real + "】");
+        }
+      }
+    }
+
+    /* ⑨ 应期被断到「某一天」—— 命盘给不出这个精度 */
+    const reDay = /(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(之前|以前|前后|左右|当天|当日|这天|那天|之后|以后)/g;
+    while ((m = reDay.exec(t)) !== null) {
+      add("dayPrecision", "「" + m[1] + "月" + m[2] + "日" + m[3] + "」这个精度", "靠不住",
+          "命盘能支撑的应期上限是「月」，有硬引动时最多到上/中/下旬。精确到某一天是模型自己加的，别当真");
+    }
+
+    /* ⑩ 八字：旺衰讲反了（与扶抑打分矛盾） */
+    if (mode === "bazi") {
+      const st = baziStrength(chart);
+      if (st && st.verdict) {
+        const strongSide = (st.verdict === "身强" || st.verdict === "偏强");
+        const weakSide   = (st.verdict === "身弱" || st.verdict === "偏弱");
+        if (strongSide && /日元(?:偏)?(?:身)?弱|身弱|日主(?:偏)?弱/.test(t)) {
+          add("strength", "说日元弱", "推演台判【" + st.verdict + "】",
+              "帮扶度 " + st.score + "。你若真要推翻这个打分，必须写明理由，不能直接反着讲");
+        }
+        if (weakSide && /日元(?:偏)?(?:身)?强|身强|日主(?:偏)?强/.test(t)) {
+          add("strength", "说日元强", "推演台判【" + st.verdict + "】",
+              "帮扶度 " + st.score + "。你若真要推翻这个打分，必须写明理由，不能直接反着讲");
+        }
+      }
+    }
+
+    /* ⑪ 越界：两席串台是本产品最严重的失败（用户专门提过「两个窗口看着差不多」） */
+    if (mode === "ziwei") {
+      // 注意：「七杀」「贪狼」「破军」在紫微里是正经主星，绝不能当越界词
+      const bad = ["用神", "忌神", "喜用", "身强", "身弱", "日元", "调候", "十神", "正官", "偏财", "正财", "食神", "伤官", "比肩", "劫财", "正印", "偏印"];
+      for (let i = 0; i < bad.length; i++) {
+        if (t.indexOf(bad[i]) >= 0) {
+          add("crossTalk", "紫微席写了「" + bad[i] + "」", "这是八字席的概念",
+              "两席串台会让两个窗口的回答雷同，这是本产品最严重的失败", true);
+          break;
+        }
+      }
+    } else if (mode === "bazi") {
+      const bad2 = ["命宫", "夫妻宫", "官禄宫", "财帛宫", "迁移宫", "福德宫", "田宅宫", "疾厄宫",
+                    "紫微", "天府", "贪狼", "破军", "七杀星", "化禄", "化忌", "大限", "三方四正"];
+      for (let i = 0; i < bad2.length; i++) {
+        if (t.indexOf(bad2[i]) >= 0) {
+          add("crossTalk", "八字席写了「" + bad2[i] + "」", "这是紫微席的概念",
+              "两席串台会让两个窗口的回答雷同，这是本产品最严重的失败", true);
+          break;
+        }
       }
     }
 

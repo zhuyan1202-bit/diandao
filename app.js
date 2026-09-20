@@ -942,18 +942,31 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // 「我心里有件具体的事想问」点下去不发消息，只把人引到输入框，
   // 并换上一个具体的例子当 placeholder —— 示范这个产品在具体决策题上最有用
-  const ASK_EXAMPLES = [
-    "例如：手上这个 offer 该不该接？",
-    "例如：这个人还能不能处下去？",
-    "例如：今年适不适合买房？",
-    "例如：想换个城市发展，该不该动？",
-    "例如：手里这个项目还要不要继续投？",
-    "例如：现在辞职去做自己的事，时机对吗？"
-  ];
+  const ASK_EXAMPLES = {
+    // 紫微强在「具体到人、具体到事」：宫位对应六亲与场景，飞化能看出这件事被谁牵动
+    ziwei: [
+      "例如：这个合伙人靠不靠得住？",
+      "例如：这件事到底卡在谁身上？",
+      "例如：手上这个 offer，老板是什么路数？",
+      "例如：和现在这个人还能走多远？",
+      "例如：要不要跟他把话挑明？",
+      "例如：这次调岗对我是好是坏？"
+    ],
+    // 八字强在「趋势与取舍」：格局定路子，大运流年流月定节奏
+    bazi: [
+      "例如：今年该进还是该守？",
+      "例如：手里这两条路，该走哪条？",
+      "例如：现在辞职去做自己的事，时机对吗？",
+      "例如：我适合往哪个方向、哪个行业走？",
+      "例如：这笔钱现在投出去合适吗？",
+      "例如：想换个城市，什么时候动最好？"
+    ]
+  };
   function focusAsk() {
     const ta = document.getElementById("chat-input");
     if (!ta) return;
-    ta.placeholder = ASK_EXAMPLES[Math.floor(Math.random() * ASK_EXAMPLES.length)];
+    const pool = ASK_EXAMPLES[state.kbMode === "bazi" ? "bazi" : "ziwei"];
+    ta.placeholder = pool[Math.floor(Math.random() * pool.length)];
     const box = document.querySelector(".input-box-container");
     if (box) {
       box.classList.remove("ask-hint");
@@ -1028,12 +1041,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 第三张卡是「教你怎么问」，点了不发送，只把光标送到输入框
-    const askCard = {
-      icon: "\u270d\ufe0f",
-      fill: true,
-      title: "我心里有件具体的事想问",
-      sub: "\u6bd4\u5982\u300c\u8fd9\u4e2a offer \u63a5\u4e0d\u63a5\u300d\u300c\u8fd9\u4e2a\u4eba\u80fd\u4e0d\u80fd\u5904\u300d\u300c\u4eca\u5e74\u9002\u4e0d\u9002\u5408\u4e70\u623f\u300d\u2014\u2014 \u95ee\u5f97\u8d8a\u5177\u4f53\uff0c\u8d8a\u6709\u7528"
-    };
+    // 第三张卡是「教你怎么问」，点了不发送，只把光标送到输入框。
+    // 两席擅长的题型不同，这里必须分开写 —— 否则用户不知道该在哪个窗口问什么，
+    // 也就用不上各自最强的那部分（紫微的宫位飞化 vs 八字的格局与岁运节奏）。
+    function askCardFor(m) {
+      return {
+        icon: "\u270d\ufe0f",
+        fill: true,
+        title: "我心里有件具体的事想问",
+        sub: (m === "bazi")
+          ? "八字看【时机与取舍】最见长 —— 比如「今年该进还是该守」「手里这两条路该走哪条」"
+          : "紫微看【具体的人与事】最见长 —— 比如「这个合伙人靠不靠得住」「这件事到底卡在谁身上」"
+      };
+    }
 
     let cards = [];
     if (mode === "ziwei") {
@@ -1058,7 +1078,7 @@ document.addEventListener("DOMContentLoaded", () => {
           prompt: "我会遇到什么样的人？大概什么时候能遇到？" },
         { icon: "🏛️", title: "我适合靠什么吃饭？现在这条路走对了吗？", sub: subWork,
           prompt: "我适合靠什么吃饭？现在走的这条路走对了吗？" },
-        askCard
+        askCardFor("ziwei")
       ];
     } else {
       if (greetIcon) greetIcon.textContent = "📜";
@@ -1081,7 +1101,7 @@ document.addEventListener("DOMContentLoaded", () => {
           prompt: "接下来这一年，我什么时候顺、什么时候要小心？" },
         { icon: "⚖️", title: "我是哪一路人，适合走什么路子？", sub: subPat,
           prompt: "我是哪一路人？适合走什么路子？" },
-        askCard
+        askCardFor("bazi")
       ];
     }
 
@@ -1530,7 +1550,7 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.streaming = false;
         aiMsg.content =
           `> ⚠️ **AI 接口调用失败**：${err.message || "网络或接口异常"}\n` +
-          `> 已自动切换为内置推演引擎。请检查右上角「设置」中的 API Key 与余额。\n\n---\n\n` +
+          `> 已自动切换为内置推演引擎。点左下角「⚙ 设置 → 测试连接」可以看出到底卡在哪一环。\n\n---\n\n` +
           fb.text;
         aiMsg.tarotWidget = fb.tarotWidget || null;
         aiMsg.followups = (fb.followups && fb.followups.length)

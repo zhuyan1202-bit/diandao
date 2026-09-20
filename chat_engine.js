@@ -34,6 +34,21 @@
   const LIUHE = { "子":"丑","丑":"子","寅":"亥","亥":"寅","卯":"戌","戌":"卯","辰":"酉","酉":"辰","巳":"申","申":"巳","午":"未","未":"午" };
   const LIUCHONG = { "子":"午","午":"子","丑":"未","未":"丑","寅":"申","申":"寅","卯":"酉","酉":"卯","辰":"戌","戌":"辰","巳":"亥","亥":"巳" };
   const SANHE = { "申":["子","辰"],"子":["申","辰"],"辰":["申","子"],"寅":["午","戌"],"午":["寅","戌"],"戌":["寅","午"],"巳":["酉","丑"],"酉":["巳","丑"],"丑":["巳","酉"],"亥":["卯","未"],"卯":["亥","未"],"未":["亥","卯"] };
+  // 六害（相穿）
+  const LIUHAI = { "子":"未","未":"子","丑":"午","午":"丑","寅":"巳","巳":"寅","卯":"辰","辰":"卯","申":"亥","亥":"申","酉":"戌","戌":"酉" };
+  // 相刑：子卯无礼之刑；寅巳申无恩之刑；丑戌未恃势之刑；辰午酉亥自刑
+  const XING_PAIR  = { "子":"卯","卯":"子" };
+  const XING_GROUP = [ ["寅","巳","申"], ["丑","戌","未"] ];
+  const ZIXING     = ["辰","午","酉","亥"];
+  // 三合局 / 三会方（两支相遇＝半合 / 半会）
+  const SANHE_GROUPS  = [ ["申","子","辰","水"], ["寅","午","戌","火"], ["巳","酉","丑","金"], ["亥","卯","未","木"] ];
+  const SANHUI_GROUPS = [ ["寅","卯","辰","木"], ["巳","午","未","火"], ["申","酉","戌","金"], ["亥","子","丑","水"] ];
+  // 天干五合与化神；天干相冲（戊己居中不冲）
+  const WUHE      = { "甲":"己","己":"甲","乙":"庚","庚":"乙","丙":"辛","辛":"丙","丁":"壬","壬":"丁","戊":"癸","癸":"戊" };
+  const WUHE_HUA  = { "甲己":"土","乙庚":"金","丙辛":"水","丁壬":"木","戊癸":"火" };
+  const GAN_CHONG = { "甲":"庚","庚":"甲","乙":"辛","辛":"乙","丙":"壬","壬":"丙","丁":"癸","癸":"丁" };
+  // 化神得地的月支（本气 + 长生/余气之地）
+  const HUA_DEDI  = { "土":["辰","戌","丑","未"], "金":["申","酉","戌","巳"], "水":["亥","子","丑","申"], "木":["寅","卯","辰","亥"], "火":["巳","午","未","寅"] };
 
   function yearGanZhi(y) {
     const off = (y - 4) % 60;
@@ -1081,14 +1096,62 @@
   }
   function gzOf60(i) { const k = ((i % 60) + 60) % 60; return TIANGAN[k % 10] + DIZHI[k % 12]; }
 
+  /* 两支落在同一个 三合局/三会方 里时，返回 {wx, full}。
+     full=true 表示这一对里含旺神（子午卯酉），才算真正的半合/半会；
+     不含旺神（如申辰缺子、寅辰缺卯）只是「拱」，力量弱得多，不能当合论。 */
+  function juOf(groups, a, b) {
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (g.indexOf(a) >= 0 && g.indexOf(b) >= 0) {
+        return { wx: g[3], full: (a === g[1] || b === g[1]) };
+      }
+    }
+    return null;
+  }
+
+  // 地支关系（冲、合、半合、半会、刑、害、自刑，全量）
   function branchRel(a, b) {
     if (!a || !b) return "";
     const r = [];
-    if (a === b) r.push("伏吟");
+    if (a === b) r.push(ZIXING.indexOf(a) >= 0 ? "伏吟兼自刑" : "伏吟");
     if (LIUCHONG[a] === b) r.push("相冲");
     if (LIUHE[a] === b) r.push("六合");
-    if ((SANHE[a] || []).indexOf(b) >= 0) r.push("三合");
+    if ((SANHE[a] || []).indexOf(b) >= 0) {
+      const j = juOf(SANHE_GROUPS, a, b);
+      if (j) r.push(j.full ? ("半合" + j.wx + "局") : ("拱" + j.wx + "（缺旺神，力弱，不作合论）"));
+    }
+    if (a !== b) {
+      const h = juOf(SANHUI_GROUPS, a, b);
+      if (h) r.push(h.full ? ("半会" + h.wx + "方") : ("拱" + h.wx + "（缺旺神，力弱）"));
+    }
+    if (LIUHAI[a] === b) r.push("相害");
+    if (a !== b) {
+      if (XING_PAIR[a] === b) r.push("相刑");
+      else {
+        for (let i = 0; i < XING_GROUP.length; i++) {
+          if (XING_GROUP[i].indexOf(a) >= 0 && XING_GROUP[i].indexOf(b) >= 0) { r.push("相刑"); break; }
+        }
+      }
+    }
     return r.join("、");
+  }
+
+  /* 天干关系：五合（含合化成败判断）与相冲。
+     合化的主流条件是「化神得月令」；不得令则是「合而不化」——
+     两干互相绊住，各自的十神作用打折，人事上表现为被牵制、决断迟疑。
+     moZhi 传月支（判化神有无根）；brief=true 时只给短标签。 */
+  function stemRel(a, b, moZhi, brief) {
+    if (!a || !b) return "";
+    if (a === b) return brief ? "并透" : "并透（同一个十神重复出现，力量叠加）";
+    if (GAN_CHONG[a] === b) return brief ? "相冲" : "相冲（两股力量正面对撞，主动荡、主变）";
+    if (WUHE[a] !== b) return "";
+    const key = (TIANGAN.indexOf(a) < TIANGAN.indexOf(b)) ? (a + b) : (b + a);
+    const hua = WUHE_HUA[key] || "";
+    const de  = !!(moZhi && (HUA_DEDI[hua] || []).indexOf(moZhi) >= 0);
+    if (brief) return de ? ("相合→化" + hua) : "合而不化";
+    return de
+      ? ("相合（" + key + "→化" + hua + "；月令" + moZhi + "，化神有根，倾向真化：性质转为" + hua + "）")
+      : ("相合（" + key + "→化" + hua + "；月令" + moZhi + "，化神无根，合而不化：互相牵绊、决断打折）");
   }
 
   // 五虎遁：年干 -> 寅月月干
@@ -1429,6 +1492,8 @@
     const dayZhi = String(b.dayPillar).charAt(1);
     const yrZhi = String(b.yearPillar).charAt(1);
     const moZhi = String(b.monthPillar).charAt(1);
+    const yrGan = String(b.yearPillar).charAt(0);
+    const moGan = String(b.monthPillar).charAt(0);
     const L = [];
 
     L.push("【本题切入口】" + dom.domainLabel + " —— 重点看：" + dom.baziAspect +
@@ -1452,6 +1517,16 @@
       L.push("");
     }
 
+    L.push("【怎么读下面的刑冲会合 —— 用错了比不用更糟】");
+    L.push("  · 冲＝正面撞击，主变动、分离、提速；刑＝内部消耗、纠缠反复、是非口舌；害＝暗处受损、被拖累、关系里的隐性伤");
+    L.push("  · 六合＝被绊住（不一定是好事，也可能是想走走不掉）；半合／半会＝真成局，那个五行力量明显变强");
+    L.push("  · 拱＝缺旺神的虚局，力弱，只能作辅助线索，不许当成合局下结论");
+    L.push("  · 天干合而不化＝两边互相牵制，那个十神的作用打折，人事上表现为被人拉扯、决断变慢");
+    L.push("  · 天干真化＝性质真的转成化神那一行，要按新五行重新看喜忌");
+    L.push("  · 伏吟＝同一件事重演一遍；冲（反吟）＝整个翻过来");
+    L.push("  · ⚠️ 一个字上同时挂多个关系时（例如既冲又刑），必须说清楚哪个主导，不许两个都罗列了事");
+    L.push("");
+
     const dy = computeDayun(chart);
     let curDy = null;
     if (dy) {
@@ -1469,8 +1544,13 @@
         const r1 = branchRel(z2, dayZhi); if (r1) rels.push("与日支" + dayZhi + r1);
         const r2 = branchRel(z2, yrZhi);  if (r2) rels.push("与年支" + yrZhi + r2);
         const r3 = branchRel(z2, moZhi);  if (r3) rels.push("与月支" + moZhi + r3);
+        const gRels = [];
+        const q1 = stemRel(g2, dg, moZhi);    if (q1) gRels.push("与日元" + dg + q1);
+        const q2 = stemRel(g2, moGan, moZhi, true); if (q2) gRels.push("与月干" + moGan + q2);
+        const q3 = stemRel(g2, yrGan, moZhi, true); if (q3) gRels.push("与年干" + yrGan + q3);
         L.push("  " + mark + " " + d.gz + "运（" + d.fromYear + "–" + d.toYear + "，" + d.fromAge + "–" + d.toAge +
-               "岁）｜运干" + g2 + "＝【" + god(g2) + "】｜运支" + z2 +
+               "岁）｜运干" + g2 + "＝【" + god(g2) + "】" +
+               (gRels.length ? "｜天干：" + gRels.join("，") : "") + "｜运支" + z2 +
                (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
       });
       if (curDy) {
@@ -1491,8 +1571,16 @@
         const r4 = branchRel(z2, String(curDy.gz).charAt(1));
         if (r4) rels.push("与大运支" + String(curDy.gz).charAt(1) + r4);
       }
+      const gRels = [];
+      const q1 = stemRel(g2, dg, moZhi);          if (q1) gRels.push("与日元" + dg + q1);
+      const q2 = stemRel(g2, moGan, moZhi, true); if (q2) gRels.push("与月干" + moGan + q2);
+      if (curDy) {
+        const dgz = String(curDy.gz).charAt(0);
+        const q3 = stemRel(g2, dgz, moZhi, true); if (q3) gRels.push("与运干" + dgz + q3);
+      }
       L.push("  ◆ " + yy + "年 " + gz + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
-             "】｜年支" + z2 + (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+             "】" + (gRels.length ? "｜天干：" + gRels.join("，") : "") +
+             "｜年支" + z2 + (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
     }
     L.push("");
 
@@ -1526,8 +1614,10 @@
             const r4 = branchRel(z2, dz);
             if (r4) rels.push("与大运支" + dz + r4);
           }
+          const mq = stemRel(g2, dg, moZhi, true);
           rows.push("  · " + g2 + z2 + "月（" + cu.name + " " + cu.m + "/" + cu.d + " – " + nx.name + " " + nx.m + "/" + nx.d +
-                    "）｜月干" + g2 + "＝【" + god(g2) + "】" + (rels.length ? "｜" + rels.join("，") : ""));
+                    "）｜月干" + g2 + "＝【" + god(g2) + "】" + (mq ? "（与日元" + dg + mq + "）" : "") +
+                    (rels.length ? "｜" + rels.join("，") : ""));
         }
         if (rows.length) {
           L.push("【未来六个节气月（公历起讫已算好，给时间点必须落到这些区间里）】");

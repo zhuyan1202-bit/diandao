@@ -1134,15 +1134,10 @@ document.addEventListener("DOMContentLoaded", () => {
     return [];
   }
   function thinkLabelOf(m) {
-    const sec = m.thinkSec || 0;
-    if (m.deep) {
-      // 模型真的返回了思维链，这里的秒数是它出第一个字之前实际想的时间
-      if (m.streaming && !m.content) return "深度思考中…";
-      return "已深度思考（用时 " + sec + " 秒）";
-    }
-    // 没有思维链的模型：这几条是本地排盘算出来的，不能冒充「思考」
-    if (m.streaming && !m.content) return "正在排盘推演…";
-    return sec ? "排盘推演完成（全程 " + sec + " 秒）" : "排盘推演过程";
+    // 不报秒数：计时既不准也没意义，只说现在在干什么
+    const thinking = m.streaming && !m.content;
+    if (m.deep) return thinking ? "正在深度思考…" : "深度思考过程";
+    return thinking ? "正在排盘推演…" : "排盘推演过程";
   }
   function thinkBodyHtml(m) {
     // 模型自己的思维链优先，原样呈现（DeepSeek 就是这么做的）
@@ -1326,7 +1321,6 @@ document.addEventListener("DOMContentLoaded", () => {
     renderMessages(roomMsgs);
     scrollBottom(true);
 
-    const startTime = Date.now();
     const thinkTimer = setInterval(() => {
       if (aiMsg.content || aiMsg.deep) return;         // 出字了、或已有真思维链，就别再放便签
       if (aiMsg.thinkIdx >= thinkNotes.length - 1) return;
@@ -1334,17 +1328,11 @@ document.addEventListener("DOMContentLoaded", () => {
       patchThinkBox(aiMsg);
     }, 420);
     let thinkDone = false;
-    // deep（模型真给了思维链）→ 秒数 = 它在出第一个字之前实际想的时间
-    // 非 deep（便签是本地排出来的）→ 不叫「思考」，最后记全程耗时
     const finishThinking = () => {
       if (thinkDone) return;
       thinkDone = true;
       clearInterval(thinkTimer);
       aiMsg.thinkIdx = thinkNotes.length;
-      if (aiMsg.deep) aiMsg.thinkSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
-    };
-    const stampTotal = () => {
-      if (!aiMsg.deep) aiMsg.thinkSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
     };
 
     if (useLLM) {
@@ -1373,7 +1361,6 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         );
         finishThinking();
-        stampTotal();
         aiMsg.content = full;
         aiMsg.streaming = false;
         aiMsg.followups = ChatEngine.followupsFor ? ChatEngine.followupsFor(text) : null;
@@ -1383,7 +1370,6 @@ document.addEventListener("DOMContentLoaded", () => {
         sound.chime();
       } catch (err) {
         finishThinking();
-        stampTotal();
         const fb = ChatEngine.composeAnswer(text, state.userChart, history, state.kbMode);
         aiMsg.streaming = false;
         aiMsg.content =
@@ -1403,7 +1389,6 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const res = await ChatEngine.generateChatResponse(text, state.userChart, historyForLLM(roomMsgs, -1), state.settings);
       finishThinking();
-      stampTotal();
       aiMsg.content = res.text;
       aiMsg.streaming = false;
       aiMsg.tarotWidget = res.tarotWidget || null;

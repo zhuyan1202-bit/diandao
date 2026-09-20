@@ -1586,6 +1586,203 @@
              favor: favor, avoid: avoid, rule: rule, tiaohou: tiaohou };
   }
 
+  /* ============================================================
+   * 7.1.4b 月令取格（子平正格）
+   * 只讲旺衰不讲格局，等于只说了「这个人力气多大」，
+   * 没说「他这辈子走的是哪条路」—— 格局才是八字的骨架。
+   * 取法（沈氏《子平真诠》一路）：
+   *   ① 月令本气透在天干（年/月/时干，不含日干）→ 以它的十神取格
+   *   ② 本气不透，中气或余气透 → 以透出者取格
+   *   ③ 都不透 → 直接以月令本气的十神取格
+   *   ④ 月令本气与日元同类（比肩/劫财）→ 不入八正格，走建禄 / 阳刃
+   * 成败只做**能程序化判定**的那几条，判不了的交给模型，并把依据全摊开。
+   * ============================================================ */
+  const PATTERN_INFO = {
+    "正官格": {
+      road: "靠规矩、名分与体制立身。适合有明确职级和评价标准的地方，越正规越吃得开",
+      check: "官星要清、要有根，同时身要担得起这个官"
+    },
+    "七杀格": {
+      road: "靠压力、竞争与狠劲上位。适合高强度、有对手、见输赢的路",
+      check: "有制有化才叫七杀格；无制无化那是杀重身轻，是负担不是本事"
+    },
+    "正财格": {
+      road: "靠稳定积累与实打实的交付赚钱。适合看得见摸得着的生意与手艺",
+      check: "财是身的对手盘，身不够强，财再多也拿不住"
+    },
+    "偏财格": {
+      road: "靠信息差、流动与人脉赚钱。适合外拓、多线、来得快也去得快的路",
+      check: "偏财喜身强，身强才撑得起大进大出"
+    },
+    "食神格": {
+      road: "靠输出、专长与作品吃饭。节奏偏温和，讲究持续产出",
+      check: "食神要有根，且要能生到财或制到杀；光有食神不落地就是空转"
+    },
+    "伤官格": {
+      road: "靠才气、锋芒与不循常规出头。上限高，但容易撞规则",
+      check: "伤官必须有出口 —— 要么生财、要么佩印。没有出口就是惹事"
+    },
+    "正印格": {
+      road: "靠学历、资历与体系内的认可立身。起步慢，后劲稳",
+      check: "印是靠山；靠山太厚也会压住手脚，要看有没有食伤透出来做事"
+    },
+    "偏印格": {
+      road: "靠偏门技艺、专业壁垒与独特路径。不走大众赛道",
+      check: "看有没有东西管得住它 —— 没人管的偏印，会把人困在自己的想法里"
+    },
+    "建禄格": {
+      road: "月令就是自己的禄位。天生自立、不靠家底，一切要自己挣",
+      check: "关键不在身旺，而在这股旺气有没有出口"
+    },
+    "阳刃格": {
+      road: "刚烈果决、爆发力强。适合硬碰硬的路，风险也在这里",
+      check: "阳刃是把刀，有鞘才是本事，没鞘就是伤"
+    },
+    "月劫格": {
+      road: "同辈、同行、合伙人是这辈子绕不开的一条线。靠人成事，也常因人受损",
+      check: "关键看财官食伤有没有透出来 —— 有出口，众人之力为我所用；没出口，就是内耗与分账"
+    }
+  };
+
+  function derivePattern(chart) {
+    const b = chart.bazi;
+    const AC = global.AstrologyCore;
+    if (!b || !b.dayMaster || !AC || !AC.getTenGod) return null;
+    const dm = b.dayMaster;
+    const god = function (g) { return AC.getTenGod(dm, g); };
+    const yG = String(b.yearPillar).charAt(0);
+    const mG = String(b.monthPillar).charAt(0);
+    const hG = String(b.hourPillar).charAt(0);
+    const zhis = [String(b.yearPillar).charAt(1), String(b.monthPillar).charAt(1),
+                  String(b.dayPillar).charAt(1), String(b.hourPillar).charAt(1)];
+    const moZhi = zhis[1];
+    const otherGans = [yG, mG, hG].filter(Boolean);     // 取格只看年月时干，不含日干
+    const hid = HIDDEN_GAN[moZhi] || [];
+    const LBL = ["本气", "中气", "余气"];
+    const steps = [];
+
+    steps.push("月令【" + moZhi + "】藏干：" +
+      hid.map(function (h, i) { return LBL[i] + h + "＝" + god(h); }).join("　"));
+
+    let picked = -1;
+    for (let i = 0; i < hid.length; i++) {
+      if (otherGans.indexOf(hid[i]) >= 0) { picked = i; break; }
+    }
+    const src = picked >= 0 ? hid[picked] : hid[0];
+    if (!src) return null;
+    steps.push(picked >= 0
+      ? ("月令" + LBL[picked] + "【" + src + "】透在天干 → 以它取格")
+      : ("月令藏干一个都没透出天干 → 退一步按本气【" + src + "】取格"));
+
+    const g0 = god(src);
+    let name = "";
+    if (g0 === "比肩" || g0 === "劫财") {
+      // 临官＝建禄；帝旺且日元为阳干＝阳刃（阴干不论刃）；其余（如戊日生辰月＝冠带）归月劫
+      const cs = changSheng(dm, moZhi);
+      if (cs === "临官") name = "建禄格";
+      else if (cs === "帝旺" && YANG_GAN.indexOf(dm) >= 0) name = "阳刃格";
+      else name = "月劫格";
+      steps.push("月令本气与日元同类（" + g0 + "），不入八正格；日元在月令为【" + cs + "】→ 取【" + name + "】");
+    } else {
+      name = g0 + "格";
+      steps.push("→ 取【" + name + "】");
+    }
+
+    // 透干的十神（年月时干）与含藏干的十神，分开统计：透干才有力
+    const tou = {}, all = {};
+    otherGans.forEach(function (g) { tou[god(g)] = (tou[god(g)] || 0) + 1; all[god(g)] = (all[god(g)] || 0) + 1; });
+    zhis.forEach(function (z) {
+      (HIDDEN_GAN[z] || []).forEach(function (g) { all[god(g)] = (all[god(g)] || 0) + 1; });
+    });
+    const T = function (n) { return !!tou[n]; };
+    const A = function (n) { return !!all[n]; };
+
+    const st = baziStrength(chart);
+    const strong = !!(st && (st.verdict === "身强" || st.verdict === "偏强"));
+    const weak   = !!(st && (st.verdict === "身弱" || st.verdict === "偏弱"));
+    const broken = [], saved = [], notes = [];
+
+    if (name === "正官格") {
+      if (T("伤官")) broken.push("天干透【伤官】—— 伤官见官，这是正官格头一条大忌");
+      if (T("七杀")) broken.push("天干同时透【七杀】—— 官杀混杂，格局不清");
+      if (T("正印")) saved.push("透【正印】—— 官印相生，既护身又护官，是正官格最好的配置");
+      if (T("正财") || T("偏财")) saved.push("透【财】—— 财生官，官星有源头");
+      if (weak && !A("正印") && !A("偏印") && !A("比肩") && !A("劫财"))
+        broken.push("身弱且四柱无印无比劫 —— 担不起这个官，官反而成了压力");
+    } else if (name === "七杀格") {
+      if (T("食神")) saved.push("透【食神】—— 食神制杀，七杀格最正的一种成法");
+      if (T("正印") || T("偏印")) saved.push("透【印】—— 杀生印、印生身，凶转为用");
+      if (T("正财") || T("偏财")) broken.push("透【财】—— 财党杀，把七杀喂得更凶" + (weak ? "（身弱时尤其危险）" : ""));
+      if (T("正官")) broken.push("天干同时透【正官】—— 官杀混杂");
+      if (!A("食神") && !A("正印") && !A("偏印"))
+        broken.push("全局无食神也无印 —— 杀无制无化，这是负担不是本事");
+      if (weak) notes.push("身弱遇杀，首要是活下来：先找印、比劫，别急着拿食伤去硬拼");
+    } else if (name === "正财格" || name === "偏财格") {
+      if (strong) saved.push("身旺担得起财 —— 这是财格成立的前提");
+      if (T("食神") || T("伤官")) saved.push("透【食伤】—— 食伤生财，财有源头，不是死钱");
+      if (T("比肩") || T("劫财")) broken.push("天干透【比劫】—— 比劫夺财，合伙、分账、借钱这几件事上最容易栽");
+      if (weak) broken.push("身弱而财旺 —— 财多身弱，钱会反过来压人；先补身，别先谈扩张");
+      if (name === "正财格" && T("正官")) saved.push("透【正官】—— 财生官，路能从赚钱走到有位置");
+    } else if (name === "食神格") {
+      if (T("偏印")) broken.push("天干透【偏印】—— 枭神夺食，这是食神格头一条大忌，专把人的输出掐掉");
+      if (T("正财") || T("偏财")) saved.push("透【财】—— 食神生财，才气能换成钱");
+      if (A("七杀") && A("食神")) saved.push("局中有杀有食 —— 食神制杀，压力能被本事顶回去");
+      if (weak) notes.push("身弱而食神重，输出是在抽自己，要控制节奏");
+    } else if (name === "伤官格") {
+      if (T("正官")) {
+        if (T("正印")) saved.push("虽有伤官见官，但透【印】能制伤 —— 有救");
+        else if (T("正财") || T("偏财")) saved.push("虽有伤官见官，但透【财】能通关（伤生财、财生官）—— 有救");
+        else broken.push("天干透【正官】而无财无印 —— 伤官见官，无通关，这一条最伤");
+      }
+      if (T("正财") || T("偏财")) saved.push("透【财】—— 伤官生财，这是伤官最实用的出路");
+      if (T("正印")) saved.push("透【正印】—— 伤官佩印，才华被约束住反而成器");
+      if (!A("正财") && !A("偏财") && !A("正印") && !A("偏印"))
+        broken.push("既不生财也不佩印 —— 伤官没有出口，才气会变成是非");
+      if (weak) notes.push("身弱而伤官重，是在透支自己换掌声");
+    } else if (name === "正印格" || name === "偏印格") {
+      if (T("正官") || T("七杀")) saved.push("透【官杀】—— 官杀生印，靠山有来路");
+      if (T("正财") || T("偏财")) {
+        if (weak) broken.push("身弱又透【财】—— 财破印，把靠山拆了");
+        else saved.push("身不弱而透【财】—— 财能制住过旺的印，反而是好事");
+      }
+      if (name === "偏印格" && A("食神") && T("偏印"))
+        broken.push("偏印透而局中有食神 —— 枭神夺食，自己掐自己的输出");
+      if (!A("食神") && !A("伤官"))
+        notes.push("全局无食伤 —— 印重而无泄，容易想得多做得少，落地是弱项");
+    } else if (name === "建禄格") {
+      const hasOut = T("正财") || T("偏财") || T("正官") || T("七杀") || T("食神") || T("伤官");
+      if (hasOut) saved.push("天干透出了财／官／食伤 —— 旺气有出口，这是建禄格成立的关键");
+      else broken.push("天干无财、无官、无食伤 —— 一身旺气使不出去，人会困住");
+    } else if (name === "阳刃格") {
+      if (T("正官") || T("七杀")) saved.push("透【官杀】制刃 —— 刀有鞘，这是阳刃格最好的配置");
+      else broken.push("无官杀制刃 —— 刃旺无制，冲动起来没有刹车");
+      if (T("食神") || T("伤官")) saved.push("透【食伤】泄秀 —— 锋芒有地方使");
+    } else if (name === "月劫格") {
+      const hasOut2 = T("正财") || T("偏财") || T("正官") || T("七杀") || T("食神") || T("伤官");
+      if (hasOut2) saved.push("天干透出了财／官／食伤 —— 这股同类之气有地方使");
+      else broken.push("天干无财、无官、无食伤 —— 比劫成群却没有出口，最容易在分账与内耗上折损");
+      if (T("正官") || T("七杀")) saved.push("透【官杀】—— 有人管得住这群人，秩序就立得起来");
+    }
+
+    let tier;
+    if (!broken.length && saved.length) tier = "成格，且配置到位 —— 层次偏高";
+    else if (!broken.length) tier = "成格，但没有明显的相神护着 —— 中等，看大运给不给力";
+    else if (saved.length) tier = "成中有破，好在还有救应 —— 中等偏下";
+    else tier = "破格且暂无救应 —— 层次偏低。重点看大运有没有把缺的那一味补进来";
+
+    if (st && st.score >= 0.72)
+      notes.push("⚠️ 帮扶度 " + st.score + " 已经极端。这有可能是专旺／从强格，不能照普通扶抑看。" +
+                 "你要自己复核：若四柱几乎全是比劫印星、且没有有力的官杀财来克，就该顺其旺势，而不是去克泄。判反了整篇就废了。");
+    if (st && st.score <= -0.78)
+      notes.push("⚠️ 帮扶度 " + st.score + " 已经极端。这有可能是从财／从杀／从儿格。" +
+                 "你要自己复核：若日元完全无根、无印无比劫，就该顺从旺神 —— 此时原本的「忌神」反而是用神。这一条判反，整篇结论全部颠倒。");
+
+    const info = PATTERN_INFO[name] || {};
+    return { name: name, src: src, srcGod: g0, steps: steps,
+             road: info.road || "", check: info.check || "",
+             broken: broken, saved: saved, notes: notes, tier: tier };
+  }
+
   function baziForecast(chart, dom, t) {
     const b = chart.bazi || {};
     const p = chart.profile;
@@ -1624,6 +1821,20 @@
              "年支" + yrZhi + "＝" + changSheng(dg, yrZhi) + "　月令" + moZhi + "＝" + changSheng(dg, moZhi) +
              "　日支" + dayZhi + "＝" + changSheng(dg, dayZhi) + "　时支" + hZhi + "＝" + changSheng(dg, hZhi));
       L.push("     · 临官／帝旺＝当令有力；长生／冠带＝有气可用；衰病死墓绝＝无气，别硬说他这块强");
+      L.push("");
+    }
+
+    const pat = derivePattern(chart);
+    if (pat) {
+      L.push("【格局（月令取格）—— 这是骨架，比旺衰更能决定他走哪条路】");
+      pat.steps.forEach(function (x) { L.push("  · " + x); });
+      L.push("  ▸ 结论：【" + pat.name + "】" + (pat.road ? "　—— " + pat.road : ""));
+      if (pat.check) L.push("  ▸ 成败看什么：" + pat.check);
+      if (pat.saved.length) pat.saved.forEach(function (x) { L.push("  ✅ " + x); });
+      if (pat.broken.length) pat.broken.forEach(function (x) { L.push("  ❌ " + x); });
+      L.push("  ▸ 层次判断：" + pat.tier);
+      pat.notes.forEach(function (x) { L.push("  " + x); });
+      L.push("  ▸ 这套取格依据已经全部摊开在上面。你若复核后不同意，直接说明理由并给你自己的取法 —— 但不许绕开不谈。");
       L.push("");
     }
 
@@ -2067,7 +2278,14 @@ ${commonTiming}
 - 接着 2–3 句大白话把话说死：这件事成不成、卡在哪、哪一年见分晓。
 
 ### ⚖️ 二、格局与喜忌：你是什么料，什么对你有利
-- 先用推演台的扶抑打分讲清**日元旺衰**，并把依据（得令／通根／透干）摊开说，不要只丢一个结论。
+- **第一句必须先落格局**（推演台已用月令取好，并把取格步骤全摊开了）：
+  他是哪一格、这一格对应的是哪条路、成格还是破格、层次高低。
+  格局是骨架，旺衰只是力气大小 —— **顺序反了就是本末倒置**。
+  · 成格的，要说清是靠哪个字成的（相神）、这个字怕什么；
+  · 破格的，要说清破在哪一个字上、以及大运里哪一步能补回来。
+  · 推演台若标了「疑似从格／专旺」，你必须正面回应：要么确认、要么否定并说明理由。
+    这一条判反，整篇的喜忌全是反的。
+- 再用扶抑打分讲清**日元旺衰**，并把依据（得令／通根／透干）摊开说，不要只丢一个结论。
   如果你复核后不同意那个打分，直接说明理由并给你自己的判断。
 - 再给**喜用神与忌神**，然后翻译成能落地的东西：有利的五行 → 该往哪个方位走、
   适合什么性质的工作、该多接触什么样的人、什么环境会消耗你。调候若更急，优先讲调候。

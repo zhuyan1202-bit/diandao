@@ -488,6 +488,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ================================================= */
   let currentRectifyQuiz = null;
   let rectifyAnswers = { events: {}, traits: {} };
+  let rectifyCtx = null;   // 这次定盘是从哪个区间推出来的，渲染时要如实告诉用户
 
   window.__openRectifyModal = function() {
     if (!window.AstrologyCore || !window.AstrologyCore.buildRectifyQuiz) return;
@@ -496,8 +497,33 @@ document.addEventListener("DOMContentLoaded", () => {
     const city = document.getElementById("drawer-city")?.value || "默认 (东经120°标准时)";
     const gender = document.getElementById("drawer-gender")?.value || "female";
     const status = document.getElementById("drawer-status")?.value || "";
-    const rStart = document.getElementById("drawer-range-start")?.value || "09:00";
-    const rEnd   = document.getElementById("drawer-range-end")?.value || "12:00";
+    // 精确时间模式下界面上根本没有区间可读。
+    // 直接去拿 drawer-range-start/end 会读到默认的 09:00–12:00，
+    // 那跟他的实际生辰毫无关系 —— 定盘会拿一组错的候选去问他。
+    // 正确做法：以他填的时间为中心前后各放宽半小时。
+    // 时辰本身有两小时宽，半小时的容差意味着「只有真的贴着交界才需要定盘」——
+    // 放宽一小时的话，连时辰正中的时间都会被拖出两个候选，那就成了骚扰。
+    const tMode = document.getElementById("drawer-time-mode")?.value || "interval";
+    let rStart = "", rEnd = "", exactBase = "";
+    if (tMode === "exact") {
+      const bt = document.getElementById("drawer-birthtime")?.value || "";
+      const bp = bt.split(":").map(Number);
+      if (bp.length >= 1 && !isNaN(bp[0])) {
+        const mins = bp[0] * 60 + (isNaN(bp[1]) ? 0 : bp[1]);
+        const pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
+        const fmt = function (n) {
+          const k = Math.min(23 * 60 + 59, Math.max(0, n));
+          return pad2(Math.floor(k / 60)) + ":" + pad2(k % 60);
+        };
+        exactBase = fmt(mins);
+        rStart = fmt(mins - 30);
+        rEnd   = fmt(mins + 30);
+      }
+    }
+    if (!rStart) {
+      rStart = document.getElementById("drawer-range-start")?.value || "09:00";
+      rEnd   = document.getElementById("drawer-range-end")?.value || "12:00";
+    }
     const [sh, sm] = rStart.split(":").map(Number);
     const [eh, em] = rEnd.split(":").map(Number);
 
@@ -508,8 +534,19 @@ document.addEventListener("DOMContentLoaded", () => {
       city, gender, status
     });
 
-    currentRectifyQuiz = window.AstrologyCore.buildRectifyQuiz(ivRes.candidates);
+    // buildRectifyQuiz 在只有一个候选时会主动拉「前一时辰」来做对照 ——
+    // 那是为「区间模式」设计的（用户自己说了不确定）。
+    // 精确时间模式下他已经给了具体时刻，放宽半小时还落在同一个时辰，
+    // 就不该无中生有编一个前一时辰让他选，直接告诉他不用定盘。
+    const singleInExact = (tMode === "exact" && (ivRes.candidates || []).length === 1);
+    currentRectifyQuiz = singleInExact
+      ? null
+      : window.AstrologyCore.buildRectifyQuiz(ivRes.candidates);
     rectifyAnswers = { events: {}, traits: {} };
+    rectifyCtx = {
+      mode: tMode, start: rStart, end: rEnd, base: exactBase,
+      shichen: (ivRes.candidates || []).map(function (c) { return c.shichenName; })
+    };
 
     const verdictBox = document.getElementById("rectify-verdict-box");
     if (verdictBox) verdictBox.style.display = "none";
@@ -522,9 +559,25 @@ document.addEventListener("DOMContentLoaded", () => {
     const container = document.getElementById("rectify-quiz-container");
     const q = currentRectifyQuiz;
     if (!container) return;
-    if (!q) { container.innerHTML = "<div class=\"rx-head\">当前区间只对应一个时辰，不需要定盘。</div>"; return; }
+    if (!q) {
+      const only = (rectifyCtx && rectifyCtx.shichen && rectifyCtx.shichen[0]) ? rectifyCtx.shichen[0] : "";
+      container.innerHTML = (rectifyCtx && rectifyCtx.mode === "exact")
+        ? "<div class=\"rx-head\">你填的是 " + escapeHtml(rectifyCtx.base || "") +
+          "，前后各放宽半小时（" + escapeHtml(rectifyCtx.start) + "–" + escapeHtml(rectifyCtx.end) +
+          "）之后仍然落在同一个时辰" + (only ? "【" + escapeHtml(only) + "】" : "") +
+          "里。<br>也就是说就算记错半小时，这张盘也不会变 —— 不用定盘。" +
+          "<br><br>如果你怀疑自己记错的<b>不止半小时</b>，把上面的时间模式切成「时间区间」，" +
+          "填一个你有把握的范围，再回来定盘。</div>"
+        : "<div class=\"rx-head\">当前区间（" + escapeHtml(rectifyCtx ? rectifyCtx.start : "") + "–" +
+          escapeHtml(rectifyCtx ? rectifyCtx.end : "") + "）只对应一个时辰，不需要定盘。</div>";
+      return;
+    }
 
     const candLine = q.candidates.map(c => `<b>${escapeHtml(c.shichenName)}</b>`).join(" 还是 ");
+    const srcNote = (rectifyCtx && rectifyCtx.mode === "exact")
+      ? `<div class="rx-srcnote">你填的是 <b>${escapeHtml(rectifyCtx.base || "")}</b>，正好靠近时辰交界。
+         这里按 ${escapeHtml(rectifyCtx.start)}–${escapeHtml(rectifyCtx.end)} 取候选，用下面的问题定一下究竟是哪个时辰。</div>`
+      : "";
 
     const evHtml = q.events.map(ev => `
       <div class="rx-ev" data-ev="${ev.id}">
@@ -556,6 +609,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     container.innerHTML = `
       <div class="rx-head">现在要分的是：${candLine}</div>
+      ${srcNote}
       <div class="rx-sec">
         <div class="rx-sec-h">① 你的人生时间点 <span>记得几件填几件，不用全填；只填年份即可</span></div>
         <div class="rx-ev-list">${evHtml}</div>

@@ -919,6 +919,29 @@ document.addEventListener("DOMContentLoaded", () => {
     return stars || "主星";
   }
 
+  // 「我心里有件具体的事想问」点下去不发消息，只把人引到输入框，
+  // 并换上一个具体的例子当 placeholder —— 示范这个产品在具体决策题上最有用
+  const ASK_EXAMPLES = [
+    "例如：手上这个 offer 该不该接？",
+    "例如：这个人还能不能处下去？",
+    "例如：今年适不适合买房？",
+    "例如：想换个城市发展，该不该动？",
+    "例如：手里这个项目还要不要继续投？",
+    "例如：现在辞职去做自己的事，时机对吗？"
+  ];
+  function focusAsk() {
+    const ta = document.getElementById("chat-input");
+    if (!ta) return;
+    ta.placeholder = ASK_EXAMPLES[Math.floor(Math.random() * ASK_EXAMPLES.length)];
+    const box = document.querySelector(".input-box-container");
+    if (box) {
+      box.classList.remove("ask-hint");
+      void box.offsetWidth;            // 强制重排，让动画能连点两次重播
+      box.classList.add("ask-hint");
+    }
+    try { ta.focus(); } catch (e) {}
+  }
+
   function renderDynamicPrompts(chart) {
     if (!chart) return;
     const g = chart.profile.gender === "female" ? "坤造" : "乾造";
@@ -966,63 +989,85 @@ document.addEventListener("DOMContentLoaded", () => {
     const greetTitle = document.getElementById("greeting-title");
     const greetDesc = document.getElementById("greeting-desc");
 
+    // 从盘里挑真实特征写副标题：让人一眼认出「这是我的盘」，而不是一套模板
+    function safeCall(fn, arg) { try { return fn ? fn(arg) : null; } catch (e) { return null; } }
+    function palaceOf(name) { return (chart.ziwei.palaces || []).find(x => x.name === name) || null; }
+    function huaOf(name) {
+      const p = palaceOf(name);
+      if (!p) return [];
+      const out = [];
+      (p.mainStars || []).concat(p.auxStars || []).forEach(s => {
+        if (s.sihua && out.indexOf(s.sihua) < 0) out.push("化" + s.sihua);
+      });
+      return out;
+    }
+    function noMainStar(name) {
+      const p = palaceOf(name);
+      return !!p && !(p.mainStars || []).length;
+    }
+
+    // 第三张卡是「教你怎么问」，点了不发送，只把光标送到输入框
+    const askCard = {
+      icon: "\u270d\ufe0f",
+      fill: true,
+      title: "我心里有件具体的事想问",
+      sub: "\u6bd4\u5982\u300c\u8fd9\u4e2a offer \u63a5\u4e0d\u63a5\u300d\u300c\u8fd9\u4e2a\u4eba\u80fd\u4e0d\u80fd\u5904\u300d\u300c\u4eca\u5e74\u9002\u4e0d\u9002\u5408\u4e70\u623f\u300d\u2014\u2014 \u95ee\u5f97\u8d8a\u5177\u4f53\uff0c\u8d8a\u6709\u7528"
+    };
+
     let cards = [];
     if (mode === "ziwei") {
       if (greetIcon) greetIcon.textContent = "🔮";
       if (greetTitle) greetTitle.textContent = "紫微斗数 · 一语点到";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">已按你的出生时刻排定十二宫。下面三个是从你盘里挑出来的切入点，也可以直接问。</div>`;
+      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">十二宫已按你的出生时刻排定。下面两个入口是按你的盘挑的；心里有具体的事，直接在下面问更有用。</div>`;
+
+      const spHua = huaOf("夫妻宫");
+      let subLove;
+      if (noMainStar("夫妻宫")) subLove = `你的夫妻宫没有主星，这种盘得借对宫【${careerStar}】来看`;
+      else if (spHua.indexOf("化忌") >= 0) subLove = `你的夫妻宫坐【${spouseStar}】且带化忌，感情上有个绕不开的结`;
+      else if (spHua.length) subLove = `你的夫妻宫坐【${spouseStar}】，带${spHua.join("、")}`;
+      else subLove = `看夫妻宫【${spouseStar}】配对宫【${careerStar}】，连大限流年一起推`;
+
+      const carHua = huaOf("官禄宫"), weaHua = huaOf("财帛宫");
+      let subWork = `看官禄宫【${careerStar}】配财帛宫【${wealthStar}】，挑出你真正使得上劲的那条路`;
+      if (carHua.length) subWork = `你的官禄宫【${careerStar}】带${carHua.join("、")}，配财帛宫【${wealthStar}】一起看`;
+      else if (weaHua.length) subWork = `你的财帛宫【${wealthStar}】带${weaHua.join("、")}，配官禄宫【${careerStar}】一起看`;
 
       cards = [
-        {
-          icon: "💫",
-          title: `本人夫妻宫详批：坐【${spouseStar}】（对宫【${careerStar}】）`,
-          sub: `紫微星曜与四化推演 · 直接分析正缘画像、相处核心矛盾与动婚时间`,
-          prompt: `结合我本人紫微命盘中夫妻宫坐【${spouseStar}】及对宫【${careerStar}】，请用大白话直接分析：我的正缘伴侣是什么性格画像？两人相处最大的雷区在哪？哪一年流年动婚最稳？`
-        },
-        {
-          icon: "🪞",
-          title: `本人命宫与福德宫：命宫【${mingStar}】× 福德【${fudeStar}】`,
-          sub: `内在心性与情绪能量剖析 · 拆解情感依恋模式与精神内耗根源`,
-          prompt: `结合我本人紫微命宫坐【${mingStar}】与福德宫【${fudeStar}】，请用大白话直接分析：我在感情和人际里为什么容易陷入精神内耗？我性格里的最大优势与弱点是什么？`
-        },
-        {
-          icon: "🏛️",
-          title: `本人官禄与财帛宫：官禄【${careerStar}】× 财帛【${wealthStar}】`,
-          sub: `三方四正事业格局 · 紫微视角断职场角色定位与搞钱天赋`,
-          prompt: `结合我本人紫微官禄宫【${careerStar}】与财帛宫【${wealthStar}】，请用大白话直接分析：我最适合靠什么角色和模式发展事业财运？结合当前时间（${t.solarDateOnly}），今年接下来和明年职场要注意什么？`
-        }
+        { icon: "💫", title: "我会遇到什么样的人？什么时候？", sub: subLove,
+          prompt: "我会遇到什么样的人？大概什么时候能遇到？" },
+        { icon: "🏛️", title: "我适合靠什么吃饭？现在这条路走对了吗？", sub: subWork,
+          prompt: "我适合靠什么吃饭？现在走的这条路走对了吗？" },
+        askCard
       ];
     } else {
       if (greetIcon) greetIcon.textContent = "📜";
       if (greetTitle) greetTitle.textContent = "四柱八字 · 一语点到";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">已按你的出生时刻排定四柱。下面三个是从你盘里挑出来的切入点，也可以直接问。</div>`;
+      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">四柱已按你的出生时刻定局。下面两个入口是按你的盘挑的；心里有具体的事，直接在下面问更有用。</div>`;
+
+      const st  = safeCall(window.ChatEngine && window.ChatEngine.baziStrength, chart);
+      const pat = safeCall(window.ChatEngine && window.ChatEngine.derivePattern, chart);
+
+      let subTime = "看你眼下走的这步大运，叠今年的流年与逐月，排出顺逆的先后";
+      if (st && st.tiaohou) subTime = `日元【${dmLabel}】${st.verdict}，且命局偏${(st.tiaohou.indexOf("冬月") >= 0) ? "寒" : "燥"} —— 看接下来哪几段在帮你`;
+      else if (st && st.favor && st.favor.length) subTime = `日元【${dmLabel}】${st.verdict}，喜${st.favor.join("")} —— 看接下来哪几段在帮你、哪几段在抽你`;
+      else if (st) subTime = `日元【${dmLabel}】${st.verdict}，扶抑两可 —— 看接下来哪几段在帮你、哪几段在抽你`;
+
+      let subPat = `看月令【${b.monthPillar}】取格配日元【${dmLabel}】旺衰，定你的底盘类型`;
+      if (pat && pat.name) subPat = `你这张盘月令取【${pat.name}】—— 格局比旺衰更能决定你走哪条路`;
 
       cards = [
-        {
-          icon: "🔥",
-          title: `本人流年与近期运势总断：四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】`,
-          sub: `子平岁运生克推演 · 直接分析日元【${dmLabel}】当下月份与今年秋冬、明年的吉凶起伏`,
-          prompt: `基于我本人的八字四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】（日元${dmLabel}），结合当前时间（${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年${t.mPillar}月），请用大白话直接分析：今年接下来秋冬几个月以及明年对我到底是吉是凶？哪几个月进财、哪几个月要防风险？`
-        },
-        {
-          icon: "⚖️",
-          title: `本人命局五行喜忌与用神：【${dmLabel}】生于【${b.monthPillar}】月（${b.solarTerm}后）`,
-          sub: `寒暖燥湿与五行平衡 · 查明最喜用神五行与日常事业生活发力方向`,
-          prompt: `基于我本人八字【日元${dmLabel}生于${b.solarTerm}后（${b.monthPillar}月）】，请用大白话直接分析：我命局里最喜的“用神”是什么五行？最忌什么五行？平时工作方位、行业选择与处事习惯该怎么配合喜用神？`
-        },
-        {
-          icon: "💍",
-          title: `本人八字婚姻宫与财官格局：日支【${marriageBranch}】× 配偶星【${b.tenGodSpouse}】`,
-          sub: `六亲十神与大运走势 · 子平法断婚姻相处模式与人生财富上升期`,
-          prompt: `基于我本人八字日支婚姻宫【${marriageBranch}】与配偶星【${b.tenGodSpouse}】，请用大白话直接分析：从八字子平法看，我的婚姻互动模式与伴侣助力如何？人生哪一步大运是我财富上升的黄金期？`
-        }
+        { icon: "🔥", title: "接下来这一年，什么时候顺、什么时候要小心？", sub: subTime,
+          prompt: "接下来这一年，我什么时候顺、什么时候要小心？" },
+        { icon: "⚖️", title: "我是哪一路人，适合走什么路子？", sub: subPat,
+          prompt: "我是哪一路人？适合走什么路子？" },
+        askCard
       ];
     }
 
     const gridEl = document.querySelector(".starter-prompts-grid");
     if (gridEl) {
       gridEl.innerHTML = cards.map(c => `
-        <div class="prompt-card" data-prompt="${escapeHtml(c.prompt)}">
+        <div class="prompt-card${c.fill ? " is-ask" : ""}"${c.fill ? ' data-fill="1"' : ` data-prompt="${escapeHtml(c.prompt)}"`}>
           <div class="prompt-card-icon">${c.icon}</div>
           <div class="prompt-card-title">${escapeHtml(c.title)}</div>
           <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
@@ -1521,7 +1566,9 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-new-chat")?.addEventListener("click", () => newSession());
     document.querySelector(".starter-prompts-grid")?.addEventListener("click", e => {
       const card = e.target.closest(".prompt-card");
-      if (card && card.dataset.prompt) send(card.dataset.prompt);
+      if (!card) return;
+      if (card.dataset.fill) { focusAsk(); return; }
+      if (card.dataset.prompt) send(card.dataset.prompt);
     });
     document.querySelector(".quick-tools-row")?.addEventListener("click", e => {
       const chip = e.target.closest(".tool-chip");

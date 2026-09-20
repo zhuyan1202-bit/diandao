@@ -236,6 +236,18 @@ body {
 .prompt-card-title { font-size: 14px; font-weight: 700; color: var(--text-main); margin-bottom: 4px; }
 .prompt-card-sub { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
 
+/* 「我心里有件具体的事想问」—— 虚线边区分于前两张「已经替你挑好」的卡 */
+.prompt-card.is-ask { border-style: dashed; }
+.prompt-card.is-ask .prompt-card-title { color: var(--accent); }
+
+/* 点了引导卡之后，输入框呼吸两下，避免在手机上「好像什么都没发生」 */
+.input-box-container.ask-hint { animation: askPulse 1.15s ease-out 2; }
+@keyframes askPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(154, 107, 63, .38); }
+  70%  { box-shadow: 0 0 0 9px rgba(154, 107, 63, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(154, 107, 63, 0); }
+}
+
 /* 消息 */
 .message-row { display: flex; gap: 11px; animation: slideUp .3s ease; }
 .message-row.user { justify-content: flex-end; }

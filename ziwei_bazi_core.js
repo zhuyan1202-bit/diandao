@@ -900,6 +900,56 @@
     };
   }
 
+  /* ============================================================
+   * 中国大陆夏时制（1986–1991）
+   * ------------------------------------------------------------
+   * 这六年每年春夏全国钟表拨快一小时。出生证明上记录的是**夏令时**，
+   * 比真实的北京标准时早一小时。不扣掉这一小时，约一半人的时辰会整个
+   * 错一位 —— 时柱、紫微命宫、身宫、大限起点全部作废。
+   *
+   * 起止规则：起始日 02:00 拨快到 03:00；结束日 02:00（夏令时）拨回 01:00。
+   * 六年的起止日全部是星期日，与「4月中旬第二个星期日 / 9月中旬星期日」一致。
+   * ========================================================== */
+  const CN_DST = {
+    1986: [[5, 4], [9, 14]],
+    1987: [[4, 12], [9, 13]],
+    1988: [[4, 10], [9, 11]],
+    1989: [[4, 16], [9, 17]],
+    1990: [[4, 15], [9, 16]],
+    1991: [[4, 14], [9, 15]]
+  };
+
+  /** 这个钟表时刻是否处在夏令时区间内 */
+  function inChinaDST(year, month, day, hour, minute) {
+    const w = CN_DST[year];
+    if (!w) return false;
+    const t  = ((month * 100 + day) * 100) + hour;          // 粗比较用
+    const s  = ((w[0][0] * 100 + w[0][1]) * 100) + 2;        // 起始日 02:00
+    const e  = ((w[1][0] * 100 + w[1][1]) * 100) + 2;        // 结束日 02:00（夏令时）
+    const cur = ((month * 100 + day) * 100) + hour + (minute > 0 ? 0 : 0);
+    if (cur < s) return false;
+    if (cur >= e) return false;
+    return true;
+  }
+
+  /**
+   * 把用户填的钟表时间换算成北京标准时。
+   * @returns {{year,month,day,hour,minute,dstApplied:boolean}}
+   */
+  function toStandardTime(year, month, day, hour, minute) {
+    if (!inChinaDST(year, month, day, hour, minute)) {
+      return { year: year, month: month, day: day, hour: hour, minute: minute, dstApplied: false };
+    }
+    let h = hour - 1, y = year, mo = month, d = day;
+    if (h < 0) {                       // 退到前一天 23 点
+      h += 24;
+      const prev = new Date(Date.UTC(year, month - 1, day));
+      prev.setUTCDate(prev.getUTCDate() - 1);
+      y = prev.getUTCFullYear(); mo = prev.getUTCMonth() + 1; d = prev.getUTCDate();
+    }
+    return { year: y, month: mo, day: d, hour: h, minute: minute, dstApplied: true };
+  }
+
   function analyzeFullNatalChart(params) {
     const { year, month, day, hour = 12, minute = 0,
             gender = "female", status = "single",
@@ -908,7 +958,10 @@
     const lon = (typeof longitude === "number" && !isNaN(longitude))
       ? longitude
       : (CITY_LONGITUDES[city] !== undefined ? CITY_LONGITUDES[city] : 120.0);
-    const tst = computeTrueSolarTime(year, month, day, hour, minute, lon, city);
+
+    // ① 先把夏令时扣掉，换算成北京标准时；② 再做真太阳时校准
+    const std = toStandardTime(year, month, day, hour, minute);
+    const tst = computeTrueSolarTime(std.year, std.month, std.day, std.hour, std.minute, lon, city);
 
     // 使用校准后的当地真太阳时进行四柱八字与紫微排盘
     const bz = computeBazi(tst.year, tst.month, tst.day, tst.hour, tst.minute);
@@ -955,6 +1008,20 @@
 
     /* --- 边界预警 --- */
     const warnings = [];
+
+    // 夏令时：这是客观计时事实，不是流派分歧，必须摆在最前面
+    if (std.dstApplied) {
+      warnings.push(
+        "【⚠️ 夏令时已自动扣除】" + year + " 年中国大陆实行夏时制（" +
+        CN_DST[year][0][0] + "月" + CN_DST[year][0][1] + "日–" +
+        CN_DST[year][1][0] + "月" + CN_DST[year][1][1] + "日），全国钟表拨快一小时。" +
+        "你填的 " + String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0") +
+        " 如果是当年出生证上的钟表时间，实际北京标准时是 " +
+        String(std.hour).padStart(2, "0") + ":" + String(std.minute).padStart(2, "0") +
+        "，本盘已按标准时起盘。" +
+        "若你确认当年记录的就是标准时（少数医院不跟夏令时），请把出生时间往后调一小时重新排盘。"
+      );
+    }
     if (tst.isCalibrated) {
       const sign = tst.totalDeltaMin >= 0 ? "+" : "";
       if (rawClockBz.hZhiIdx !== bz.hZhiIdx) {
@@ -964,7 +1031,8 @@
       }
     }
     if (bz.nearestTermGapHours < 1) {
-      warnings.push("你的出生时刻距最近的节气不足 1 小时（本站节气算法精度约 ±15 分钟），年柱或月柱存在跨界可能，建议以权威万年历二次核对。");
+      warnings.push("你的出生时刻距最近的节气不足 1 小时。本站节气用 VSOP87 太阳黄经实算，与权威历书逐分钟对过零误差，" +
+                    "但你填的出生时间本身若有几分钟误差，年柱或月柱就会跨界。这一条请格外确认出生时间。");
     }
     if (bz.dayAdvanced) {
       warnings.push("出生在 23:00 之后，按传统「晚子时」规则日柱已进位至次日。若你采用「早晚子时不分」的流派，日柱与时干会有差异。");
@@ -1005,6 +1073,7 @@
   global.AstrologyCore = {
     analyzeFullNatalChart,
     computeTrueSolarTime,
+    toStandardTime, inChinaDST, CN_DST,
     analyzeTimeInterval,
     buildRectifyQuiz,
     scoreRectify,

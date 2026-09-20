@@ -2658,6 +2658,96 @@ ${nextSpec}`;
     return /reasoner|reasoning|deepseek-r1|(^|[^a-z])r1([^a-z]|$)|qwq|-z1|thinking/i.test(String(model || ""));
   }
 
+  /* ---------- 7.2b 超时、重试与可读的失败原因 ----------
+   * 原来的 fetch 没有任何超时：上游一卡住，前端就无限转圈，直到浏览器自己放弃（Chrome 约 5 分钟）。
+   * 实测国内访问 api.deepseek.com 会出现「TCP/TLS 握手时间逐次拉长，最后彻底超时」的退化，
+   * 所以既要有超时，也要有一次自动重试 —— 第一次连不上、第二次就通的情况很常见。
+   * ---------------------------------------------------- */
+  const NET_HEAD_TIMEOUT  = 45000;   // 发出请求 → 拿到响应头
+  const NET_STALL_TIMEOUT = 60000;   // 流式过程中两段数据之间允许的最长静默
+
+  function hostOf(url) {
+    try { return String(url).split("/")[2] || String(url); } catch (e) { return String(url); }
+  }
+
+  // 把浏览器那句一视同仁的 "Failed to fetch" 翻译成用户能据此行动的话
+  function netError(e, url) {
+    const host = hostOf(url);
+    if (e && e.name === "AbortError") {
+      return new Error("等了 " + Math.round(NET_HEAD_TIMEOUT / 1000) + " 秒，" + host +
+        " 一直没有响应。稍后重试，或在「⚙ 设置」里换一个厂商。");
+    }
+    const msg = String((e && e.message) || e || "");
+    if ((typeof TypeError !== "undefined" && e instanceof TypeError) || /fetch|network|load failed/i.test(msg)) {
+      return new Error("连不上 " + host + "。这台设备到这家厂商的链路不通或不稳定 —— " +
+        "先点「⚙ 设置 → 测试连接」看一眼，换一个厂商通常就好了。");
+    }
+    return (e instanceof Error) ? e : new Error(msg);
+  }
+
+  async function fetchWithTimeout(url, opts, ms) {
+    if (typeof AbortController === "undefined") return fetch(url, opts);
+    const ac = new AbortController();
+    const timer = setTimeout(function () { ac.abort(); }, ms);
+    try {
+      // 注意：只在 await 结束（= 响应头到手）时清掉定时器，
+      // 后面的流式读取由 readWithStall 单独看着，不受这个 abort 影响
+      return await fetch(url, Object.assign({}, opts, { signal: ac.signal }));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // 流式读取：两段数据之间静默太久就判定断线，而不是无限等下去
+  function readWithStall(reader) {
+    return new Promise(function (resolve, reject) {
+      const t = setTimeout(function () {
+        try { reader.cancel(); } catch (e) {}
+        reject(new Error("接口中途断了：已经 " + Math.round(NET_STALL_TIMEOUT / 1000) + " 秒没收到新内容。"));
+      }, NET_STALL_TIMEOUT);
+      reader.read().then(
+        function (r) { clearTimeout(t); resolve(r); },
+        function (e) { clearTimeout(t); reject(e); }
+      );
+    });
+  }
+
+  /* 设置面板里的「测试连接」：发一个最小请求，把到底卡在哪一环如实报出来 */
+  async function testConnection(config) {
+    const cfg = Object.assign({}, config || {});
+    if (cfg.apiKey && (!cfg.provider || cfg.provider === "builtin")) cfg.provider = "deepseek";
+    const picked = buildUpstreamBody(cfg, []);
+    const host = hostOf(picked.url);
+    const key = (cfg.apiKey || "").trim();
+    if (!key) return { ok: false, ms: 0, host: host, model: picked.model, detail: "还没填 API Key" };
+
+    const body = { model: picked.model, messages: [{ role: "user", content: "ping" }], stream: false };
+    if (!isReasoningModel(picked.model)) body.max_tokens = 4;   // 推理模型不吃这个参数
+
+    const t0 = Date.now();
+    try {
+      const resp = await fetchWithTimeout(picked.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+        body: JSON.stringify(body)
+      }, 20000);
+      const ms = Date.now() - t0;
+      if (resp.ok) return { ok: true, ms: ms, host: host, model: picked.model, detail: "通了" };
+      let detail = "返回 " + resp.status;
+      try {
+        const j = await resp.json();
+        const m = j && j.error && (j.error.message || (typeof j.error === "string" ? j.error : ""));
+        if (m) detail += "，" + m;
+      } catch (e) {}
+      if (resp.status === 401) detail = "Key 无效或已过期（401）";
+      if (resp.status === 402) detail = "余额不足（402）";
+      return { ok: false, ms: ms, host: host, model: picked.model, detail: detail };
+    } catch (e) {
+      return { ok: false, ms: Date.now() - t0, host: host, model: picked.model,
+               detail: netError(e, picked.url).message };
+    }
+  }
+
   function buildUpstreamBody(config, messages) {
     const prov = config.provider || "deepseek";
     const def = PROVIDER_ENDPOINTS[prov] || PROVIDER_ENDPOINTS.deepseek;
@@ -2675,22 +2765,28 @@ ${nextSpec}`;
     };
   }
 
-  async function directFetch(config, messages) {
+  async function directFetch(config, messages, retried) {
     const { url, model } = buildUpstreamBody(config, messages);
     const key = (config.apiKey || "").trim();
     if (!key) throw new Error("尚未填写 API Key，请点击左下角「⚙ 设置」填入你的密钥。");
 
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + key
-      },
-      body: JSON.stringify(
-        isReasoningModel(model)
-          ? { model, messages, stream: true }               // 推理模型不接受 temperature
-          : { model, messages, temperature: 0.75, stream: true })
-    });
+    let resp;
+    try {
+      resp = await fetchWithTimeout(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + key
+        },
+        body: JSON.stringify(
+          isReasoningModel(model)
+            ? { model, messages, stream: true }             // 推理模型不接受 temperature
+            : { model, messages, temperature: 0.75, stream: true })
+      }, NET_HEAD_TIMEOUT);
+    } catch (e) {
+      if (!retried) return directFetch(config, messages, true);   // 连接层失败，静默重试一次
+      throw netError(e, url);
+    }
 
     if (!resp.ok) {
       let msg = `模型接口返回 ${resp.status}`;
@@ -2780,7 +2876,19 @@ ${nextSpec}`;
     let buffer = "", full = "", reason = "", isDone = false;
 
     while (!isDone) {
-      const { done, value } = await reader.read();
+      let chunk;
+      try {
+        chunk = await readWithStall(reader);
+      } catch (e) {
+        // 流中途断了：已经收到像样的一段就先交给用户，别整篇丢掉换成模板
+        if (full.trim().length >= 200) {
+          full += "\n\n> \u26a0\ufe0f 接口中途断开，上面是已经收到的部分。";
+          if (onDelta) onDelta("", full);
+          return full;
+        }
+        throw e;
+      }
+      const done = chunk.done, value = chunk.value;
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -3112,6 +3220,7 @@ ${nextSpec}`;
     auditAnswer,
     collectCovered, recentClaims, lastFocusOf,   // 供测试与调试使用
     buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor,
+    testConnection,                             // 设置面板的「测试连接」
     derivePattern, baziStrength                 // 供入口卡片写「这是你的盘」副标题
   };
 })(typeof window !== "undefined" ? window : global);

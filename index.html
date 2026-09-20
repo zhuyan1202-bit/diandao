@@ -413,7 +413,13 @@
           <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>
           <input type="text" class="form-input-xs" id="settings-api-endpoint" placeholder="自动" style="width:100%;">
         </div>
-        <button class="save-chart-btn" id="btn-save-settings">保存设置</button>
+        <div style="display:flex; gap:8px; align-items:stretch;">
+          <button class="save-chart-btn" id="btn-test-conn"
+                  style="flex:0 0 auto; background:transparent; border:1.5px solid var(--border-strong); color:var(--text-main);">测试连接</button>
+          <button class="save-chart-btn" id="btn-save-settings" style="flex:1;">保存设置</button>
+        </div>
+        <div id="settings-test-result" style="display:none; font-size:12px; line-height:1.65;
+             padding:9px 11px; border-radius:9px; background:var(--bg-soft); color:var(--text-sub);"></div>
       </div>
     </div>
   </div>

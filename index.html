@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260920164300">
+  <link rel="stylesheet" href="styles.css?v=20260920170353">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -413,7 +413,13 @@
           <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>
           <input type="text" class="form-input-xs" id="settings-api-endpoint" placeholder="自动" style="width:100%;">
         </div>
-        <button class="save-chart-btn" id="btn-save-settings">保存设置</button>
+        <div style="display:flex; gap:8px; align-items:stretch;">
+          <button class="save-chart-btn" id="btn-test-conn"
+                  style="flex:0 0 auto; background:transparent; border:1.5px solid var(--border-strong); color:var(--text-main);">测试连接</button>
+          <button class="save-chart-btn" id="btn-save-settings" style="flex:1;">保存设置</button>
+        </div>
+        <div id="settings-test-result" style="display:none; font-size:12px; line-height:1.65;
+             padding:9px 11px; border-radius:9px; background:var(--bg-soft); color:var(--text-sub);"></div>
       </div>
     </div>
   </div>
@@ -430,18 +436,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260920164300"></script>
-  <script src="calendar_core.js?v=20260920164300"></script>
-  <script src="ziwei_engine.js?v=20260920164300"></script>
-  <script src="bazi_analyze.js?v=20260920164300"></script>
+  <script src="vsop87.js?v=20260920170353"></script>
+  <script src="calendar_core.js?v=20260920170353"></script>
+  <script src="ziwei_engine.js?v=20260920170353"></script>
+  <script src="bazi_analyze.js?v=20260920170353"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260920164300"></script>
-  <script src="kb_retrieve.js?v=20260920164300"></script>
-  <script src="bazi_kb.js?v=20260920164300"></script>
-  <script src="bazi_retrieve.js?v=20260920164300"></script>
-  <script src="tarot_data.js?v=20260920164300"></script>
-  <script src="ziwei_bazi_core.js?v=20260920164300"></script>
-  <script src="chat_engine.js?v=20260920164300"></script>
-  <script src="app.js?v=20260920164300"></script>
+  <script src="knowledge_base.js?v=20260920170353"></script>
+  <script src="kb_retrieve.js?v=20260920170353"></script>
+  <script src="bazi_kb.js?v=20260920170353"></script>
+  <script src="bazi_retrieve.js?v=20260920170353"></script>
+  <script src="tarot_data.js?v=20260920170353"></script>
+  <script src="ziwei_bazi_core.js?v=20260920170353"></script>
+  <script src="chat_engine.js?v=20260920170353"></script>
+  <script src="app.js?v=20260920170353"></script>
 </body>
 </html>

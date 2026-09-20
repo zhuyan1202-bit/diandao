@@ -1749,6 +1749,30 @@ document.addEventListener("DOMContentLoaded", () => {
         provEl.value = "deepseek";
       }
     });
+    // 「测试连接」用的是表单里当前填的值，不是已保存的值 —— 这样可以先测再存
+    document.getElementById("btn-test-conn")?.addEventListener("click", async () => {
+      const box = document.getElementById("settings-test-result");
+      const btn = document.getElementById("btn-test-conn");
+      if (!box) return;
+      const cfg = {
+        provider: document.getElementById("settings-provider").value,
+        apiKey: document.getElementById("settings-api-key").value.trim(),
+        apiEndpoint: document.getElementById("settings-api-endpoint").value.trim(),
+        modelName: (document.getElementById("settings-model")?.value || "").trim(),
+        deepThink: Boolean(document.getElementById("settings-deep-think")?.checked)
+      };
+      box.style.display = "block";
+      box.textContent = "正在连…";
+      if (btn) { btn.disabled = true; btn.textContent = "连接中"; }
+      let r;
+      try { r = await ChatEngine.testConnection(cfg); }
+      catch (e) { r = { ok: false, ms: 0, host: "?", detail: String((e && e.message) || e) }; }
+      if (btn) { btn.disabled = false; btn.textContent = "测试连接"; }
+      box.innerHTML = r.ok
+        ? `✅ <b>${escapeHtml(r.host)}</b> 通了，往返 ${r.ms}ms，模型 <b>${escapeHtml(r.model || "")}</b>。`
+        : `❌ <b>${escapeHtml(r.host)}</b> 没通（等了 ${r.ms}ms）<br>${escapeHtml(r.detail || "")}`;
+    });
+
     document.getElementById("btn-save-settings")?.addEventListener("click", () => {
       let prov = document.getElementById("settings-provider").value;
       const key = document.getElementById("settings-api-key").value.trim();

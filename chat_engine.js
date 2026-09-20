@@ -721,23 +721,31 @@
       }).join(" ");
     }
 
-    let palName = "夫妻宫", domainLabel = "感情婚恋", baziAspect = "婚姻宫与配偶星";
-    if (/(事业|工作|职场|跳槽|升职|创业|老板|领导|前途|发展|做哪行|转行|辞职)/.test(q)) {
+    // ⚠️ 这里原来的默认分支是「夫妻宫／感情婚恋」—— 早期恋爱 APP 的遗产。
+    // 后果是：任何没命中关键词的问题（「要不要换个城市」「今年整体运势」「我适合做什么」）
+    // 都会被按感情盘解读，整个推演台锁在夫妻宫上。
+    // 现在默认改成「综合」，走命宫／日元格局；感情必须由关键词明确命中才进。
+    let palName = "命宫", domainLabel = "综合运势", baziAspect = "日元格局与当前大运";
+    if (/(感情|恋爱|爱情|对象|男友|女友|老公|老婆|伴侣|配偶|结婚|离婚|分手|复合|暧昧|表白|相亲|正缘|姻缘|桃花|脱单|单身|喜欢我|追我|出轨|第三者|异地恋)/.test(q)) {
+      palName = "夫妻宫"; domainLabel = "感情婚恋"; baziAspect = "婚姻宫与配偶星";
+    } else if (/(考试|考研|考公|上岸|升学|学业|读书|论文|学历|证书|执照|面试|笔试|留学申请)/.test(q)) {
+      palName = "官禄宫"; domainLabel = "学业考试"; baziAspect = "印星文昌与官星";
+    } else if (/(事业|工作|职场|跳槽|升职|创业|老板|领导|前途|发展|做哪行|转行|辞职|副业方向|裁员|失业|晋升)/.test(q)) {
       palName = "官禄宫"; domainLabel = "事业发展"; baziAspect = "官杀事业与月令提纲";
-    } else if (/(财运|钱|收入|工资|买房|房产|存款|理财|投资|副业|负债|发财|賺钱)/.test(q)) {
-      palName = /买房|房产|置业|搬家/.test(q) ? "田宅宫" : "财帛宫";
+    } else if (/(财运|钱|收入|工资|买房|房产|置业|存款|理财|投资|副业|负债|发财|赚钱|賺钱|欠债|亏钱|回本)/.test(q)) {
+      palName = /买房|房产|置业/.test(q) ? "田宅宫" : "财帛宫";
       domainLabel = "财运置业"; baziAspect = "财星源流与食伤生财";
-    } else if (/(内耗|焦虑|情绪|心态|性格|脾气|我是谁|自我|孤独|抑郁|睡不着|迷茫|意义)/.test(q)) {
+    } else if (/(内耗|焦虑|情绪|心态|性格|脾气|我是谁|自我|孤独|抑郁|睡不着|迷茫|意义|摆烂|内向|敏感)/.test(q)) {
       palName = "福德宫"; domainLabel = "内在状态与心性"; baziAspect = "日元心性与四季调候";
-    } else if (/(健康|身体|生病|体检|手术|精力|睡眠|胃|肝)/.test(q)) {
+    } else if (/(健康|身体|生病|体检|手术|精力|睡眠|胃|肝|失眠|慢性|调理)/.test(q)) {
       palName = "疾厄宫"; domainLabel = "身心健康"; baziAspect = "五行平衡与寒暖燥湿";
-    } else if (/(父母|原生家庭|爸|妈|催婚|家里人|长辈)/.test(q)) {
+    } else if (/(父母|原生家庭|爸|妈|催婚|家里人|长辈|婆媳|岳)/.test(q)) {
       palName = "父母宫"; domainLabel = "家庭与长辈"; baziAspect = "年柱与印星庇护";
-    } else if (/(孩子|怀孕|生育|子女|备孕|宝宝)/.test(q)) {
+    } else if (/(孩子|怀孕|生育|子女|备孕|宝宝|二胎|试管)/.test(q)) {
       palName = "子女宫"; domainLabel = "子女与创造"; baziAspect = "时柱与食伤生发";
-    } else if (/(朋友|人际|小人|合伙|社交|闺蜜|同事)/.test(q)) {
+    } else if (/(朋友|人际|小人|合伙|社交|闺蜜|同事|团队|下属|得罪)/.test(q)) {
       palName = "交友宫"; domainLabel = "人际与合作"; baziAspect = "比劫与人脉互动";
-    } else if (/(出国|外地|搬迁|异地|远行|留学)/.test(q)) {
+    } else if (/(出国|外地|搬迁|搬家|异地|远行|留学|换城市|换个城市|移民|定居|外派|驻外|回国|去哪发展|哪个城市|南方|北方发展)/.test(q)) {
       palName = "迁移宫"; domainLabel = "变动与远行"; baziAspect = "驿马与外部机缘";
     }
 
@@ -1644,6 +1652,176 @@
     }
   };
 
+  /* 人元司令分野（《渊海子平》/《三命通会》通行本）
+     顺序：余气 → 中气 → 本气，[天干, 占用天数]。
+     ⚠️ 天数各家有出入（另有 5/9/16 一说）。这里只把它当作**一条摆出来的信息**，
+     不拿它去偷偷改写取格 —— 实测 1500 张盘，用它取格只有 5.6% 会变，
+     其中近一半还只是阴阳翻转；分歧本身比收益大，所以交给人判断。 */
+  const SILING = {
+    "子":[["壬",10],["癸",20]],
+    "丑":[["癸",9],["辛",3],["己",18]],
+    "寅":[["戊",7],["丙",7],["甲",16]],
+    "卯":[["甲",10],["乙",20]],
+    "辰":[["乙",9],["癸",3],["戊",18]],
+    "巳":[["戊",7],["庚",7],["丙",16]],
+    "午":[["丙",10],["己",9],["丁",11]],
+    "未":[["丁",9],["乙",3],["己",18]],
+    "申":[["戊",7],["壬",7],["庚",16]],
+    "酉":[["庚",10],["辛",20]],
+    "戌":[["辛",9],["丁",3],["戊",18]],
+    "亥":[["戊",7],["甲",7],["壬",16]]
+  };
+
+  function silingOf(chart) {
+    const CC = global.CalendarCore;
+    const p = chart.profile, b = chart.bazi;
+    if (!CC || !p || !b || !CC.solarTermDate || !CC.gregorianToJD) return null;
+    const moZhi = String(b.monthPillar).charAt(1);
+    const seq = SILING[moZhi];
+    if (!seq) return null;
+    let jd;
+    try { jd = CC.gregorianToJD(p.year, p.month, p.day + 0.5); } catch (e) { return null; }
+    let best = null;
+    for (let yy = p.year - 1; yy <= p.year; yy++) {
+      for (let k = 0; k < 24; k += 2) {
+        let t;
+        try { t = CC.solarTermDate(yy, k); } catch (e) { continue; }
+        if (t && t.jd <= jd && (!best || t.jd > best.jd)) best = t;
+      }
+    }
+    if (!best) return null;
+    const n = Math.floor(jd - Math.floor(best.jd + 0.5) - 0.5) + 1;
+    if (!(n >= 1 && n <= 40)) return null;
+    let acc = 0, idx = seq.length - 1;
+    for (let i = 0; i < seq.length; i++) { acc += seq[i][1]; if (n <= acc) { idx = i; break; } }
+    const LBL = (seq.length === 2) ? ["余气", "本气"] : ["余气", "中气", "本气"];
+    return { gan: seq[idx][0], label: LBL[idx], day: n, term: best.name,
+             isMain: idx === seq.length - 1 };
+  }
+
+  // 月令本气为比劫时的格名（建禄 / 阳刃 / 月劫）
+  function luPatternName(dm, moZhi) {
+    const cs = changSheng(dm, moZhi);
+    if (cs === "临官") return "建禄格";
+    if (cs === "帝旺" && YANG_GAN.indexOf(dm) >= 0) return "阳刃格";
+    return "月劫格";
+  }
+
+  /* ============================================================
+   * 7.1.4c 神煞（八字）
+   * 神煞只添色彩、只讲「这件事以什么面貌发生」，
+   * **不改大方向** —— 大方向是格局与旺衰的事。
+   * 原来这里只有 5 个而且全是感情向的（早期恋爱 APP 的遗产），
+   * 问事业、问钱、问健康时这一层等于没有。
+   * 为了不变成报菜名，只输出与本题相关的那几个。
+   * ============================================================ */
+  const SANHE_KEY = {          // 地支 -> 所属三合局代号
+    "申":"水","子":"水","辰":"水", "寅":"火","午":"火","戌":"火",
+    "巳":"金","酉":"金","丑":"金", "亥":"木","卯":"木","未":"木"
+  };
+  const BY_JU = {              // 以三合局取的神煞
+    "驿马": { "水":"寅", "火":"申", "金":"亥", "木":"巳" },
+    "桃花": { "水":"酉", "火":"卯", "金":"午", "木":"子" },
+    "将星": { "水":"子", "火":"午", "金":"酉", "木":"卯" },
+    "华盖": { "水":"辰", "火":"戌", "金":"丑", "木":"未" }
+  };
+  const TIANYI = { "甲":["丑","未"], "戊":["丑","未"], "乙":["子","申"], "己":["子","申"],
+                   "丙":["亥","酉"], "丁":["亥","酉"], "壬":["卯","巳"], "癸":["卯","巳"],
+                   "庚":["寅","午"], "辛":["寅","午"] };
+  const WENCHANG = { "甲":"巳","乙":"午","丙":"申","戊":"申","丁":"酉","己":"酉",
+                     "庚":"亥","辛":"子","壬":"寅","癸":"卯" };
+  const JINYU    = { "甲":"辰","乙":"巳","丙":"未","丁":"申","戊":"未",
+                     "己":"申","庚":"戌","辛":"亥","壬":"丑","癸":"寅" };
+  const YANGREN  = { "甲":"卯","丙":"午","戊":"午","庚":"酉","壬":"子" };  // 只论阳干
+  const XUNKONG  = { "甲子":["戌","亥"], "甲戌":["申","酉"], "甲申":["午","未"],
+                     "甲午":["辰","巳"], "甲辰":["寅","卯"], "甲寅":["子","丑"] };
+  const SS_MEAN = {
+    "天乙贵人": "一生逢难有人搭手；是全盘最有分量的吉神",
+    "文昌贵人": "考试、文书、执照、写东西这条路顺；也主脑子转得快",
+    "驿马":     "走动、调岗、出差、搬家、跨城跨国；坐不住，动了反而顺",
+    "桃花":     "异性缘与被喜欢的能力；也主人缘与镜头感，不限于感情",
+    "将星":     "带队、扛事、被推到台前；有实权感",
+    "华盖":     "偏艺术、玄学、研究、独处；才气高但容易孤",
+    "金舆":     "配偶或婚姻带来的实际助益；也主坐享其成的那部分",
+    "羊刃":     "冲劲与爆发力，也是意外、争执、血光的来源；要有官杀管住",
+    "空亡":     "看着有、其实抓不住；这一柱的事容易落空或反复"
+  };
+  const PILLAR_MEAN = {
+    "年": "祖上与早年（约 0–16 岁），也管家世背景与你出身的那个环境",
+    "月": "父母兄弟与青年（约 17–32 岁），也管事业的起步阶段",
+    "日": "你自己与配偶、中年（约 33–48 岁）—— 落在这里最贴身",
+    "时": "子女与晚年（约 49 岁后），也管你的退路和最后的落脚点"
+  };
+  // 本题只看这几个，其余不列（防止堆砌）
+  const SS_BY_DOMAIN = {
+    "感情婚恋":     ["桃花", "天乙贵人", "金舆", "空亡", "华盖"],
+    "事业发展":     ["将星", "天乙贵人", "驿马", "羊刃", "文昌贵人"],
+    "财运置业":     ["天乙贵人", "驿马", "金舆", "羊刃", "空亡"],
+    "变动与远行":   ["驿马", "空亡", "天乙贵人", "华盖"],
+    "身心健康":     ["羊刃", "空亡", "华盖"],
+    "内在状态与心性": ["华盖", "空亡", "桃花"],
+    "家庭与长辈":   ["天乙贵人", "空亡", "华盖"],
+    "子女与创造":   ["文昌贵人", "华盖", "空亡"],
+    "人际与合作":   ["将星", "天乙贵人", "桃花", "羊刃"],
+    "学业考试":     ["文昌贵人", "天乙贵人", "华盖", "空亡"],
+    "综合运势":     ["天乙贵人", "驿马", "将星", "空亡", "羊刃"]
+  };
+  const SS_DEFAULT = ["天乙贵人", "驿马", "空亡", "羊刃"];
+
+  function shenshaOf(chart, domainLabel) {
+    const b = chart.bazi;
+    if (!b || !b.dayMaster) return null;
+    const dm = b.dayMaster;
+    const slots = [
+      { k: "年", gz: String(b.yearPillar) },
+      { k: "月", gz: String(b.monthPillar) },
+      { k: "日", gz: String(b.dayPillar) },
+      { k: "时", gz: String(b.hourPillar) }
+    ];
+    const zhiOf = function (x) { return x.gz.charAt(1); };
+    const yrZhi = zhiOf(slots[0]), dayZhi = zhiOf(slots[2]);
+
+    // 以三合局取的：年支与日支两套都查（通行做法），去重
+    const jus = [];
+    [yrZhi, dayZhi].forEach(function (z) {
+      const j = SANHE_KEY[z];
+      if (j && jus.indexOf(j) < 0) jus.push(j);
+    });
+
+    // 旬空：以日柱所在旬定
+    let kong = [];
+    const i60 = idx60(String(b.dayPillar));
+    const xunHead = gzOf60(i60 - (i60 % 10));
+    kong = XUNKONG[xunHead] || [];
+
+    const hits = {};   // 名称 -> [柱位]
+    const push = function (nm, k) {
+      if (!hits[nm]) hits[nm] = [];
+      if (hits[nm].indexOf(k) < 0) hits[nm].push(k);
+    };
+    slots.forEach(function (sp) {
+      const z = zhiOf(sp);
+      if ((TIANYI[dm] || []).indexOf(z) >= 0) push("天乙贵人", sp.k);
+      if (WENCHANG[dm] === z) push("文昌贵人", sp.k);
+      if (JINYU[dm] === z)    push("金舆", sp.k);
+      if (YANGREN[dm] === z)  push("羊刃", sp.k);
+      if (kong.indexOf(z) >= 0 && sp.k !== "日") push("空亡", sp.k);   // 日柱本身不论空
+      jus.forEach(function (j) {
+        Object.keys(BY_JU).forEach(function (nm) {
+          if (BY_JU[nm][j] === z) push(nm, sp.k);
+        });
+      });
+    });
+
+    const want = SS_BY_DOMAIN[domainLabel] || SS_DEFAULT;
+    const shown = [], others = [];
+    Object.keys(hits).forEach(function (nm) {
+      (want.indexOf(nm) >= 0 ? shown : others).push(nm);
+    });
+    shown.sort(function (a, c) { return want.indexOf(a) - want.indexOf(c); });
+    return { hits: hits, shown: shown, others: others, dm: dm, kong: kong, xun: xunHead };
+  }
+
   function derivePattern(chart) {
     const b = chart.bazi;
     const AC = global.AstrologyCore;
@@ -1678,11 +1856,9 @@
     let name = "";
     if (g0 === "比肩" || g0 === "劫财") {
       // 临官＝建禄；帝旺且日元为阳干＝阳刃（阴干不论刃）；其余（如戊日生辰月＝冠带）归月劫
-      const cs = changSheng(dm, moZhi);
-      if (cs === "临官") name = "建禄格";
-      else if (cs === "帝旺" && YANG_GAN.indexOf(dm) >= 0) name = "阳刃格";
-      else name = "月劫格";
-      steps.push("月令本气与日元同类（" + g0 + "），不入八正格；日元在月令为【" + cs + "】→ 取【" + name + "】");
+      name = luPatternName(dm, moZhi);
+      steps.push("月令本气与日元同类（" + g0 + "），不入八正格；日元在月令为【" +
+                 changSheng(dm, moZhi) + "】→ 取【" + name + "】");
     } else {
       name = g0 + "格";
       steps.push("→ 取【" + name + "】");
@@ -1777,8 +1953,23 @@
       notes.push("⚠️ 帮扶度 " + st.score + " 已经极端。这有可能是从财／从杀／从儿格。" +
                  "你要自己复核：若日元完全无根、无印无比劫，就该顺从旺神 —— 此时原本的「忌神」反而是用神。这一条判反，整篇结论全部颠倒。");
 
+    // ── 人元司令：另一种取法，有分歧就如实摆出来，不替用户选边 ──
+    let siling = null;
+    const sl = silingOf(chart);
+    if (sl) {
+      const slGod = god(sl.gan);
+      const slName = (slGod === "比肩" || slGod === "劫财")
+        ? luPatternName(dm, moZhi) : (slGod + "格");
+      siling = {
+        gan: sl.gan, god: slGod, label: sl.label, day: sl.day, term: sl.term,
+        tou: otherGans.indexOf(sl.gan) >= 0,
+        altName: slName,
+        diverges: (slName !== name)
+      };
+    }
+
     const info = PATTERN_INFO[name] || {};
-    return { name: name, src: src, srcGod: g0, steps: steps,
+    return { name: name, src: src, srcGod: g0, steps: steps, siling: siling,
              road: info.road || "", check: info.check || "",
              broken: broken, saved: saved, notes: notes, tier: tier };
   }
@@ -1833,8 +2024,44 @@
       if (pat.saved.length) pat.saved.forEach(function (x) { L.push("  ✅ " + x); });
       if (pat.broken.length) pat.broken.forEach(function (x) { L.push("  ❌ " + x); });
       L.push("  ▸ 层次判断：" + pat.tier);
+      if (pat.siling) {
+        const sg = pat.siling;
+        L.push("  ▸ 人元司令：生于" + sg.term + "后第 " + sg.day + " 天，此时当令的是【" +
+               sg.gan + "】（" + sg.label + "，十神为" + sg.god + "）" +
+               (sg.tou ? "，且它确实透在天干" : "，但它没有透出天干"));
+        if (sg.diverges) {
+          L.push("  ⚖️ 【两派取法在这张盘上会分家】按上面的「本气优先透干」取【" + pat.name +
+                 "】；若按「人元司令为主」则取【" + sg.altName + "】。");
+          L.push("     这不是 bug，是子平本身的流派分歧（分野天数各家也有 7/7/16 与 5/9/16 之别）。");
+          L.push("     你必须把这件事说破：先说主取哪一个、为什么（看谁在这张盘上更有力、更贴他的实际经历），");
+          L.push("     再用一句话点出另一种取法会得出什么不同的结论。**不许装作只有一种答案。**");
+        } else {
+          L.push("     两种取法在这张盘上结论一致，格局判定是稳的。");
+        }
+      }
       pat.notes.forEach(function (x) { L.push("  " + x); });
       L.push("  ▸ 这套取格依据已经全部摊开在上面。你若复核后不同意，直接说明理由并给你自己的取法 —— 但不许绕开不谈。");
+      L.push("");
+    }
+
+    const ss = shenshaOf(chart, dom.domainLabel);
+    if (ss) {
+      L.push("【神煞 · 只列与本题相关的（落在哪一柱，决定它管人生的哪一段）】");
+      if (ss.shown.length) {
+        ss.shown.forEach(function (nm) {
+          const ks = ss.hits[nm];
+          L.push("  · 【" + nm + "】在 " + ks.map(function (k) { return k + "柱"; }).join("、") +
+                 " —— " + SS_MEAN[nm]);
+          ks.forEach(function (k) { L.push("      · " + k + "柱＝" + PILLAR_MEAN[k]); });
+        });
+      } else {
+        L.push("  · 与本题相关的神煞一个都没查到 —— 这本身就是一条信息：这件事上没有现成的外力，得靠格局本身那套逻辑走。");
+      }
+      if (ss.others.length) {
+        L.push("  · 另外查到但与本题无关，**不要在回答里提**：" + ss.others.join("、"));
+      }
+      L.push("  ⚠️ 神煞只添色彩、只说「这件事以什么面貌发生」，**不改大方向**。");
+      L.push("     跟格局或喜忌打架时，一律以格局与喜忌为准。禁止把神煞当主线来断事，更禁止一次罗列一堆。");
       L.push("");
     }
 

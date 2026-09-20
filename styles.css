@@ -15,6 +15,8 @@
   --accent: #9a6b3f;              /* 沉稳赭金 */
   --accent-soft: #c9a227;
   --accent-bg: #f5ede0;
+  --chip-ink: #7d5430;             /* 追问胶囊文字：对 accent-bg 达 5.7:1 */
+  --chip-ink-on: #ffffff;
   --rose: #c2567a;
   --violet: #7c6bbf;
   --text-main: #2f2b26;           /* 深墨棕，非纯黑，护眼 */
@@ -40,6 +42,8 @@
   --accent: #e0b36a;
   --accent-soft: #f0cd8a;
   --accent-bg: #2a2536;
+  --chip-ink: #e0b36a;
+  --chip-ink-on: #1f1b2a;          /* 深色主题下悬停用深底色字，白字只有 1.9:1 */
   --rose: #e88ba8;
   --violet: #a798e8;
   --text-main: #e8e6e1;
@@ -266,14 +270,15 @@ body {
 }
 .message-bubble hr { border: none; border-top: 1px dashed var(--border-strong); margin: 16px 0; }
 
-/* 追问建议 */
-.followup-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+/* 追问建议（模型预判的下一句，句子比以前长，得能看清） */
+.followup-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
 .followup-chip {
   background: var(--accent-bg); border: 1px solid var(--border-strong);
-  color: var(--accent); font-size: 12.5px; padding: 6px 12px;
-  border-radius: 14px; cursor: pointer; transition: all .18s;
+  color: var(--chip-ink); font-size: 13.5px; line-height: 1.45;
+  padding: 8px 13px; text-align: left; max-width: 100%;
+  border-radius: 15px; cursor: pointer; transition: all .18s;
 }
-.followup-chip:hover { background: var(--accent); color: #fff; }
+.followup-chip:hover { background: var(--accent); color: var(--chip-ink-on); }
 
 /* 塔罗卡片 */
 .chat-tarot-card-widget {

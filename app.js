@@ -1124,6 +1124,11 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom();
   }
 
+  // 回答末尾那行追问预判是给按钮用的，不能让它出现在正文里
+  function nextSafe(t) {
+    return (window.ChatEngine && ChatEngine.stripNextBlock) ? ChatEngine.stripNextBlock(t) : String(t || "");
+  }
+
   /* ---------------- 思考条（DeepSeek 式：折叠一行，点开才看得到推演便签） ---------------- */
   function thinkNotesOf(m) {
     if (m.thinkNotes && m.thinkNotes.length) return m.thinkNotes;
@@ -1189,7 +1194,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const lab = document.getElementById("active-think-label");
     if (lab) lab.textContent = thinkLabelOf(m);
     const ans = document.getElementById("active-answer");
-    if (ans) ans.innerHTML = md(m.content) + '<span class="type-caret"></span>';
+    if (ans) ans.innerHTML = md(nextSafe(m.content)) + '<span class="type-caret"></span>';
     scrollBottom(false);
   }
 
@@ -1226,7 +1231,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const bodyHtml = m.streaming
       ? `<div class="ai-final-answer streaming" id="active-answer">${
           m.content
-            ? md(m.content) + '<span class="type-caret"></span>'
+            ? md(nextSafe(m.content)) + '<span class="type-caret"></span>'
             : '<span class="think-dots"><i></i><i></i><i></i></span>'
         }</div>`
       : `<div class="ai-final-answer">${md(m.content)}</div>`;
@@ -1361,9 +1366,13 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         );
         finishThinking();
-        aiMsg.content = full;
+        // 模型把“你接下来最想问什么”写在最后一行，这里拆下来变成按钮
+        const sp = ChatEngine.splitFollowups ? ChatEngine.splitFollowups(full) : { text: full, followups: [] };
+        aiMsg.content = sp.text;
         aiMsg.streaming = false;
-        aiMsg.followups = ChatEngine.followupsFor ? ChatEngine.followupsFor(text) : null;
+        aiMsg.followups = (sp.followups && sp.followups.length)
+          ? sp.followups
+          : ChatEngine.followupsFor(text, state.userChart, sp.text, state.kbMode);
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);
@@ -1377,7 +1386,9 @@ document.addEventListener("DOMContentLoaded", () => {
           `> 已自动切换为内置推演引擎。请检查右上角「设置」中的 API Key 与余额。\n\n---\n\n` +
           fb.text;
         aiMsg.tarotWidget = fb.tarotWidget || null;
-        aiMsg.followups = fb.followups || null;
+        aiMsg.followups = (fb.followups && fb.followups.length)
+          ? fb.followups
+          : ChatEngine.followupsFor(text, state.userChart, fb.text, state.kbMode);
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);
@@ -1392,7 +1403,9 @@ document.addEventListener("DOMContentLoaded", () => {
       aiMsg.content = res.text;
       aiMsg.streaming = false;
       aiMsg.tarotWidget = res.tarotWidget || null;
-      aiMsg.followups = res.followups || null;
+      aiMsg.followups = (res.followups && res.followups.length)
+        ? res.followups
+        : ChatEngine.followupsFor(text, state.userChart, res.text, state.kbMode);
       saveSessions();
       renderMessages(roomMsgs);
       scrollBottom(false);

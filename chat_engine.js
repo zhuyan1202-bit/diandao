@@ -1786,6 +1786,30 @@ ${commonTiming}
 - ✅ 开门见山第一句就给答案，然后讲依据，最后给 1 条能照做的动作。
 - ✅ 如果这个问题的答案和上一轮其实是同一件事，就**直接说「这个和刚才那个是同一回事」并只补充增量**，不要硬凑篇幅。`;
 
+    // 追问预判：这一行会被前端拆成按钮，不会原样显示给用户
+    const nextSpec =
+`【最后一行 · 追问预判（这是给用户点的按钮，不是正文）】
+正文写完后另起一行，输出且只输出这一行，格式固定：
+⟦NEXT⟧问题一｜问题二｜问题三
+- 要猜中他**看完你这段话之后最想追着问的下一句**，让他觉得「对，我正想问这个」。
+- 必须**紧扣你这次真的写了什么**：点名你提到过的那个具体${mode === "ziwei" ? "宫位／星曜／四化" : "干支／十神／大运"}、那个时间窗口、或那条建议。
+  反例（拿掉你这段分析也成立，禁止）：“我的感情运势如何？”“我适合做什么工作？”
+${mode === "ziwei"
+  ? "  正例（接得上话）：“太阴化忌是不是没法避？”“借星的夫妻宫是不是永远靠不住？”"
+  : "  正例（接得上话）：“伤官太重能不能用印来制？”“交下一步大运那年我该动吗？”"}
+- 三条要岤开，不许是同一个问题的三种说法：
+${mode === "ziwei"
+  ? "  · 一条往**深**问：那颗星、那个四化为什么会造成这个局，能不能拆。\n" +
+    "  · 一条往**实**问：你点的那个大限／流年月节点，到时候具体怎么做。\n" +
+    "  · 一条往**旁**问：这事会牽到哪一宫（钱、工作、家里、身体、某个人）。"
+  : "  · 一条往**深**问：那个十神／旺衰格局的根子在哪，能不能调。\n" +
+    "  · 一条往**实**问：你点的那步大运／流年／节气月，落到行动上是什么。\n" +
+    "  · 一条往**旁**问：喜用忌神连到的另一块（钱、行业、方位、身体、伙伴）。"}
+- 每条 ≤ 18 字，第一人称，像真人打字那样口语，不要写成书面标题。
+- ❌ 不许出现塔罗、抽牌、算卦。
+- ❌ 不许问你上面已经答过的东西。
+- ❌ 这一行不要加标题、不要解释、不要放进代码块、不要加粗。`;
+
     const sectionSpec = followUp ? followSpec : fullSpec;
 
     return `${roomIdentity}
@@ -1831,7 +1855,9 @@ ${sectionSpec}
    - 写之前先想清楚：这段要说的东西，上面是不是已经说过了？说过就删掉，换新的说。
    - 同一个星曜／干支如果要在两处提到，第二处只写它带来的新结论，不要把它的含义再解释一遍。
 
-${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已经说过的话。" : "篇幅 700–1000 字。密度优先：宁可少讲一个点，也不要把一个点翻来覆去说三遍。"}全篇现代大白话，客观锋利，不掉书袋。`;
+${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已经说过的话。" : "篇幅 700–1000 字。密度优先：宁可少讲一个点，也不要把一个点翻来覆去说三遍。"}全篇现代大白话，客观锋利，不掉书袋。
+
+${nextSpec}`;
   }
 
   /* ---------- 7.2.5 上游请求：本地代理 或 浏览器直连（静态网站模式） ---------- */
@@ -2008,14 +2034,109 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
     return callLiveAPIStream(question, chart, history, config, null);
   }
 
-  function followupsFor(question) {
-    const intent = analyzeQuestion(question);
-    return FOLLOWUPS[intent.topic.id] || FOLLOWUPS.general;
+  /* ---------- 7.5 追问预判：从回答末尾拆出 3 个按钮 ---------- */
+  const NEXT_MARK = "\u27E6NEXT\u27E7";
+
+  // 正文里把标记及其后面的内容切掉；
+  // 流式输出时还要切掉「正在打一半的标记」，否则用户会看到 ⟦NE 这种乱码
+  function stripNextBlock(s) {
+    let t = String(s || "");
+    const i = t.indexOf(NEXT_MARK);
+    if (i >= 0) {
+      t = t.slice(0, i);
+    } else {
+      const m = t.match(/\u27E6(?:N(?:E(?:X(?:T)?)?)?)?$/);
+      if (m) t = t.slice(0, t.length - m[0].length);
+    }
+    // 模型偶尔会把这一行包进代码块，切完会剩一个孤零零的 ```
+    return t.replace(/\s*`{3,}\s*$/, "").replace(/\s+$/, "");
+  }
+
+  function splitFollowups(s) {
+    const t = String(s || "");
+    const i = t.indexOf(NEXT_MARK);
+    let list = [];
+    if (i >= 0) {
+      const raw = t.slice(i + NEXT_MARK.length).replace(/\u27E6\/?NEXT\u27E7/g, "");
+      const seen = {};
+      list = raw.split(/[\n|\uFF5C]/)
+        .map(function (x) {
+          return String(x)
+            .replace(/^[\s\-\*\u00b7\u3001\d\.\)\uff09]+/, "")
+            .replace(/[`*\u3010\u3011]/g, "")
+            .trim();
+        })
+        .filter(function (x) {
+          if (x.length < 4 || x.length > 30) return false;
+          if (seen[x]) return false;
+          seen[x] = 1;
+          return true;
+        })
+        .slice(0, 3);
+    }
+    return { text: stripNextBlock(t), followups: list };
+  }
+
+  // 傅模型没听话或走内置引擎时的兼容方案：
+  // 不再给预设的套话，而是从「刚才真的答了什么」里抽关键词拼出来
+  const LATERAL = [
+    [/\u94b1|\u8d22|\u6536\u5165|\u85aa/,        "\u8fd9\u4e8b\u4f1a\u5f71\u54cd\u6211\u7684\u94b1\u5417\uff1f"],
+    [/\u5de5\u4f5c|\u4e8b\u4e1a|\u804c|\u516c\u53f8|\u8df3\u69fd/, "\u5de5\u4f5c\u4e0a\u63a5\u4e0b\u6765\u8981\u6ce8\u610f\u4ec0\u4e48\uff1f"],
+    [/\u5bb6|\u7236\u6bcd|\u957f\u8f88|\u5a5a/,    "\u5bb6\u91cc\u4eba\u4f1a\u727d\u626f\u8fdb\u6765\u5417\uff1f"],
+    [/\u8eab\u4f53|\u5065\u5eb7|\u75be\u5384|\u7761/, "\u8eab\u4f53\u4e0a\u6211\u8981\u7559\u610f\u4ec0\u4e48\uff1f"],
+    [/\u4eba\u9645|\u670b\u53cb|\u5408\u4f5c|\u5c0f\u4eba/, "\u8eab\u8fb9\u4eba\u91cc\u8c01\u6700\u5f71\u54cd\u6211\uff1f"]
+  ];
+
+  function followupsFor(question, chart, answerText, kbMode) {
+    const ans = String(answerText || "");
+    // 旧调用方式（只传问题）：退回主题词表，但把已下线的塔罗选项滤掉
+    if (!ans) {
+      const intent = analyzeQuestion(question);
+      return (FOLLOWUPS[intent.topic.id] || FOLLOWUPS.general)
+        .filter(function (x) { return x.indexOf("\u5854\u7f57") < 0; });
+    }
+    const mode = kbMode === "bazi" ? "bazi" : "ziwei";
+    // 按在回答里出现的先后排，而不是按词表顺序 ——
+    // 最先被点名的那个才是这段回答的主角，追问应该盯住它
+    const hit = function (vocab) {
+      return vocab.filter(function (w) { return ans.indexOf(w) >= 0; })
+                  .sort(function (x, y) { return ans.indexOf(x) - ans.indexOf(y); });
+    };
+    const pals = hit(PALACE_VOCAB), stars = hit(STAR_VOCAB), gods = hit(GOD_VOCAB);
+    const uniq = function (a) {
+      const o = {}, r = [];
+      (a || []).forEach(function (x) { const k = String(x).replace(/\s/g, ""); if (!o[k]) { o[k] = 1; r.push(k); } });
+      return r;
+    };
+    const years  = uniq(ans.match(/20\d{2}\s*\u5e74/g));
+    const months = uniq(ans.match(/\d{1,2}\s*\u6708/g));
+
+    const out = [];
+    const push = function (x) { if (x && out.indexOf(x) < 0 && out.length < 3) out.push(x); };
+
+    // ① 往深：盯住它刚点名的那颗星／那个十神
+    if (mode === "ziwei" && stars.length) push(stars[0] + "\u7684\u5f71\u54cd\u80fd\u538b\u4e0b\u53bb\u5417\uff1f");
+    else if (mode === "bazi" && gods.length) push(gods[0] + "\u91cd\uff0c\u5230\u5e95\u662f\u597d\u662f\u574f\uff1f");
+    else if (pals.length) push(pals[0] + "\u4e3a\u4ec0\u4e48\u4f1a\u662f\u8fd9\u4e2a\u5c40\uff1f");
+    else push("\u8fd9\u4e2a\u7ed3\u8bba\u7684\u6839\u5b50\u5230\u5e95\u5728\u54ea\uff1f");
+
+    // ② 往实：扣住它给的时间窗口
+    if (years.length)       push(years[0] + "\u90a3\u4e2a\u8282\u70b9\u6211\u5177\u4f53\u8be5\u505a\u4ec0\u4e48\uff1f");
+    else if (months.length) push(months[0] + "\u4e4b\u524d\u6211\u8981\u5148\u51c6\u5907\u4ec0\u4e48\uff1f");
+    else                    push("\u8fd9\u4e8b\u5927\u6982\u4ec0\u4e48\u65f6\u5019\u4f1a\u52a8\uff1f");
+
+    // ③ 往旁：挑一个它这次没讲到的方向
+    for (let i = 0; i < LATERAL.length && out.length < 3; i++) {
+      if (!LATERAL[i][0].test(ans)) push(LATERAL[i][1]);
+    }
+    push("\u8fd9\u4e24\u5e74\u6574\u4f53\u662f\u5f80\u4e0a\u8fd8\u662f\u5f80\u4e0b\uff1f");
+    return out;
   }
 
   global.ChatEngine = {
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
-    followupsFor, buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor
+    followupsFor, splitFollowups, stripNextBlock,
+    buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor
   };
 })(typeof window !== "undefined" ? window : global);

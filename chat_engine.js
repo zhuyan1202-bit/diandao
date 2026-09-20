@@ -1848,12 +1848,25 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
   // 是否存在本地 Python 代理（首次探测后缓存；纯静态部署时自动走浏览器直连）
   let _proxyAvailable = null;
 
+  // 推理模型：会额外返回 reasoning_content（真正的思考过程），且不接受 temperature
+  function isReasoningModel(model) {
+    return /reasoner|reasoning|deepseek-r1|(^|[^a-z])r1([^a-z]|$)|qwq|-z1|thinking/i.test(String(model || ""));
+  }
+
   function buildUpstreamBody(config, messages) {
     const prov = config.provider || "deepseek";
     const def = PROVIDER_ENDPOINTS[prov] || PROVIDER_ENDPOINTS.deepseek;
+    const typed = (config.modelName || "").trim();
+    let model = typed || def[1];
+    // 打开「深度思考」且没手动指定模型时，自动换成该厂商的推理模型
+    if (config.deepThink && !typed) {
+      if (prov === "deepseek") model = "deepseek-reasoner";
+      else if (prov === "qwen") model = "qwq-plus";
+      else if (prov === "zhipu") model = "glm-z1-flash";
+    }
     return {
       url: (config.apiEndpoint || "").trim() || def[0],
-      model: (config.modelName || "").trim() || def[1]
+      model: model
     };
   }
 
@@ -1868,7 +1881,10 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
         "Content-Type": "application/json",
         "Authorization": "Bearer " + key
       },
-      body: JSON.stringify({ model, messages, temperature: 0.75, stream: true })
+      body: JSON.stringify(
+        isReasoningModel(model)
+          ? { model, messages, stream: true }               // 推理模型不接受 temperature
+          : { model, messages, temperature: 0.75, stream: true })
     });
 
     if (!resp.ok) {
@@ -1889,18 +1905,20 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
     if (_proxyAvailable === false) return directFetch(config, messages);
 
     try {
+      const picked = buildUpstreamBody(config, messages);
+      const body = {
+        provider: config.provider || "deepseek",
+        apiKey: config.apiKey || "",
+        model: picked.model,
+        endpoint: config.apiEndpoint || "",
+        messages,
+        stream: true
+      };
+      if (!isReasoningModel(picked.model)) body.temperature = 0.75;
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: config.provider || "deepseek",
-          apiKey: config.apiKey || "",
-          model: config.modelName || "",
-          endpoint: config.apiEndpoint || "",
-          messages,
-          temperature: 0.75,
-          stream: true
-        })
+        body: JSON.stringify(body)
       });
 
       // 静态托管（GitHub Pages / Netlify 等）会返回 404/405 等，此时回退到直连
@@ -1931,7 +1949,7 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
    * @param {Function} onDelta 每收到一段文本回调 (deltaText, fullTextSoFar)
    * @returns {Promise<string>} 完整回答
    */
-  async function callLiveAPIStream(question, chart, history, config, onDelta) {
+  async function callLiveAPIStream(question, chart, history, config, onDelta, onReason) {
     const hist = history || [];
     const turn = hist.filter(function (h) { return h.role === "ai" || h.role === "assistant"; }).length + 1;
     const ctx = { turn: turn, covered: collectCovered(hist) };
@@ -1949,7 +1967,7 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder("utf-8");
-    let buffer = "", full = "", isDone = false;
+    let buffer = "", full = "", reason = "", isDone = false;
 
     while (!isDone) {
       const { done, value } = await reader.read();
@@ -1969,6 +1987,9 @@ ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已�
           const j = JSON.parse(payload);
           const choice = j.choices && j.choices[0];
           const delta = choice && choice.delta;
+          // DeepSeek / 多数兼容端点把思维链放在 reasoning_content
+          const rPiece = delta && (delta.reasoning_content || delta.reasoning);
+          if (rPiece) { reason += rPiece; if (onReason) onReason(rPiece, reason); }
           const piece = delta && delta.content;
           if (piece) { full += piece; if (onDelta) onDelta(piece, full); }
           if (choice && choice.finish_reason && choice.finish_reason !== "null") {

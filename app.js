@@ -346,6 +346,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (c) c.value = state.settings.apiEndpoint || "";
         const d = document.getElementById("settings-model");
         if (d) d.value = state.settings.modelName || "";
+        const dt = document.getElementById("settings-deep-think");
+        if (dt) dt.checked = Boolean(state.settings.deepThink);
       }
     } catch (e) {}
     const savedKbMode = localStorage.getItem("starbook_kb_mode") || "ziwei";
@@ -1132,10 +1134,24 @@ document.addEventListener("DOMContentLoaded", () => {
     return [];
   }
   function thinkLabelOf(m) {
-    if (m.streaming && !m.content) return "思考中…";
-    return "已思考 " + (m.thinkSec || 1) + " 秒";
+    const sec = m.thinkSec || 0;
+    if (m.deep) {
+      // 模型真的返回了思维链，这里的秒数是它出第一个字之前实际想的时间
+      if (m.streaming && !m.content) return "深度思考中…";
+      return "已深度思考（用时 " + sec + " 秒）";
+    }
+    // 没有思维链的模型：这几条是本地排盘算出来的，不能冒充「思考」
+    if (m.streaming && !m.content) return "正在排盘推演…";
+    return sec ? "排盘推演完成（全程 " + sec + " 秒）" : "排盘推演过程";
   }
   function thinkBodyHtml(m) {
+    // 模型自己的思维链优先，原样呈现（DeepSeek 就是这么做的）
+    if (m.deep && m.reasonText) {
+      return '<div class="think-reason">' +
+        escapeHtml(m.reasonText).replace(/\n{2,}/g, "<br><br>").replace(/\n/g, "<br>") +
+        (m.streaming && !m.content ? '<span class="type-caret"></span>' : "") +
+        "</div>";
+    }
     const notes = thinkNotesOf(m);
     const upto = (m.streaming && !m.content)
       ? Math.min(notes.length, (m.thinkIdx || 0) + 1)
@@ -1164,7 +1180,10 @@ document.addEventListener("DOMContentLoaded", () => {
   function patchThinkBox(m) {
     const body = document.getElementById("active-think-body");
     const lab = document.getElementById("active-think-label");
-    if (body) body.innerHTML = thinkBodyHtml(m);
+    if (body) {
+      body.innerHTML = thinkBodyHtml(m);
+      if (m.deep) body.scrollTop = body.scrollHeight;   // 思维链很长，跟住最新一行
+    }
     if (lab) lab.textContent = thinkLabelOf(m);
     scrollBottom(false);
   }
@@ -1309,18 +1328,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const startTime = Date.now();
     const thinkTimer = setInterval(() => {
-      if (aiMsg.content) return;                       // 已经开始出字就别再动了
+      if (aiMsg.content || aiMsg.deep) return;         // 出字了、或已有真思维链，就别再放便签
       if (aiMsg.thinkIdx >= thinkNotes.length - 1) return;
       aiMsg.thinkIdx++;
       patchThinkBox(aiMsg);
     }, 420);
     let thinkDone = false;
+    // deep（模型真给了思维链）→ 秒数 = 它在出第一个字之前实际想的时间
+    // 非 deep（便签是本地排出来的）→ 不叫「思考」，最后记全程耗时
     const finishThinking = () => {
       if (thinkDone) return;
       thinkDone = true;
       clearInterval(thinkTimer);
       aiMsg.thinkIdx = thinkNotes.length;
-      aiMsg.thinkSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+      if (aiMsg.deep) aiMsg.thinkSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+    };
+    const stampTotal = () => {
+      if (!aiMsg.deep) aiMsg.thinkSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
     };
 
     if (useLLM) {
@@ -1328,6 +1352,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const history = historyForLLM(roomMsgs, -2); // 已剔除旧命盘时代的对话
       let lastPaint = 0;
       try {
+        let lastReasonPaint = 0;
         const full = await ChatEngine.callLiveAPIStream(
           text, state.userChart, history, state.settings,
           (delta, soFar) => {
@@ -1335,9 +1360,20 @@ document.addEventListener("DOMContentLoaded", () => {
             aiMsg.content = soFar;
             const now = Date.now();
             if (now - lastPaint > 60) { lastPaint = now; paintStreaming(aiMsg); }
+          },
+          // 模型返回了真正的思维链（deepseek-reasoner 等）
+          (rDelta, rSoFar) => {
+            if (!aiMsg.deep) {                          // 第一次收到就切成深度思考模式
+              aiMsg.deep = true;
+              renderMessages(roomMsgs);
+            }
+            aiMsg.reasonText = rSoFar;
+            const now = Date.now();
+            if (now - lastReasonPaint > 80) { lastReasonPaint = now; patchThinkBox(aiMsg); }
           }
         );
         finishThinking();
+        stampTotal();
         aiMsg.content = full;
         aiMsg.streaming = false;
         aiMsg.followups = ChatEngine.followupsFor ? ChatEngine.followupsFor(text) : null;
@@ -1347,6 +1383,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sound.chime();
       } catch (err) {
         finishThinking();
+        stampTotal();
         const fb = ChatEngine.composeAnswer(text, state.userChart, history, state.kbMode);
         aiMsg.streaming = false;
         aiMsg.content =
@@ -1366,6 +1403,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const res = await ChatEngine.generateChatResponse(text, state.userChart, historyForLLM(roomMsgs, -1), state.settings);
       finishThinking();
+      stampTotal();
       aiMsg.content = res.text;
       aiMsg.streaming = false;
       aiMsg.tarotWidget = res.tarotWidget || null;
@@ -1577,6 +1615,8 @@ document.addEventListener("DOMContentLoaded", () => {
       state.settings.apiEndpoint = document.getElementById("settings-api-endpoint").value.trim();
       const mEl = document.getElementById("settings-model");
       if (mEl) state.settings.modelName = mEl.value.trim();
+      const dtEl = document.getElementById("settings-deep-think");
+      state.settings.deepThink = Boolean(dtEl && dtEl.checked);
       localStorage.setItem("starbook_settings", JSON.stringify(state.settings));
       updateEngineBadge();
       closeModal("modal-settings");

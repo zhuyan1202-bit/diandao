@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260920122804">
+  <link rel="stylesheet" href="styles.css?v=20260920124230">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -397,8 +397,17 @@
           </div>
         </div>
         <div>
-          <label class="form-label-xs">模型名（留空用默认）</label>
-          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-chat" style="width:100%;">
+          <label class="deep-think-row">
+            <input type="checkbox" id="settings-deep-think">
+            <span>
+              <b>深度思考</b>
+              <em>换成推理模型（DeepSeek-R1 等），会先想一遍再回答，能看到真实思考过程。更慢、更贵，但推演更细。</em>
+            </span>
+          </label>
+        </div>
+        <div>
+          <label class="form-label-xs">模型名（留空按上面的开关自动选）</label>
+          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-chat / deepseek-reasoner" style="width:100%;">
         </div>
         <div>
           <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>
@@ -421,18 +430,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260920122804"></script>
-  <script src="calendar_core.js?v=20260920122804"></script>
-  <script src="ziwei_engine.js?v=20260920122804"></script>
-  <script src="bazi_analyze.js?v=20260920122804"></script>
+  <script src="vsop87.js?v=20260920124230"></script>
+  <script src="calendar_core.js?v=20260920124230"></script>
+  <script src="ziwei_engine.js?v=20260920124230"></script>
+  <script src="bazi_analyze.js?v=20260920124230"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260920122804"></script>
-  <script src="kb_retrieve.js?v=20260920122804"></script>
-  <script src="bazi_kb.js?v=20260920122804"></script>
-  <script src="bazi_retrieve.js?v=20260920122804"></script>
-  <script src="tarot_data.js?v=20260920122804"></script>
-  <script src="ziwei_bazi_core.js?v=20260920122804"></script>
-  <script src="chat_engine.js?v=20260920122804"></script>
-  <script src="app.js?v=20260920122804"></script>
+  <script src="knowledge_base.js?v=20260920124230"></script>
+  <script src="kb_retrieve.js?v=20260920124230"></script>
+  <script src="bazi_kb.js?v=20260920124230"></script>
+  <script src="bazi_retrieve.js?v=20260920124230"></script>
+  <script src="tarot_data.js?v=20260920124230"></script>
+  <script src="ziwei_bazi_core.js?v=20260920124230"></script>
+  <script src="chat_engine.js?v=20260920124230"></script>
+  <script src="app.js?v=20260920124230"></script>
 </body>
 </html>

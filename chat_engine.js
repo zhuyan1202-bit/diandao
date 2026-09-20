@@ -3111,6 +3111,7 @@ ${nextSpec}`;
     followupsFor, splitFollowups, stripNextBlock,
     auditAnswer,
     collectCovered, recentClaims, lastFocusOf,   // 供测试与调试使用
-    buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor
+    buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor,
+    derivePattern, baziStrength                 // 供入口卡片写「这是你的盘」副标题
   };
 })(typeof window !== "undefined" ? window : global);

@@ -1129,7 +1129,9 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       if (!window.ChatEngine || !ChatEngine.auditAnswer || !state.userChart) return null;
       const r = ChatEngine.auditAnswer(t, state.userChart, state.kbMode);
-      return (r && r.length) ? r : null;
+      // internal 条目只做内部质量监控，不往界面上放
+      const shown = (r || []).filter(function (x) { return !x.internal; });
+      return shown.length ? shown : null;
     } catch (e) { return null; }
   }
 
@@ -1225,7 +1227,10 @@ document.addEventListener("DOMContentLoaded", () => {
     let auditHtml = "";
     if (ai && !m.streaming && m.audit && m.audit.length) {
       auditHtml = '<div class="audit-strip">' +
-        '<div class="audit-head">⚠️ 排盘校验：上面有 ' + m.audit.length + ' 处和实盘对不上</div>' +
+        '<div class="audit-head">⚠️ ' +
+        (m.audit.every(function (x) { return x.kind === "dayPrecision"; })
+          ? '自检：上面有 ' + m.audit.length + ' 处说得比命盘能给的更精确'
+          : '排盘校验：上面有 ' + m.audit.length + ' 处和实盘对不上') + '</div>' +
         m.audit.map(function (x) {
           return '<div class="audit-item"><s>' + escapeHtml(x.claim) + '</s> 实际是 <b>' +
                  escapeHtml(x.actual) + '</b>' +

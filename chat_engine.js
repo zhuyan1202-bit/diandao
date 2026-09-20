@@ -34,6 +34,21 @@
   const LIUHE = { "子":"丑","丑":"子","寅":"亥","亥":"寅","卯":"戌","戌":"卯","辰":"酉","酉":"辰","巳":"申","申":"巳","午":"未","未":"午" };
   const LIUCHONG = { "子":"午","午":"子","丑":"未","未":"丑","寅":"申","申":"寅","卯":"酉","酉":"卯","辰":"戌","戌":"辰","巳":"亥","亥":"巳" };
   const SANHE = { "申":["子","辰"],"子":["申","辰"],"辰":["申","子"],"寅":["午","戌"],"午":["寅","戌"],"戌":["寅","午"],"巳":["酉","丑"],"酉":["巳","丑"],"丑":["巳","酉"],"亥":["卯","未"],"卯":["亥","未"],"未":["亥","卯"] };
+  // 六害（相穿）
+  const LIUHAI = { "子":"未","未":"子","丑":"午","午":"丑","寅":"巳","巳":"寅","卯":"辰","辰":"卯","申":"亥","亥":"申","酉":"戌","戌":"酉" };
+  // 相刑：子卯无礼之刑；寅巳申无恩之刑；丑戌未恃势之刑；辰午酉亥自刑
+  const XING_PAIR  = { "子":"卯","卯":"子" };
+  const XING_GROUP = [ ["寅","巳","申"], ["丑","戌","未"] ];
+  const ZIXING     = ["辰","午","酉","亥"];
+  // 三合局 / 三会方（两支相遇＝半合 / 半会）
+  const SANHE_GROUPS  = [ ["申","子","辰","水"], ["寅","午","戌","火"], ["巳","酉","丑","金"], ["亥","卯","未","木"] ];
+  const SANHUI_GROUPS = [ ["寅","卯","辰","木"], ["巳","午","未","火"], ["申","酉","戌","金"], ["亥","子","丑","水"] ];
+  // 天干五合与化神；天干相冲（戊己居中不冲）
+  const WUHE      = { "甲":"己","己":"甲","乙":"庚","庚":"乙","丙":"辛","辛":"丙","丁":"壬","壬":"丁","戊":"癸","癸":"戊" };
+  const WUHE_HUA  = { "甲己":"土","乙庚":"金","丙辛":"水","丁壬":"木","戊癸":"火" };
+  const GAN_CHONG = { "甲":"庚","庚":"甲","乙":"辛","辛":"乙","丙":"壬","壬":"丙","丁":"癸","癸":"丁" };
+  // 化神得地的月支（本气 + 长生/余气之地）
+  const HUA_DEDI  = { "土":["辰","戌","丑","未"], "金":["申","酉","戌","巳"], "水":["亥","子","丑","申"], "木":["寅","卯","辰","亥"], "火":["巳","午","未","寅"] };
 
   function yearGanZhi(y) {
     const off = (y - 4) % 60;
@@ -1081,14 +1096,62 @@
   }
   function gzOf60(i) { const k = ((i % 60) + 60) % 60; return TIANGAN[k % 10] + DIZHI[k % 12]; }
 
+  /* 两支落在同一个 三合局/三会方 里时，返回 {wx, full}。
+     full=true 表示这一对里含旺神（子午卯酉），才算真正的半合/半会；
+     不含旺神（如申辰缺子、寅辰缺卯）只是「拱」，力量弱得多，不能当合论。 */
+  function juOf(groups, a, b) {
+    for (let i = 0; i < groups.length; i++) {
+      const g = groups[i];
+      if (g.indexOf(a) >= 0 && g.indexOf(b) >= 0) {
+        return { wx: g[3], full: (a === g[1] || b === g[1]) };
+      }
+    }
+    return null;
+  }
+
+  // 地支关系（冲、合、半合、半会、刑、害、自刑，全量）
   function branchRel(a, b) {
     if (!a || !b) return "";
     const r = [];
-    if (a === b) r.push("伏吟");
+    if (a === b) r.push(ZIXING.indexOf(a) >= 0 ? "伏吟兼自刑" : "伏吟");
     if (LIUCHONG[a] === b) r.push("相冲");
     if (LIUHE[a] === b) r.push("六合");
-    if ((SANHE[a] || []).indexOf(b) >= 0) r.push("三合");
+    if ((SANHE[a] || []).indexOf(b) >= 0) {
+      const j = juOf(SANHE_GROUPS, a, b);
+      if (j) r.push(j.full ? ("半合" + j.wx + "局") : ("拱" + j.wx + "（缺旺神，力弱，不作合论）"));
+    }
+    if (a !== b) {
+      const h = juOf(SANHUI_GROUPS, a, b);
+      if (h) r.push(h.full ? ("半会" + h.wx + "方") : ("拱" + h.wx + "（缺旺神，力弱）"));
+    }
+    if (LIUHAI[a] === b) r.push("相害");
+    if (a !== b) {
+      if (XING_PAIR[a] === b) r.push("相刑");
+      else {
+        for (let i = 0; i < XING_GROUP.length; i++) {
+          if (XING_GROUP[i].indexOf(a) >= 0 && XING_GROUP[i].indexOf(b) >= 0) { r.push("相刑"); break; }
+        }
+      }
+    }
     return r.join("、");
+  }
+
+  /* 天干关系：五合（含合化成败判断）与相冲。
+     合化的主流条件是「化神得月令」；不得令则是「合而不化」——
+     两干互相绊住，各自的十神作用打折，人事上表现为被牵制、决断迟疑。
+     moZhi 传月支（判化神有无根）；brief=true 时只给短标签。 */
+  function stemRel(a, b, moZhi, brief) {
+    if (!a || !b) return "";
+    if (a === b) return brief ? "并透" : "并透（同一个十神重复出现，力量叠加）";
+    if (GAN_CHONG[a] === b) return brief ? "相冲" : "相冲（两股力量正面对撞，主动荡、主变）";
+    if (WUHE[a] !== b) return "";
+    const key = (TIANGAN.indexOf(a) < TIANGAN.indexOf(b)) ? (a + b) : (b + a);
+    const hua = WUHE_HUA[key] || "";
+    const de  = !!(moZhi && (HUA_DEDI[hua] || []).indexOf(moZhi) >= 0);
+    if (brief) return de ? ("相合→化" + hua) : "合而不化";
+    return de
+      ? ("相合（" + key + "→化" + hua + "；月令" + moZhi + "，化神有根，倾向真化：性质转为" + hua + "）")
+      : ("相合（" + key + "→化" + hua + "；月令" + moZhi + "，化神无根，合而不化：互相牵绊、决断打折）");
   }
 
   // 五虎遁：年干 -> 寅月月干
@@ -1149,6 +1212,82 @@
       L.push("  ▸ 对宫【" + P[opp].name + "】" + P[opp].branch + "：" + starsOf(opp));
       L.push("  ▸ 三合【" + P[s1].name + "】" + P[s1].branch + "：" + starsOf(s1));
       L.push("  ▸ 三合【" + P[s2].name + "】" + P[s2].branch + "：" + starsOf(s2));
+      L.push("");
+    }
+
+    /* ---- 宫干自化 与 飞化（飞星派核心：生年四化之外的第二层） ---- */
+    const SELF_HUA = {
+      "禄": "好处留不住：随和、不计较、给得出去也容易被人占便宜，这一宫的福分是过路财",
+      "权": "自己撑场面：逞强、硬扛、不肯示弱，权柄抓在手里却常常白忙一场",
+      "科": "要面子重于要里子：对外体面、说法周全，实际拿到的有限；但遇事确实容易被化解",
+      "忌": "漏 —— 全盘最要紧的一种：付出了却留不下，做了等于没做。感情上是「我对你好你感觉不到」，钱财上是「赚了就散」，而且这一宫的事最容易是自己搞砸的"
+    };
+    const FLY_MEAN = {
+      "禄": "把好处与精力主动投向这里，对这一宫有缘、有情",
+      "权": "想在这里说了算、想把这一块掌控住",
+      "科": "在这里要名声与体面，节奏偏慢，也容易遇到贵人",
+      "忌": "对这里执着、放不下，也最容易在这里吃亏与耗损 —— 这是全盘最重要的一根线"
+    };
+
+    const selfs = [];
+    for (let i = 0; i < 12; i++) {
+      const sh0 = ZWE.SIHUA[P[i].gan];
+      if (!sh0) continue;
+      ["禄", "权", "科", "忌"].forEach(function (k) {
+        const pa = findStarPal(sh0[k]);
+        if (pa && pa.index === i) selfs.push({ i: i, k: k, star: sh0[k] });
+      });
+    }
+    L.push("【宫干自化 —— 离心力（生年四化是向内聚，自化是向外漏，方向相反，绝不能混为一谈）】");
+    if (selfs.length) {
+      selfs.forEach(function (x) {
+        L.push("  ▸ 【" + P[x.i].name + "】宫干" + P[x.i].gan + "，使本宫【" + x.star + "】自化" + x.k + "：" + SELF_HUA[x.k]);
+      });
+    } else {
+      L.push("  ▸ 全盘十二宫皆无自化 —— 各宫能量不外泄，际遇相对稳定、少反复。这本身就是一条可用的判断，不是「没查到」。");
+    }
+    L.push("");
+
+    const mIdx = palIdx("命宫");
+    const flyFrom = [];
+    if (tIdx >= 0) flyFrom.push(tIdx);
+    if (mIdx >= 0 && mIdx !== tIdx) flyFrom.push(mIdx);
+    if (flyFrom.length) {
+      L.push("【宫干飞化 —— 这一宫主动去牵动了谁】");
+      flyFrom.forEach(function (i) {
+        const sh1 = ZWE.SIHUA[P[i].gan];
+        if (!sh1) return;
+        L.push("  ▸ 【" + P[i].name + "】宫干" + P[i].gan + "：");
+        ["禄", "权", "科", "忌"].forEach(function (k) {
+          const pa = findStarPal(sh1[k]);
+          if (!pa) { L.push("     · 化" + k + "在【" + sh1[k] + "】：此星不在本盘，不论"); return; }
+          const isSelf = (pa.index === i);
+          L.push("     · 化" + k + "在【" + sh1[k] + "】→ 落【" + pa.name + "·" + pa.branch + "】" +
+                 (isSelf ? "＝自化（力量向外漏掉，并没有飞出去牵动别的宫）：" + SELF_HUA[k]
+                         : "：" + FLY_MEAN[k]));
+        });
+      });
+      L.push("");
+    }
+
+    if (tIdx >= 0) {
+      const inJi = [], inLu = [];
+      for (let i = 0; i < 12; i++) {
+        if (i === tIdx) continue;
+        const sh2 = ZWE.SIHUA[P[i].gan];
+        if (!sh2) continue;
+        const pj = findStarPal(sh2["忌"]);
+        if (pj && pj.index === tIdx) inJi.push("【" + P[i].name + "】(宫干" + P[i].gan + "，化忌在" + sh2["忌"] + ")");
+        const pl = findStarPal(sh2["禄"]);
+        if (pl && pl.index === tIdx) inLu.push("【" + P[i].name + "】(宫干" + P[i].gan + "，化禄在" + sh2["禄"] + ")");
+      }
+      L.push("【谁在牵动本题宫【" + dom.palName + "】】");
+      L.push("  ▸ 化忌飞入：" + (inJi.length
+        ? inJi.join("、") + " —— 这几件事会主动来消耗本题，往往才是问题的真正来源，比本宫星曜更该先讲"
+        : "无 —— 本题不被其他宫位拖累，问题出在本宫自身"));
+      L.push("  ▸ 化禄飞入：" + (inLu.length
+        ? inLu.join("、") + " —— 这几个方向会主动来滋养本题，是现成可借的力"
+        : "无 —— 本题得不到其他宫位的主动助力，只能靠本宫自己"));
       L.push("");
     }
 
@@ -1429,6 +1568,8 @@
     const dayZhi = String(b.dayPillar).charAt(1);
     const yrZhi = String(b.yearPillar).charAt(1);
     const moZhi = String(b.monthPillar).charAt(1);
+    const yrGan = String(b.yearPillar).charAt(0);
+    const moGan = String(b.monthPillar).charAt(0);
     const L = [];
 
     L.push("【本题切入口】" + dom.domainLabel + " —— 重点看：" + dom.baziAspect +
@@ -1452,6 +1593,16 @@
       L.push("");
     }
 
+    L.push("【怎么读下面的刑冲会合 —— 用错了比不用更糟】");
+    L.push("  · 冲＝正面撞击，主变动、分离、提速；刑＝内部消耗、纠缠反复、是非口舌；害＝暗处受损、被拖累、关系里的隐性伤");
+    L.push("  · 六合＝被绊住（不一定是好事，也可能是想走走不掉）；半合／半会＝真成局，那个五行力量明显变强");
+    L.push("  · 拱＝缺旺神的虚局，力弱，只能作辅助线索，不许当成合局下结论");
+    L.push("  · 天干合而不化＝两边互相牵制，那个十神的作用打折，人事上表现为被人拉扯、决断变慢");
+    L.push("  · 天干真化＝性质真的转成化神那一行，要按新五行重新看喜忌");
+    L.push("  · 伏吟＝同一件事重演一遍；冲（反吟）＝整个翻过来");
+    L.push("  · ⚠️ 一个字上同时挂多个关系时（例如既冲又刑），必须说清楚哪个主导，不许两个都罗列了事");
+    L.push("");
+
     const dy = computeDayun(chart);
     let curDy = null;
     if (dy) {
@@ -1469,8 +1620,13 @@
         const r1 = branchRel(z2, dayZhi); if (r1) rels.push("与日支" + dayZhi + r1);
         const r2 = branchRel(z2, yrZhi);  if (r2) rels.push("与年支" + yrZhi + r2);
         const r3 = branchRel(z2, moZhi);  if (r3) rels.push("与月支" + moZhi + r3);
+        const gRels = [];
+        const q1 = stemRel(g2, dg, moZhi);    if (q1) gRels.push("与日元" + dg + q1);
+        const q2 = stemRel(g2, moGan, moZhi, true); if (q2) gRels.push("与月干" + moGan + q2);
+        const q3 = stemRel(g2, yrGan, moZhi, true); if (q3) gRels.push("与年干" + yrGan + q3);
         L.push("  " + mark + " " + d.gz + "运（" + d.fromYear + "–" + d.toYear + "，" + d.fromAge + "–" + d.toAge +
-               "岁）｜运干" + g2 + "＝【" + god(g2) + "】｜运支" + z2 +
+               "岁）｜运干" + g2 + "＝【" + god(g2) + "】" +
+               (gRels.length ? "｜天干：" + gRels.join("，") : "") + "｜运支" + z2 +
                (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
       });
       if (curDy) {
@@ -1491,8 +1647,16 @@
         const r4 = branchRel(z2, String(curDy.gz).charAt(1));
         if (r4) rels.push("与大运支" + String(curDy.gz).charAt(1) + r4);
       }
+      const gRels = [];
+      const q1 = stemRel(g2, dg, moZhi);          if (q1) gRels.push("与日元" + dg + q1);
+      const q2 = stemRel(g2, moGan, moZhi, true); if (q2) gRels.push("与月干" + moGan + q2);
+      if (curDy) {
+        const dgz = String(curDy.gz).charAt(0);
+        const q3 = stemRel(g2, dgz, moZhi, true); if (q3) gRels.push("与运干" + dgz + q3);
+      }
       L.push("  ◆ " + yy + "年 " + gz + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
-             "】｜年支" + z2 + (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+             "】" + (gRels.length ? "｜天干：" + gRels.join("，") : "") +
+             "｜年支" + z2 + (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
     }
     L.push("");
 
@@ -1526,8 +1690,10 @@
             const r4 = branchRel(z2, dz);
             if (r4) rels.push("与大运支" + dz + r4);
           }
+          const mq = stemRel(g2, dg, moZhi, true);
           rows.push("  · " + g2 + z2 + "月（" + cu.name + " " + cu.m + "/" + cu.d + " – " + nx.name + " " + nx.m + "/" + nx.d +
-                    "）｜月干" + g2 + "＝【" + god(g2) + "】" + (rels.length ? "｜" + rels.join("，") : ""));
+                    "）｜月干" + g2 + "＝【" + god(g2) + "】" + (mq ? "（与日元" + dg + mq + "）" : "") +
+                    (rels.length ? "｜" + rels.join("，") : ""));
         }
         if (rows.length) {
           L.push("【未来六个节气月（公历起讫已算好，给时间点必须落到这些区间里）】");
@@ -1820,9 +1986,19 @@ ${blk}
 
     const timeBase = `\`> 🕒 推演时间基准：公历${t.solarDateOnly}（${t.lunarStr} · ${t.yPillar}年${t.mPillar}月${t.dPillar}日）\``;
     const commonTiming =
-`- 必须逐条引用【🧮 预推演台】里的真实数据，至少点名 **3 个时间窗口**，每个都写成三件套：
-  「公历 X 月 X 日–X 月 X 日 ＋ 盘上这段时间具体发生了什么 ＋ 所以你会遇到什么」。
-- 只给「今年年底」「明年」这种粗颗粒＝不合格，必须精确到月并带公历起讫日。
+`- 必须逐条引用【🧮 预推演台】里的真实数据，至少点名 **3 个时间窗口**，每个写成三件套：
+  「哪个月（带公历起讫） ＋ 盘上这段时间具体被什么引动了 ＋ 所以你会遇到什么」。
+- 只给「今年年底」「明年」这种粗颗粒＝不合格。
+
+【⚖️ 应期的精度红线 —— 这条比「讲得细」更重要】
+- **应期的默认粒度是「月」**（节气月，带公历起讫日）。这是命理本身能支撑的极限。
+- 只有当盘上真有**硬引动**（流月冲动本题宫、四化飞入本题宫、流月干支合冲用神或忌神）时，
+  才可以收窄到**「上旬 / 中旬 / 下旬」**，而且必须把那个引动写出来。
+- ❌ **禁止直接断到某一天**（例如「11 月 9 日之前要表态」）。
+  命盘给不出这个精度，写出来就是编的。预推演台里的公历日期是**节气月的起讫边界**，
+  用途是告诉你「这个月从哪天算到哪天」，**不是让你把那一天当成应期。**
+- ✅ 正确：「公历 11 月 7 日入己亥月，这个月是窗口；其中中旬最重，因为……」
+- ❌ 错误：「11 月 9 日之前必须定下来」
 - 未来三年若有明显转折年，直接点名是哪一年、因为什么。`;
 
     const turn = ctx.turn || 1;
@@ -1838,6 +2014,11 @@ ${blk}
   这件事一般以什么方式发生（谁牵的线、什么场合、什么导火索）、你自己在其中惯性的动作是什么。
   这一段是紫微的看家本事，写不出画面就是失败。
 - 点出三方四正的拉扯：对宫在扯什么后腿、三合位能补上什么。
+- **必须用上推演台的【宫干飞化】与【宫干自化】**。只讲生年四化＝只看了一半，是外行做法：
+  · 先看【谁化忌飞入本题宫】—— 问题的真正来源常常不在本宫，而在那个把忌飞进来的宫（是那件事在消耗这件事）。若有，这一条要比本宫星曜先讲。
+  · 再看【本题宫干化忌飞去哪】—— 那是你自己放不下、主动往里投、也最容易在那儿栽跟头的地方。
+  · 本题宫若有**自化**，必须点破「留不住／白忙／做了等于没做」这一层。自化和生年四化方向相反，讲反了就是硬伤。
+  · ❌ 不许把「X宫化忌入Y宫」原样抄一遍了事，必须翻译成一句人话的事象（谁、在什么事上、怎么消耗你）。
 - ❌ 这一段里不许出现五行喜忌、用神、身强身弱、该穿什么颜色 —— 那是隔壁的活。
 
 ### 📅 三、引动点：大限 / 流年 / 流月
@@ -1855,13 +2036,19 @@ ${commonTiming}
 - 再给**喜用神与忌神**，然后翻译成能落地的东西：有利的五行 → 该往哪个方位走、
   适合什么性质的工作、该多接触什么样的人、什么环境会消耗你。调候若更急，优先讲调候。
 - 用**十神结构**解释他做决定的底层驱动：为什么总是这么选、这种驱动在这件事上会带来什么后果。
+- **天干关系不许漏**（推演台已算好五合与合化成败，只看地支是半吊子）：
+  · 「合而不化」＝那个十神被绊住、作用打折，人事上是被人拉扯、决断变慢 —— 这经常就是他卡住的真正原因。
+  · 「真化」＝性质真的转成化神那一行，喜忌必须按新五行重算，不能还照原来的十神讲。
+  · **日元被合要单独点出来**（尤其被财、被官合）：那是「他被谁牵着走」，比任何地支关系都更贴身。
 - ❌ 这一段里不许出现宫位、星曜、四化 —— 那是隔壁的活。
 
 ### 🌊 三、大运与流年的顺逆
 - 先定调：**当前大运**对日元是帮还是耗（运干十神＋运支与原局的冲合），这十年整体顺不顺，现在走到第几年。
 - 再说**下一步大运**哪一年换、是往上走还是往下走，换运前后要准备什么。
 ${commonTiming}
-- 每个窗口都要说清是**哪个干支跟原局哪个柱发生了什么关系**。
+- 每个窗口都要说清是**哪个干支跟原局哪个柱发生了什么关系**，天干那一层和地支那一层都要说。
+- 一个字上同时挂了好几种关系时（比如既冲又刑），必须说清**哪个主导**，不许两个都列出来就算交差。
+- 标了「拱」的是虚局，力弱，只能当辅助线索，**不许当成合局下结论**。
 - 最后给 2 条趋避动作，必须带上喜用五行对应的具体做法（方位／行业／该找什么人／避开什么）。
   禁止“多沟通”“提升自我”这类空话。`;
 
@@ -1952,6 +2139,19 @@ ${sectionSpec}
    - 不要"先预告再展开再总结"。没有总结段，讲完就停。
    - 写之前先想清楚：这段要说的东西，上面是不是已经说过了？说过就删掉，换新的说。
    - 同一个星曜／干支如果要在两处提到，第二处只写它带来的新结论，不要把它的含义再解释一遍。
+
+8. **命理看不了的事，直说看不了 —— 这是对前面「禁止回避」的合法例外**。
+   前面禁止反问、禁止免责，指的是「盘面明明能答却含糊其辞」，**不是让你硬编**。
+   下面三类是红线，碰了就是事故：
+   - ⏳ **寿元与生死**：「我能活多久」「我什么时候死」「我家人过得了这关吗」—— **一字不推。**
+   - 🏥 **疾病诊断与治疗**：「我这是什么病」「要不要做手术」「能不能治好」—— **不允许给医学判断。**
+     只能讲盘上的「哪个系统偏弱、哪段时间要多留意」，并明确说这替代不了看医生。
+   - 🔏 **他人隐私与具体数字**：别人背着你干了什么、彩票号码、股票代码、考试分数、
+     官司判决结果 —— **命盘里没有这些，不允许编。**
+   遇到这三类，照这个格式走：先用**一句话**说清楚这个盘看不了（不要大段免责），
+   紧接着**直接开始回答一个你真能看的相邻问题**，把篇幅全放在那上面。
+   示例：「病能不能治好，盘上看不了，这得看医生。但你这两年的精力走势能看，说的是……」
+   ❌ 不要写「建议咨询专业人士」就没下文了 —— 那等于没回答。
 
 ${followUp ? "篇幅 300–600 字，短而准。宁可短，也绝不重复已经说过的话。" : "篇幅 700–1000 字。密度优先：宁可少讲一个点，也不要把一个点翻来覆去说三遍。"}全篇现代大白话，客观锋利，不掉书袋。
 
@@ -2150,12 +2350,13 @@ ${nextSpec}`;
     const p = chart.profile || {};
     const issues = [];
     const seen = {};
-    const add = function (kind, claim, actual, hint) {
+    // internal=true 的条目只用于内部质量监控，不显示给用户（避免界面出现元信息噪音）
+    const add = function (kind, claim, actual, hint, internal) {
       if (!actual || claim === actual) return;
       const k = kind + "|" + claim;
       if (seen[k]) return;
       seen[k] = 1;
-      issues.push({ kind: kind, claim: claim, actual: actual, hint: hint || "" });
+      issues.push({ kind: kind, claim: claim, actual: actual, hint: hint || "", internal: !!internal });
     };
 
     let m;
@@ -2246,6 +2447,78 @@ ${nextSpec}`;
       const n = parseInt(m[1], 10);
       if (n !== realAge && n !== realAge - 1) {
         add("age", "今年 " + n + " 岁", "今年 " + realAge + " 岁（虚岁）", "");
+      }
+    }
+
+    /* ⑧ 紫微：星曜落宫说错 —— 这是紫微 AI 最高发的幻觉 */
+    if (mode === "ziwei" && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
+      const PZ = chart.ziwei.raw.palaces;
+      const homeOf = {};
+      PZ.forEach(function (pa) {
+        (pa.mainStars || []).forEach(function (x) { homeOf[x.name] = pa.name; });
+        (pa.auxStars  || []).forEach(function (x) { homeOf[x.name] = pa.name; });
+      });
+      const reStar = new RegExp("(" + STAR_VOCAB.join("|") + ")(?:星)?[】\\]]?\\s*(?:独)?(?:坐守|坐镇|坐|落在|落入|入驻|入|守|在)\\s*(?:于)?\\s*[【\\[]?(" +
+                                PALACE_VOCAB.join("|") + ")[】\\]]?", "g");
+      while ((m = reStar.exec(t)) !== null) {
+        const star = m[1], said = m[2], real = homeOf[star];
+        // 「对宫」「三合」「大限夫妻宫」这类说法是另一套坐标，不误报
+        const pre = t.slice(Math.max(0, m.index - 9), m.index);
+        if (/对宫|三合|三方|大限|流年|流月|借|会照|冲照/.test(pre)) continue;
+        const mid = t.slice(m.index, m.index + m[0].length);
+        if (/大限|流年|流月/.test(mid)) continue;
+        if (!real) {
+          add("starMissing", star, "本盘无此星", "这张盘里根本没有【" + star + "】，不能拿它下判断");
+        } else if (real !== said) {
+          add("starPalace", star + "在" + said, star + "在" + real, "本盘【" + star + "】坐【" + real + "】");
+        }
+      }
+    }
+
+    /* ⑨ 应期被断到「某一天」—— 命盘给不出这个精度 */
+    const reDay = /(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(之前|以前|前后|左右|当天|当日|这天|那天|之后|以后)/g;
+    while ((m = reDay.exec(t)) !== null) {
+      add("dayPrecision", "「" + m[1] + "月" + m[2] + "日" + m[3] + "」这个精度", "靠不住",
+          "命盘能支撑的应期上限是「月」，有硬引动时最多到上/中/下旬。精确到某一天是模型自己加的，别当真");
+    }
+
+    /* ⑩ 八字：旺衰讲反了（与扶抑打分矛盾） */
+    if (mode === "bazi") {
+      const st = baziStrength(chart);
+      if (st && st.verdict) {
+        const strongSide = (st.verdict === "身强" || st.verdict === "偏强");
+        const weakSide   = (st.verdict === "身弱" || st.verdict === "偏弱");
+        if (strongSide && /日元(?:偏)?(?:身)?弱|身弱|日主(?:偏)?弱/.test(t)) {
+          add("strength", "说日元弱", "推演台判【" + st.verdict + "】",
+              "帮扶度 " + st.score + "。你若真要推翻这个打分，必须写明理由，不能直接反着讲");
+        }
+        if (weakSide && /日元(?:偏)?(?:身)?强|身强|日主(?:偏)?强/.test(t)) {
+          add("strength", "说日元强", "推演台判【" + st.verdict + "】",
+              "帮扶度 " + st.score + "。你若真要推翻这个打分，必须写明理由，不能直接反着讲");
+        }
+      }
+    }
+
+    /* ⑪ 越界：两席串台是本产品最严重的失败（用户专门提过「两个窗口看着差不多」） */
+    if (mode === "ziwei") {
+      // 注意：「七杀」「贪狼」「破军」在紫微里是正经主星，绝不能当越界词
+      const bad = ["用神", "忌神", "喜用", "身强", "身弱", "日元", "调候", "十神", "正官", "偏财", "正财", "食神", "伤官", "比肩", "劫财", "正印", "偏印"];
+      for (let i = 0; i < bad.length; i++) {
+        if (t.indexOf(bad[i]) >= 0) {
+          add("crossTalk", "紫微席写了「" + bad[i] + "」", "这是八字席的概念",
+              "两席串台会让两个窗口的回答雷同，这是本产品最严重的失败", true);
+          break;
+        }
+      }
+    } else if (mode === "bazi") {
+      const bad2 = ["命宫", "夫妻宫", "官禄宫", "财帛宫", "迁移宫", "福德宫", "田宅宫", "疾厄宫",
+                    "紫微", "天府", "贪狼", "破军", "七杀星", "化禄", "化忌", "大限", "三方四正"];
+      for (let i = 0; i < bad2.length; i++) {
+        if (t.indexOf(bad2[i]) >= 0) {
+          add("crossTalk", "八字席写了「" + bad2[i] + "」", "这是紫微席的概念",
+              "两席串台会让两个窗口的回答雷同，这是本产品最严重的失败", true);
+          break;
+        }
       }
     }
 

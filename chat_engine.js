@@ -1573,7 +1573,11 @@
       let body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
       if (!body) return "";
       body = trimDeskForFollowup(body, question, ctx);
+      const yTable = [];
+      for (let k = -1; k <= 10; k++) yTable.push((t.Y + k) + "=" + yearGanZhi(t.Y + k));
       return "\n════════ 【🧮 预推演台：以下岁运数据已由排盘引擎精确算出，直接引用，严禁自行心算或改动】 ════════\n" +
+             "【公历年 ↔ 流年干支对照表】" + yTable.join("　") +
+             "\n  ❗ 写到任何一年时，干支只能照这张表抄。写错一个干支，整篇就作废了。\n" +
              body +
              "\n══════════════════════════════════════════════════════════════════\n";
     } catch (e) { return ""; }
@@ -1762,7 +1766,11 @@
     // 严格隔离两套知识库（仅作为AI内部推演的底层依据，严禁向用户展示引文）
     let kbBlock = "";
     if (mode === "ziwei" && global.ZiweiKBRetriever) {
-      const hits = global.ZiweiKBRetriever.retrieve(chart, question || "", 2800);
+      // 把本题锁定的宫位一并传进去 —— 以前检索器只看关键词，
+      // 问事业也会先塞一堆夫妻宫断语，真正相关的反而被预算砍掉。
+      let _focusPal = "";
+      try { _focusPal = resolveDomainAndPalace(question || "", chart).palName || ""; } catch (e) {}
+      const hits = global.ZiweiKBRetriever.retrieve(chart, question || "", 2800, _focusPal);
       if (hits.length) {
         kbBlock =
 `\n════════ 【内部底层推演依据：紫微斗数知识库（仅供你内部推理遵循，严禁在回答中展示引文或书名）】 ════════
@@ -2129,6 +2137,121 @@ ${nextSpec}`;
     return callLiveAPIStream(question, chart, history, config, null);
   }
 
+  /* ---------- 7.6 出厂检查：模型有没有编干支 ----------
+   * 预推演台已经把正确的干支算好喂进去了，但没有任何机制拦截模型写错。
+   * 用户看到一个错干支，整篇的信任就没了 —— 所以回答收完后必须对一遍。
+   */
+  const GZ_PAT = "[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]";
+
+  function auditAnswer(text, chart, mode) {
+    const t = String(text || "");
+    if (!t.trim() || !chart) return [];
+    const b = chart.bazi || {};
+    const p = chart.profile || {};
+    const issues = [];
+    const seen = {};
+    const add = function (kind, claim, actual, hint) {
+      if (!actual || claim === actual) return;
+      const k = kind + "|" + claim;
+      if (seen[k]) return;
+      seen[k] = 1;
+      issues.push({ kind: kind, claim: claim, actual: actual, hint: hint || "" });
+    };
+
+    let m;
+
+    /* ① 「2027年丁未」—— 公历年配错年干支 */
+    const reYear = new RegExp("(20\\d\\d)\\s*年[\\s、，,（(的是为流岁干支【]{0,6}(" + GZ_PAT + ")", "g");
+    while ((m = reYear.exec(t)) !== null) {
+      const tail = t.charAt(m.index + m[0].length);
+      if (tail === "月" || tail === "日" || tail === "时" || tail === "运") continue;  // 那是月柱/日柱/大运
+      const y = parseInt(m[1], 10);
+      add("year", m[1] + "年" + m[2], m[1] + "年" + yearGanZhi(y),
+          "流年干支按公历年推，" + y + " 年是 " + yearGanZhi(y));
+    }
+
+    /* ② 「丁未年」单独出现 —— 找附近的公历年来校验 */
+    const reGzY = new RegExp("(" + GZ_PAT + ")年", "g");
+    while ((m = reGzY.exec(t)) !== null) {
+      // 中文里几乎总是「2025 年是乙巳年」这个语序，所以**优先往前找最近的一个**。
+      // 单纯比距离会出错：「2025年是乙巳年，2026年是丙午年」里，
+      // 离「乙巳」最近的反而是后面那个 2026。
+      let y = 0;
+      const back = t.slice(Math.max(0, m.index - 20), m.index);
+      const bs = back.match(/20\d\d/g);
+      if (bs && bs.length) {
+        y = parseInt(bs[bs.length - 1], 10);
+      } else {
+        const fwd = t.slice(m.index, m.index + 12).match(/20\d\d/);
+        if (fwd) y = parseInt(fwd[0], 10);
+      }
+      if (!y) continue;
+      const real = yearGanZhi(y);
+      if (m[1] !== real) {
+        add("year", m[1] + "年（文中指 " + y + "）", real + "年",
+            y + " 年的流年干支是 " + real);
+      }
+    }
+
+    /* ③ 四柱写错 */
+    const POS = { "年": b.yearPillar, "月": b.monthPillar, "日": b.dayPillar, "时": b.hourPillar };
+    const rePillar = new RegExp("(年|月|日|时)柱[是为：:【\\s]{0,3}(" + GZ_PAT + ")", "g");
+    while ((m = rePillar.exec(t)) !== null) {
+      const real = POS[m[1]];
+      if (real) add("pillar", m[1] + "柱 " + m[2], m[1] + "柱 " + real, "本盘四柱不可更改");
+    }
+
+    /* ④ 日元写错 */
+    const reDm = /日元[是为：:\s]{0,3}([甲乙丙丁戊己庚辛壬癸])/g;
+    while ((m = reDm.exec(t)) !== null) {
+      if (b.dayMaster && m[1] !== b.dayMaster) {
+        add("daymaster", "日元" + m[1], "日元" + b.dayMaster, "日元就是日柱天干");
+      }
+    }
+
+    /* ⑤ 大运干支不在本人的大运序列里（只查八字席） */
+    if (mode === "bazi") {
+      const dy = computeDayun(chart);
+      if (dy && dy.list && dy.list.length) {
+        const ok = {};
+        dy.list.forEach(function (d) { ok[d.gz] = d; });
+        const legal = dy.list.map(function (d) { return d.gz + "（" + d.fromAge + "-" + d.toAge + "岁）"; }).join("、");
+        const reDy = new RegExp("(" + GZ_PAT + ")\\s*(?:大运|运)|大运[是为：:\\s]{0,3}(" + GZ_PAT + ")", "g");
+        while ((m = reDy.exec(t)) !== null) {
+          const gz = m[1] || m[2];
+          if (gz && !ok[gz] && gz !== b.monthPillar) {
+            add("dayun", gz + "大运", "不在你的大运序列里", "你的九步大运是：" + legal);
+          }
+        }
+        /* ⑥ 大运岁数对不上 */
+        const reAge = new RegExp("(" + GZ_PAT + ")\\s*(?:大)?运[^。；\\n]{0,10}?(\\d{1,2})\\s*[-–~至到]\\s*(\\d{1,2})\\s*岁", "g");
+        while ((m = reAge.exec(t)) !== null) {
+          const d = ok[m[1]];
+          if (!d) continue;
+          const a1 = parseInt(m[2], 10), a2 = parseInt(m[3], 10);
+          if (a1 !== d.fromAge || a2 !== d.toAge) {
+            add("dayunAge", m[1] + "运 " + a1 + "-" + a2 + "岁",
+                m[1] + "运 " + d.fromAge + "-" + d.toAge + "岁",
+                "起运 " + dy.startY + " 岁 " + dy.startM + " 个月，每十年一换");
+          }
+        }
+      }
+    }
+
+    /* ⑦ 年龄写错 */
+    const tAnchor = getCurrentTimeAnchor();
+    const realAge = tAnchor.Y - p.year + 1;
+    const reAgeNow = /(?:你今年|现在你|你现在|今年你)[^。；\n]{0,6}?(\d{1,3})\s*岁/g;
+    while ((m = reAgeNow.exec(t)) !== null) {
+      const n = parseInt(m[1], 10);
+      if (n !== realAge && n !== realAge - 1) {
+        add("age", "今年 " + n + " 岁", "今年 " + realAge + " 岁（虚岁）", "");
+      }
+    }
+
+    return issues.slice(0, 6);
+  }
+
   /* ---------- 7.5 追问预判：从回答末尾拆出 3 个按钮 ---------- */
   const NEXT_MARK = "\u27E6NEXT\u27E7";
 
@@ -2232,6 +2355,7 @@ ${nextSpec}`;
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
     followupsFor, splitFollowups, stripNextBlock,
+    auditAnswer,
     collectCovered, recentClaims, lastFocusOf,   // 供测试与调试使用
     buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor
   };

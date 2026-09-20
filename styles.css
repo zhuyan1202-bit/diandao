@@ -15,6 +15,9 @@
   --accent: #9a6b3f;              /* 沉稳赭金 */
   --accent-soft: #c9a227;
   --accent-bg: #f5ede0;
+  --audit-bg: #fdf2e6;
+  --audit-border: #e4b98a;
+  --audit-ink: #8a4b18;   /* 对 #fdf2e6 达 6.0:1 */
   --chip-ink: #7d5430;             /* 追问胶囊文字：对 accent-bg 达 5.7:1 */
   --chip-ink-on: #ffffff;
   --rose: #c2567a;
@@ -42,6 +45,9 @@
   --accent: #e0b36a;
   --accent-soft: #f0cd8a;
   --accent-bg: #2a2536;
+  --audit-bg: #3a2a1c;
+  --audit-border: #6b4e30;
+  --audit-ink: #f0c48a;
   --chip-ink: #e0b36a;
   --chip-ink-on: #1f1b2a;          /* 深色主题下悬停用深底色字，白字只有 1.9:1 */
   --rose: #e88ba8;
@@ -269,6 +275,18 @@ body {
   color: var(--text-sub);
 }
 .message-bubble hr { border: none; border-top: 1px dashed var(--border-strong); margin: 16px 0; }
+
+/* 出厂检查：模型写错了干支时才出现 */
+.audit-strip {
+  margin-top: 14px; padding: 11px 13px; border-radius: 10px;
+  background: var(--audit-bg); border: 1px solid var(--audit-border);
+  font-size: 13px; line-height: 1.6;
+}
+.audit-head { color: var(--audit-ink); font-weight: 600; margin-bottom: 6px; }
+.audit-item { color: var(--audit-ink); margin-top: 4px; }
+.audit-item s { opacity: .75; }
+.audit-item b { font-weight: 600; }
+.audit-hint { display: block; opacity: .8; font-size: 12px; margin-top: 1px; }
 
 /* 追问建议（模型预判的下一句，句子比以前长，得能看清） */
 .followup-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }

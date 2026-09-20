@@ -1124,6 +1124,15 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom();
   }
 
+  // 把模型的回答和排盘数据对一遍，对不上就挂在答案下面
+  function auditOf(t) {
+    try {
+      if (!window.ChatEngine || !ChatEngine.auditAnswer || !state.userChart) return null;
+      const r = ChatEngine.auditAnswer(t, state.userChart, state.kbMode);
+      return (r && r.length) ? r : null;
+    } catch (e) { return null; }
+  }
+
   // 回答末尾那行追问预判是给按钮用的，不能让它出现在正文里
   function nextSafe(t) {
     return (window.ChatEngine && ChatEngine.stripNextBlock) ? ChatEngine.stripNextBlock(t) : String(t || "");
@@ -1213,6 +1222,16 @@ document.addEventListener("DOMContentLoaded", () => {
           <p>${(isReversed ? card.keywords.reversed : card.keywords.upright).join(" · ")}</p>
         </div></div>`;
     }
+    let auditHtml = "";
+    if (ai && !m.streaming && m.audit && m.audit.length) {
+      auditHtml = '<div class="audit-strip">' +
+        '<div class="audit-head">⚠️ 排盘校验：上面有 ' + m.audit.length + ' 处和实盘对不上</div>' +
+        m.audit.map(function (x) {
+          return '<div class="audit-item"><s>' + escapeHtml(x.claim) + '</s> 实际是 <b>' +
+                 escapeHtml(x.actual) + '</b>' +
+                 (x.hint ? '<span class="audit-hint">' + escapeHtml(x.hint) + '</span>' : '') + '</div>';
+        }).join("") + '</div>';
+    }
     let follow = "";
     if (ai && !m.streaming && m.followups && m.followups.length) {
       follow = `<div class="followup-row">` +
@@ -1241,6 +1260,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="message-bubble">
         ${reasoningHtml}
         ${bodyHtml}
+        ${auditHtml}
         ${tarot}
         ${!m.streaming ? `<div class="message-actions">
             <button class="msg-action-btn" onclick="window.__copy(this)">复制</button>
@@ -1373,6 +1393,8 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
           : ChatEngine.followupsFor(text, state.userChart, sp.text, state.kbMode);
+        // 出厂检查：模型会不会把干支、四柱、大运写错
+        aiMsg.audit = auditOf(sp.text);
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);

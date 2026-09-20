@@ -48,14 +48,40 @@
     { re: /身体|健康|生病|失眠/,                 pal: "疾厄宫" }
   ];
 
+  /* 三方四正：本宫 + 对宫 + 两个三合宫（按地支序数算） */
+  const BRANCH_ORDER = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"];
+  function sanfangPalaces(palaces, pal) {
+    if (!pal || !pal.branch || !palaces || !palaces.length) return [];
+    const i = BRANCH_ORDER.indexOf(pal.branch);
+    if (i < 0) return [];
+    const want = [(i + 6) % 12, (i + 4) % 12, (i + 8) % 12];   // 对宫、三合两宫
+    const out = [];
+    want.forEach(function (k) {
+      const p = palaces.filter(function (x) { return x.branch === BRANCH_ORDER[k]; })[0];
+      if (p) out.push(p);
+    });
+    return out;
+  }
+
   /**
    * 根据命盘 + 问题检索典籍原文
+   * @param {Object} chart    完整命盘
+   * @param {String} question 用户问题
+   * @param {Number} budget   字符预算
+   * @param {String} focus    本题锁定的宫位名（由 resolveDomainAndPalace 算出）。
+   *                          不传则退回关键词匹配。
    * @returns {Array<{id,source,text,why}>}
+   *
+   * ⚠️ 顺序就是优先级：预算用完就截断，所以**本题宫位必须排在最前**。
+   *    老版本无论问什么都先塞夫妻宫，问事业也先读一堆婚恋断语，
+   *    而真正相关的宫位被追加在末尾、最先被砍掉。
    */
-  function retrieve(chart, question, budget) {
+  function retrieve(chart, question, budget, focus) {
     budget = budget || 3200;               // 字符预算，控制 token
     const picked = [], seen = {};
     const zw = chart.ziwei;
+    const palaces = (zw && zw.palaces) || [];
+    const q = String(question || "");
 
     function push(entry, why) {
       if (!entry || seen[entry.id]) return;
@@ -65,54 +91,87 @@
     function pushAll(list, why, max) {
       (list || []).slice(0, max || 2).forEach(function (e) { push(e, why); });
     }
+    function palByName(n) {
+      return palaces.filter(function (p) { return p.name === n; })[0] || null;
+    }
+    function starsOf(p) {
+      return ((p && p.mainStars) || []).map(function (s) { return s.name; });
+    }
 
-    const fq = zw.spousePalace;
-    const spouseStars = fq.mainStarNames || [];
-    const mingStars = (zw.mingPalace && zw.mingPalace.stars || []).map(function (s) { return s.name; });
+    // 本题宫位：优先用调用方算好的，其次关键词，最后才默认夫妻宫
+    let focusName = focus || "";
+    if (!focusName) {
+      for (let i = 0; i < TOPIC_PALACE.length; i++) {
+        if (TOPIC_PALACE[i].re.test(q)) { focusName = TOPIC_PALACE[i].pal; break; }
+      }
+    }
+    if (!focusName) focusName = "夫妻宫";
+    const focusPal = palByName(focusName);
 
-    /* 1) 夫妻宫主星：总论 + 妻妾宫断语（最高优先级） */
-    spouseStars.forEach(function (st) {
-      pushAll(findAll(["夫妻宫", st]), `夫妻宫坐${st}`, 2);
-      push(get(`star.${st}.general`), `${st}星总论`);
-    });
+    /* 1) 本题宫位主星：断语 + 星总论（最高优先级） */
+    if (focusPal) {
+      starsOf(focusPal).forEach(function (st) {
+        pushAll(findAll([focusName, st]), `本题【${focusName}】坐${st}`, 2);
+        push(get(`star.${st}.general`), `${st}星总论（本题宫主星）`);
+      });
 
-    /* 2) 夫妻宫空宫 → 借对宫（官禄宫）主星 */
-    if (fq.borrowed) {
-      spouseStars.forEach(function (st) {
-        pushAll(findAll(["官禄宫", st]), `夫妻宫空宫，借对宫${st}`, 1);
+      /* 2) 本题宫位空宫 → 借对宫 */
+      if (focusPal.borrowed || !starsOf(focusPal).length) {
+        const opp = sanfangPalaces(palaces, focusPal)[0];
+        if (opp) {
+          starsOf(opp).forEach(function (st) {
+            pushAll(findAll([opp.name, st]), `${focusName}空宫，借对宫【${opp.name}】${st}`, 1);
+            push(get(`star.${st}.general`), `${st}星总论（借星）`);
+          });
+        }
+      }
+
+      /* 3) 本题宫位的吉煞星 */
+      (focusPal.assistantStars || []).forEach(function (a) {
+        pushAll(findAll([focusName, a.name]), `${focusName}会${a.name}`, 1);
+        push(get(`star.${a.name}.general`), `${a.name}星总论`);
+      });
+
+      /* 4) 三方四正（对宫 + 三合）的主星总论 */
+      sanfangPalaces(palaces, focusPal).forEach(function (p) {
+        starsOf(p).slice(0, 2).forEach(function (st) {
+          push(get(`star.${st}.general`), `三方四正【${p.name}】坐${st}`);
+        });
       });
     }
 
-    /* 3) 命宫主星总论 */
+    /* 5) 命宫主星总论（性格底色，任何问题都用得上） */
+    const mingStars = (zw.mingPalace && zw.mingPalace.stars || []).map(function (s) { return s.name; });
     mingStars.forEach(function (st) {
       push(get(`star.${st}.general`), `命宫坐${st}`);
       pushAll(findAll(["命宫", st]), `命宫坐${st}`, 1);
     });
 
-    /* 4) 夫妻宫的吉煞星 */
-    (fq.assistantStars || []).forEach(function (a) {
-      pushAll(findAll(["夫妻宫", a.name]), `夫妻宫会${a.name}`, 1);
-      push(get(`star.${a.name}.general`), `${a.name}星总论`);
-    });
-
-    /* 5) 生年四化 */
+    /* 6) 生年四化 */
     const sy = zw.sihuaYear || {};
-    ["禄", "权", "科", "忌"].forEach(function (t) {
-      if (sy[t]) push(get(`star.化${t}.general`), `生年${sy[t]}化${t}`);
+    ["禄", "权", "科", "忌"].forEach(function (tt) {
+      if (sy[tt]) push(get(`star.化${tt}.general`), `生年${sy[tt]}化${tt}`);
     });
 
-    /* 6) 依问题主题追加宫位断语 */
-    const q = String(question || "");
+    /* 7) 问题里额外点到的宫位（例如问事业时提到了家里） */
     TOPIC_PALACE.forEach(function (tp) {
-      if (!tp.re.test(q)) return;
-      const pal = zw.palaces && zw.palaces.filter(function (p) { return p.name === tp.pal; })[0];
+      if (!tp.re.test(q) || tp.pal === focusName) return;
+      const pal = palByName(tp.pal);
       if (!pal) return;
-      pal.mainStars.forEach(function (s) {
-        pushAll(findAll([tp.pal, s.name]), `问题涉及${tp.pal}（坐${s.name}）`, 1);
+      (pal.mainStars || []).forEach(function (s) {
+        pushAll(findAll([tp.pal, s.name]), `问题还涉及${tp.pal}（坐${s.name}）`, 1);
       });
     });
 
-    /* 7) 裁剪到预算内 */
+    /* 8) 夫妻宫兜底：本题不是夫妻宫时，只在问题确实涉及感情才补 */
+    if (focusName !== "夫妻宫" && /感情|恋爱|对象|结婚|伴侣|另一半|喜欢|暧昧|分手|复合|婚/.test(q)) {
+      const fq = zw.spousePalace;
+      ((fq && fq.mainStarNames) || []).forEach(function (st) {
+        pushAll(findAll(["夫妻宫", st]), `问题涉及感情，补夫妻宫坐${st}`, 1);
+      });
+    }
+
+    /* 9) 裁剪到预算内 */
     const out = [];
     let used = 0;
     for (const e of picked) {

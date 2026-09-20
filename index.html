@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260918224437">
+  <link rel="stylesheet" href="styles.css?v=20260920114232">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -32,6 +32,19 @@
       <button class="new-chat-btn" id="btn-new-chat">
         <span>＋</span> 开启新的推演
       </button>
+
+      <div class="profile-switcher">
+        <button class="profile-switch-btn" id="btn-profile-switch" title="切换 / 管理命盘档案">
+          <span class="ps-avatar" id="ps-avatar">本</span>
+          <span class="ps-name" id="ps-name">本人</span>
+          <span class="ps-caret">▾</span>
+        </button>
+        <div class="profile-menu" id="profile-menu">
+          <div class="profile-menu-title">命盘档案（各自独立，对话不互通）</div>
+          <div id="profile-menu-list"></div>
+          <button class="profile-menu-new" id="btn-profile-new">＋ 新建一个人的档案</button>
+        </div>
+      </div>
 
       <div class="chart-profile-mini" id="btn-mini-chart-card" title="点击查看与编辑命盘">
         <div class="mini-profile-header">
@@ -166,6 +179,12 @@
         <div class="drawer-section">
           <div class="drawer-section-title">⚙ 生辰数据</div>
           <div class="form-row">
+            <div class="form-col" style="flex:1 1 100%;">
+              <label class="form-label-xs">档案名称（这是谁的盘）</label>
+              <input type="text" class="form-input-xs" id="drawer-profile-name" placeholder="本人 / 小林 / 我妈" maxlength="12">
+            </div>
+          </div>
+          <div class="form-row">
             <div class="form-col">
               <label class="form-label-xs">性别</label>
               <select class="form-select-xs" id="drawer-gender">
@@ -280,7 +299,6 @@
           <div id="drawer-tst-preview" class="tst-preview-box">
             ⏱ 正在计算真太阳时天文修正…
           </div>
-          <button class="save-chart-btn" id="btn-save-chart">保存出生地与真太阳时并重新排盘</button>
         </div>
 
         <div class="drawer-section">
@@ -301,6 +319,11 @@
           <div class="drawer-section-title">🪢 四柱八字</div>
           <div id="drawer-bazi-info" style="font-size:13.2px; color:var(--text-sub);"></div>
         </div>
+      </div>
+
+      <div class="drawer-save-bar" id="drawer-save-bar">
+        <div class="save-hint" id="save-hint">已保存</div>
+        <button class="save-chart-btn" id="btn-save-chart">💾 保存档案并重新排盘</button>
       </div>
     </aside>
   </div>
@@ -398,18 +421,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260918224437"></script>
-  <script src="calendar_core.js?v=20260918224437"></script>
-  <script src="ziwei_engine.js?v=20260918224437"></script>
-  <script src="bazi_analyze.js?v=20260918224437"></script>
+  <script src="vsop87.js?v=20260920114232"></script>
+  <script src="calendar_core.js?v=20260920114232"></script>
+  <script src="ziwei_engine.js?v=20260920114232"></script>
+  <script src="bazi_analyze.js?v=20260920114232"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260918224437"></script>
-  <script src="kb_retrieve.js?v=20260918224437"></script>
-  <script src="bazi_kb.js?v=20260918224437"></script>
-  <script src="bazi_retrieve.js?v=20260918224437"></script>
-  <script src="tarot_data.js?v=20260918224437"></script>
-  <script src="ziwei_bazi_core.js?v=20260918224437"></script>
-  <script src="chat_engine.js?v=20260918224437"></script>
-  <script src="app.js?v=20260918224437"></script>
+  <script src="knowledge_base.js?v=20260920114232"></script>
+  <script src="kb_retrieve.js?v=20260920114232"></script>
+  <script src="bazi_kb.js?v=20260920114232"></script>
+  <script src="bazi_retrieve.js?v=20260920114232"></script>
+  <script src="tarot_data.js?v=20260920114232"></script>
+  <script src="ziwei_bazi_core.js?v=20260920114232"></script>
+  <script src="chat_engine.js?v=20260920114232"></script>
+  <script src="app.js?v=20260920114232"></script>
 </body>
 </html>

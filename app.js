@@ -3,6 +3,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const state = {
     userChart: null,
+    profiles: [],
+    activeProfileId: "",
     chartKey: null,          // 命盘指纹：变了就说明用户改了生辰八字
     sessions: [],
     currentSessionId: null,
@@ -121,13 +123,212 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  function loadPersisted() {
-    let profile = { year: 1998, month: 8, day: 18, hour: 10, minute: 30, city: "默认 (东经120°标准时)", gender: "female", status: "single" };
+  /* ================= 命盘档案：可以存多个人，各自独立 =================
+   * starbook_profiles   → { activeId, list:[{id,name,profile}] }
+   * starbook_sessions_v2→ { [profileId]: sessions[] }
+   * 旧的 starbook_user_profile / starbook_sessions 会自动迁移成第一个档案，
+   * 并且继续同步写入，万一要回退老版本也不会丢数据。
+   * ================================================================= */
+  const PROFILES_KEY = "starbook_profiles";
+  const SESSIONS_KEY = "starbook_sessions_v2";
+  const LEGACY_PROFILE_KEY = "starbook_user_profile";
+  const LEGACY_SESSIONS_KEY = "starbook_sessions";
+  const DEFAULT_PROFILE = {
+    year: 1998, month: 8, day: 18, hour: 10, minute: 30,
+    city: "默认 (东经120°标准时)", gender: "female", status: "",
+    timeMode: "interval", rangeStart: "09:00", rangeEnd: "12:00"
+  };
+
+  function activeProfile() {
+    return state.profiles.find(x => x.id === state.activeProfileId) || state.profiles[0] || null;
+  }
+
+  function loadProfiles() {
+    let store = null;
+    try { store = JSON.parse(localStorage.getItem(PROFILES_KEY) || "null"); } catch (e) {}
+    if (store && Array.isArray(store.list) && store.list.length) {
+      state.profiles = store.list.filter(x => x && x.id && x.profile);
+    }
+    if (state.profiles.length) {
+      state.activeProfileId = (store && store.activeId && state.profiles.some(x => x.id === store.activeId))
+        ? store.activeId : state.profiles[0].id;
+      return;
+    }
+    // 首次运行：把旧版的单一命盘迁移成「本人」档案
+    let legacy = null;
+    try { legacy = JSON.parse(localStorage.getItem(LEGACY_PROFILE_KEY) || "null"); } catch (e) {}
+    const id = "p" + Date.now();
+    state.profiles = [{ id, name: "本人", profile: legacy || Object.assign({}, DEFAULT_PROFILE) }];
+    state.activeProfileId = id;
     try {
-      const p = localStorage.getItem("starbook_user_profile");
-      if (p) profile = JSON.parse(p);
+      const old = localStorage.getItem(LEGACY_SESSIONS_KEY);
+      if (old) {
+        const box = {};
+        box[id] = JSON.parse(old);
+        localStorage.setItem(SESSIONS_KEY, JSON.stringify(box));
+      }
     } catch (e) {}
-    updateChart(profile, false);
+    saveProfiles();
+  }
+
+  function saveProfiles() {
+    try {
+      localStorage.setItem(PROFILES_KEY,
+        JSON.stringify({ activeId: state.activeProfileId, list: state.profiles }));
+      const act = activeProfile();
+      if (act) localStorage.setItem(LEGACY_PROFILE_KEY, JSON.stringify(act.profile));
+    } catch (e) {}
+  }
+
+  // updateChart 每次落盘都会走这里，所以只要排过盘就一定存下来了
+  function persistActiveProfile(p) {
+    const act = activeProfile();
+    if (act) act.profile = p;
+    saveProfiles();
+  }
+
+  function profileSummary(pr) {
+    if (!pr) return "";
+    const pad = n => String(n).padStart(2, "0");
+    const t = pr.timeMode === "exact"
+      ? `${pad(pr.hour)}:${pad(pr.minute || 0)}`
+      : `${pr.rangeStart || "?"}–${pr.rangeEnd || "?"}`;
+    return `${pr.year}-${pad(pr.month)}-${pad(pr.day)} ${t} · ${pr.gender === "female" ? "坤" : "乾"}`;
+  }
+
+  function renderProfileBar() {
+    const act = activeProfile();
+    if (!act) return;
+    const nm = document.getElementById("ps-name");
+    const av = document.getElementById("ps-avatar");
+    if (nm) nm.textContent = act.name;
+    if (av) av.textContent = (act.name || "?").trim().charAt(0);
+
+    const list = document.getElementById("profile-menu-list");
+    if (list) {
+      list.innerHTML = state.profiles.map(p => `
+        <div class="profile-menu-item ${p.id === state.activeProfileId ? "active" : ""}"
+             onclick="window.__switchProfile('${p.id}')">
+          <div class="pmi-main">
+            <div class="pmi-name">${escapeHtml(p.name)}${p.id === state.activeProfileId ? ' <span class="pmi-cur">当前</span>' : ""}</div>
+            <div class="pmi-sub">${escapeHtml(profileSummary(p.profile))}</div>
+          </div>
+          <button class="pmi-btn" title="重命名" onclick="window.__renameProfile(event,'${p.id}')">✎</button>
+          <button class="pmi-btn danger" title="删除档案" onclick="window.__deleteProfile(event,'${p.id}')">×</button>
+        </div>`).join("");
+    }
+    const nameInput = document.getElementById("drawer-profile-name");
+    if (nameInput) nameInput.value = act.name;
+    markSaveClean();
+  }
+
+  function closeProfileMenu() {
+    document.getElementById("profile-menu")?.classList.remove("open");
+  }
+
+  function switchProfile(id) {
+    closeProfileMenu();
+    if (id === state.activeProfileId) return;
+    const target = state.profiles.find(x => x.id === id);
+    if (!target) return;
+    saveSessions();                 // 先把当前这个人的会话落盘
+    state.activeProfileId = id;
+    saveProfiles();
+    state.chartKey = "";            // 换人不是改盘，别插「命盘已改」分隔线
+    updateChart(target.profile, true);
+    state.sessions = [];
+    initSessions();
+    renderProfileBar();
+    markSaveClean();
+    sound.chime();
+  }
+
+  function createProfile() {
+    const name = (prompt("这是谁的盘？给个名字：", "新档案") || "").trim();
+    if (!name) return;
+    closeProfileMenu();
+    saveSessions();
+    const id = "p" + Date.now();
+    state.profiles.push({ id, name, profile: Object.assign({}, DEFAULT_PROFILE) });
+    state.activeProfileId = id;
+    saveProfiles();
+    state.chartKey = "";
+    updateChart(Object.assign({}, DEFAULT_PROFILE), true);
+    state.sessions = [];
+    initSessions();
+    renderProfileBar();
+    markSaveDirty();                // 默认生辰肯定要改，直接提示他存
+    document.getElementById("chart-drawer")?.classList.add("open");
+    toggleMobileSidebar(false);
+  }
+
+  window.__switchProfile = switchProfile;
+  window.__renameProfile = (e, id) => {
+    e.stopPropagation();
+    const p = state.profiles.find(x => x.id === id);
+    if (!p) return;
+    const name = (prompt("改个名字：", p.name) || "").trim();
+    if (!name) return;
+    p.name = name;
+    saveProfiles();
+    renderProfileBar();
+  };
+  window.__deleteProfile = (e, id) => {
+    e.stopPropagation();
+    if (state.profiles.length <= 1) { alert("至少要留一个档案。"); return; }
+    const p = state.profiles.find(x => x.id === id);
+    if (!p) return;
+    if (!confirm(`删除档案「${p.name}」？\n这个人名下的全部对话记录也会一起删掉，无法恢复。`)) return;
+    state.profiles = state.profiles.filter(x => x.id !== id);
+    try {
+      const all = allSessionStore();
+      delete all[id];
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify(all));
+    } catch (err) {}
+    if (state.activeProfileId === id) {
+      state.activeProfileId = state.profiles[0].id;
+      saveProfiles();
+      state.chartKey = "";
+      updateChart(state.profiles[0].profile, true);
+      state.sessions = [];
+      initSessions();
+    } else {
+      saveProfiles();
+    }
+    renderProfileBar();
+  };
+
+  /* ---------- 未保存提示：改了表单没点保存，底部条会变色 ---------- */
+  function currentFormProfileKey() {
+    const g = id => document.getElementById(id)?.value || "";
+    return [g("drawer-profile-name"), g("drawer-birthdate"), g("drawer-time-mode"),
+            g("drawer-birthtime"), g("drawer-range-start"), g("drawer-range-end"),
+            g("drawer-city"), g("drawer-gender"), g("drawer-status")].join("|");
+  }
+  let _savedFormKey = "";
+  function markSaveClean() {
+    _savedFormKey = currentFormProfileKey();
+    const bar = document.getElementById("drawer-save-bar");
+    const hint = document.getElementById("save-hint");
+    bar?.classList.remove("is-dirty");
+    if (hint) hint.textContent = "已保存";
+  }
+  function markSaveDirty() {
+    const bar = document.getElementById("drawer-save-bar");
+    const hint = document.getElementById("save-hint");
+    bar?.classList.add("is-dirty");
+    if (hint) hint.textContent = "有改动还没保存";
+  }
+  function refreshSaveState() {
+    if (currentFormProfileKey() === _savedFormKey) markSaveClean();
+    else markSaveDirty();
+  }
+
+  function loadPersisted() {
+    loadProfiles();
+    const act = activeProfile();
+    updateChart(act ? act.profile : Object.assign({}, DEFAULT_PROFILE), false);
+    renderProfileBar();
 
     try {
       const s = localStorage.getItem("starbook_settings");
@@ -578,7 +779,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function updateChart(p, persist = true) {
     const chart = AstrologyCore.analyzeFullNatalChart(p);
     state.userChart = chart;
-    if (persist) localStorage.setItem("starbook_user_profile", JSON.stringify(p));
+    if (persist) persistActiveProfile(p);
 
     // analyzeFullNatalChart 只返回命理所需字段，会把 timeMode / 区间 / 定盘标记全部丢掉，
     // 导致命盘档案每次都回退到「区间模式」—— 定盘结果因此看不见。这里原样带回去。
@@ -647,6 +848,7 @@ document.addEventListener("DOMContentLoaded", () => {
     renderDynamicPrompts(chart);
 
     if (changed) markChartChanged(chart);
+    markSaveClean();
   }
 
   function getPalaceStarLabel(chart, palaceName) {
@@ -835,11 +1037,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ---------------- 会话 ---------------- */
+  function allSessionStore() {
+    try { return JSON.parse(localStorage.getItem(SESSIONS_KEY) || "{}") || {}; } catch (e) { return {}; }
+  }
+
   function initSessions() {
+    state.sessions = [];
     try {
-      const s = localStorage.getItem("starbook_sessions");
-      if (s) {
-        state.sessions = JSON.parse(s);
+      const mine = allSessionStore()[state.activeProfileId];
+      if (mine && mine.length) {
+        state.sessions = mine;
         state.sessions.forEach(sess => {
           if (!sess.ziweiMessages) sess.ziweiMessages = Array.isArray(sess.messages) ? [...sess.messages] : [];
           if (!sess.baziMessages) sess.baziMessages = [];
@@ -873,7 +1080,12 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function saveSessions() {
-    try { localStorage.setItem("starbook_sessions", JSON.stringify(state.sessions)); } catch (e) {}
+    if (!state.activeProfileId) return;
+    try {
+      const all = allSessionStore();
+      all[state.activeProfileId] = state.sessions;
+      localStorage.setItem(SESSIONS_KEY, JSON.stringify(all));
+    } catch (e) {}
   }
 
   function renderSessions() {
@@ -910,42 +1122,61 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom();
   }
 
-  function renderReasoningBoxHtml(m) {
-    const steps = m.reasoningSteps || [];
-    if (!steps.length && !m.streaming) return "";
-    const mode = m.kbMode || state.kbMode || "ziwei";
-    const kbName = mode === "bazi"
-      ? "《穷通宝鉴》《渊海子平》"
-      : (mode === "ziwei" ? "《紫微斗数全书》" : "《紫微斗数全书》与《穷通宝鉴》");
-
-    const activeIdx = m.activeStepIdx !== undefined ? m.activeStepIdx : (m.streaming ? 0 : steps.length);
-    const stepsHtml = steps.map((st, idx) => {
-      const stateCls = m.streaming
-        ? (idx < activeIdx ? "done" : (idx === activeIdx ? "active" : ""))
-        : "done";
-      return `<div class="reasoning-step ${stateCls}">
-        <span class="reasoning-step-badge">${escapeHtml(st.badge)}</span>
-        <div style="flex:1;">
-          <div>${escapeHtml(st.text)}</div>
-          ${st.quote ? `<span class="reasoning-step-quote">${escapeHtml(st.quote)}</span>` : ""}
-        </div>
-      </div>`;
+  /* ---------------- 思考条（DeepSeek 式：折叠一行，点开才看得到推演便签） ---------------- */
+  function thinkNotesOf(m) {
+    if (m.thinkNotes && m.thinkNotes.length) return m.thinkNotes;
+    // 兼容旧消息里存的四步推演
+    if (m.reasoningSteps && m.reasoningSteps.length) {
+      return m.reasoningSteps.map(function (x) { return x.text; });
+    }
+    return [];
+  }
+  function thinkLabelOf(m) {
+    if (m.streaming && !m.content) return "思考中…";
+    return "已思考 " + (m.thinkSec || 1) + " 秒";
+  }
+  function thinkBodyHtml(m) {
+    const notes = thinkNotesOf(m);
+    const upto = (m.streaming && !m.content)
+      ? Math.min(notes.length, (m.thinkIdx || 0) + 1)
+      : notes.length;
+    return notes.slice(0, upto).map(function (n) {
+      return '<div class="think-line">' + escapeHtml(n) + "</div>";
     }).join("");
-
-    const curBadge = steps[Math.min(activeIdx, Math.max(0, steps.length - 1))]?.badge || "准备中";
-    const summaryTitle = m.streaming
-      ? `<span id="active-reasoning-title">⏳ 正在执行命理推演与古籍检索（${curBadge}）…</span>`
-      : `<span>🧭 命理推演与典籍检索过程（已调取 ${kbName} 原典依据）</span>`;
-
-    return `<details class="reasoning-box" ${m.streaming ? 'open id="active-reasoning-box"' : 'open'}>
-      <summary>
-        ${summaryTitle}
-        <span style="font-size:11px;opacity:0.75;">${m.streaming ? "推演中…" : "点击收起/展开 ▾"}</span>
-      </summary>
-      <div class="reasoning-steps-list" ${m.streaming ? 'id="active-reasoning-list"' : ""}>
-        ${stepsHtml}
-      </div>
-    </details>`;
+  }
+  function renderThinkBoxHtml(m) {
+    if (!thinkNotesOf(m).length) return "";
+    const thinking = m.streaming && !m.content;
+    const idAttr = m.streaming ? ' id="active-think-box"' : "";
+    return '<details class="think-box' + (thinking ? " is-thinking" : "") + '"' + idAttr +
+           (thinking ? " open" : "") + ">" +
+      "<summary>" +
+        '<span class="think-ico">🧠</span>' +
+        '<span class="think-label"' + (m.streaming ? ' id="active-think-label"' : "") + ">" +
+          thinkLabelOf(m) + "</span>" +
+        '<span class="think-caret">▾</span>' +
+      "</summary>" +
+      '<div class="think-body"' + (m.streaming ? ' id="active-think-body"' : "") + ">" +
+        thinkBodyHtml(m) + "</div>" +
+    "</details>";
+  }
+  // 思考阶段：只改动思考条，不重绘整条消息（重绘会打断滚动与动画）
+  function patchThinkBox(m) {
+    const body = document.getElementById("active-think-body");
+    const lab = document.getElementById("active-think-label");
+    if (body) body.innerHTML = thinkBodyHtml(m);
+    if (lab) lab.textContent = thinkLabelOf(m);
+    scrollBottom(false);
+  }
+  // 出字阶段：收起思考条，把已收到的内容边下边渲染
+  function paintStreaming(m) {
+    const box = document.getElementById("active-think-box");
+    if (box && box.open) box.open = false;
+    const lab = document.getElementById("active-think-label");
+    if (lab) lab.textContent = thinkLabelOf(m);
+    const ans = document.getElementById("active-answer");
+    if (ans) ans.innerHTML = md(m.content) + '<span class="type-caret"></span>';
+    scrollBottom(false);
   }
 
   function msgHtml(m) {
@@ -977,12 +1208,13 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>`;
     }
 
-    const reasoningHtml = renderReasoningBoxHtml(m);
+    const reasoningHtml = renderThinkBoxHtml(m);
     const bodyHtml = m.streaming
-      ? `<div class="ai-thinking-placeholder" style="padding:12px 6px; color:var(--text-dim); font-size:13px; display:flex; align-items:center; gap:10px;">
-           <span class="dot-pulse"></span><span class="dot-pulse"></span><span class="dot-pulse"></span>
-           <span id="active-progress-text">正在结合排盘干支与古籍原典凝练完整断语，请稍候…</span>
-         </div>`
+      ? `<div class="ai-final-answer streaming" id="active-answer">${
+          m.content
+            ? md(m.content) + '<span class="type-caret"></span>'
+            : '<span class="think-dots"><i></i><i></i><i></i></span>'
+        }</div>`
       : `<div class="ai-final-answer">${md(m.content)}</div>`;
 
     return `<div class="message-row ai">
@@ -1057,9 +1289,9 @@ document.addEventListener("DOMContentLoaded", () => {
     state.settings.kbMode = state.kbMode || "ziwei";
     const useLLM = Boolean(state.settings.apiKey && state.settings.apiKey.trim()) && state.settings.provider !== "builtin";
 
-    // 生成四步命理思考过程
-    const reasoningSteps = ChatEngine.buildReasoningSteps
-      ? ChatEngine.buildReasoningSteps(text, state.userChart, state.kbMode)
+    // 思考便签：只记这次推演真正用到的坐标，几条短句，默认折叠
+    const thinkNotes = ChatEngine.buildThinkingNotes
+      ? ChatEngine.buildThinkingNotes(text, state.userChart, state.kbMode)
       : [];
 
     const aiMsg = {
@@ -1068,67 +1300,55 @@ document.addEventListener("DOMContentLoaded", () => {
       streaming: true,
       ck: state.chartKey,
       kbMode: state.kbMode,
-      activeStepIdx: 0,
-      reasoningSteps
+      thinkNotes: thinkNotes,
+      thinkIdx: 0
     };
     roomMsgs.push(aiMsg);
     renderMessages(roomMsgs);
     scrollBottom(true);
 
     const startTime = Date.now();
-    // 定时器：每 550ms 点亮下一步思考过程，呈现严谨的推演仪式感
-    const stepTimer = setInterval(() => {
-      if (aiMsg.activeStepIdx < 3) {
-        aiMsg.activeStepIdx++;
-        const listEl = document.getElementById("active-reasoning-list");
-        const titleEl = document.getElementById("active-reasoning-title");
-        if (listEl) {
-          const stepEls = listEl.querySelectorAll(".reasoning-step");
-          stepEls.forEach((el, idx) => {
-            el.classList.remove("active", "done");
-            if (idx < aiMsg.activeStepIdx) el.classList.add("done");
-            else if (idx === aiMsg.activeStepIdx) el.classList.add("active");
-          });
-        }
-        if (titleEl && reasoningSteps[aiMsg.activeStepIdx]) {
-          titleEl.textContent = `⏳ 正在执行命理推演与古籍检索（${reasoningSteps[aiMsg.activeStepIdx].badge}）…`;
-        }
-        scrollBottom(false);
-      }
-    }, 550);
+    const thinkTimer = setInterval(() => {
+      if (aiMsg.content) return;                       // 已经开始出字就别再动了
+      if (aiMsg.thinkIdx >= thinkNotes.length - 1) return;
+      aiMsg.thinkIdx++;
+      patchThinkBox(aiMsg);
+    }, 420);
+    let thinkDone = false;
+    const finishThinking = () => {
+      if (thinkDone) return;
+      thinkDone = true;
+      clearInterval(thinkTimer);
+      aiMsg.thinkIdx = thinkNotes.length;
+      aiMsg.thinkSec = Math.max(1, Math.round((Date.now() - startTime) / 1000));
+    };
 
     if (useLLM) {
-      /* ---------- 大模型：后台静默收集 + 思考匣进度更新 + 整段一次性优雅浮现 ---------- */
-      const history = historyForLLM(roomMsgs, -2); // 不含刚 push 的两条，且已剔除旧命盘时代的对话
+      /* ---------- 大模型：边收边出字 ---------- */
+      const history = historyForLLM(roomMsgs, -2); // 已剔除旧命盘时代的对话
+      let lastPaint = 0;
       try {
         const full = await ChatEngine.callLiveAPIStream(
           text, state.userChart, history, state.settings,
           (delta, soFar) => {
-            const progEl = document.getElementById("active-progress-text");
-            if (progEl) {
-              progEl.textContent = `正在结合排盘干支与古籍原典凝练完整断语（已推演 ${soFar.length} 字），即将整段呈现…`;
-            }
+            if (!aiMsg.content) finishThinking();      // 第一个字落地 = 思考结束
+            aiMsg.content = soFar;
+            const now = Date.now();
+            if (now - lastPaint > 60) { lastPaint = now; paintStreaming(aiMsg); }
           }
         );
-        clearInterval(stepTimer);
-        // 确保思考过程至少展示满 1.6 秒，让推演步骤完整呈现
-        const elapsed = Date.now() - startTime;
-        if (elapsed < 1600) {
-          await new Promise(r => setTimeout(r, 1600 - elapsed));
-        }
+        finishThinking();
         aiMsg.content = full;
         aiMsg.streaming = false;
-        aiMsg.activeStepIdx = 4;
         aiMsg.followups = ChatEngine.followupsFor ? ChatEngine.followupsFor(text) : null;
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);
         sound.chime();
       } catch (err) {
-        clearInterval(stepTimer);
+        finishThinking();
         const fb = ChatEngine.composeAnswer(text, state.userChart, history, state.kbMode);
         aiMsg.streaming = false;
-        aiMsg.activeStepIdx = 4;
         aiMsg.content =
           `> ⚠️ **AI 接口调用失败**：${err.message || "网络或接口异常"}\n` +
           `> 已自动切换为内置推演引擎。请检查右上角「设置」中的 API Key 与余额。\n\n---\n\n` +
@@ -1142,26 +1362,20 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    /* ---------- 内置引擎：思考匣推演 + 整段一次性呈现 ---------- */
+    /* ---------- 内置引擎 ---------- */
     try {
       const res = await ChatEngine.generateChatResponse(text, state.userChart, historyForLLM(roomMsgs, -1), state.settings);
-      clearInterval(stepTimer);
-      const elapsed = Date.now() - startTime;
-      if (elapsed < 1500) {
-        await new Promise(r => setTimeout(r, 1500 - elapsed));
-      }
+      finishThinking();
       aiMsg.content = res.text;
       aiMsg.streaming = false;
-      aiMsg.activeStepIdx = 4;
       aiMsg.tarotWidget = res.tarotWidget || null;
       aiMsg.followups = res.followups || null;
-      if (res.reasoningSteps) aiMsg.reasoningSteps = res.reasoningSteps;
       saveSessions();
       renderMessages(roomMsgs);
       scrollBottom(false);
       sound.chime();
     } catch (err) {
-      clearInterval(stepTimer);
+      finishThinking();
       aiMsg.streaming = false;
       aiMsg.content = "推演过程出现异常，请稍后重试。";
       renderMessages(roomMsgs);
@@ -1200,13 +1414,33 @@ document.addEventListener("DOMContentLoaded", () => {
     const drawer = document.getElementById("chart-drawer");
     // 打开命盘抽屉时，顺手收起手机端的侧边抽屉，避免两层叠在一起
     const open = () => { drawer?.classList.add("open"); toggleMobileSidebar(false); };
-    const close = () => drawer?.classList.remove("open");
+    const close = () => {
+      if (document.getElementById("drawer-save-bar")?.classList.contains("is-dirty")) {
+        if (!confirm("生辰改了还没保存，直接关掉就白改了。\n确定要丢弃这次改动吗？")) return;
+        const act = activeProfile();
+        if (act) updateChart(act.profile, false);   // 还原成已保存的那份
+        renderProfileBar();
+      }
+      drawer?.classList.remove("open");
+    };
     document.getElementById("btn-open-drawer")?.addEventListener("click", open);
     document.getElementById("btn-open-rectify")?.addEventListener("click", () => {
       toggleMobileSidebar(false);
       window.__openRectifyModal();
     });
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", open);
+
+    // 档案切换器
+    document.getElementById("btn-profile-switch")?.addEventListener("click", e => {
+      e.stopPropagation();
+      document.getElementById("profile-menu")?.classList.toggle("open");
+    });
+    document.getElementById("btn-profile-new")?.addEventListener("click", e => {
+      e.stopPropagation();
+      createProfile();
+    });
+    document.getElementById("profile-menu")?.addEventListener("click", e => e.stopPropagation());
+    document.addEventListener("click", closeProfileMenu);
     document.getElementById("btn-modify-chart-trigger")?.addEventListener("click", open);
     document.getElementById("btn-close-drawer")?.addEventListener("click", close);
 
@@ -1236,6 +1470,13 @@ document.addEventListener("DOMContentLoaded", () => {
       document.getElementById(id)?.addEventListener("change", triggerLiveTst);
       document.getElementById(id)?.addEventListener("input", triggerLiveTst);
     });
+    // 只要动过表单就亮起「有改动还没保存」，省得改完日期直接关掉白改
+    ["drawer-profile-name", "drawer-birthdate", "drawer-birthtime", "drawer-city",
+     "drawer-time-mode", "drawer-range-start", "drawer-range-end", "drawer-gender",
+     "drawer-status"].forEach(id => {
+      document.getElementById(id)?.addEventListener("change", refreshSaveState);
+      document.getElementById(id)?.addEventListener("input", refreshSaveState);
+    });
 
     document.getElementById("btn-save-chart")?.addEventListener("click", () => {
       const d = document.getElementById("drawer-birthdate").value;
@@ -1245,6 +1486,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const city = document.getElementById("drawer-city")?.value || "默认 (东经120°标准时)";
       const gender = document.getElementById("drawer-gender").value;
       const status = document.getElementById("drawer-status").value;
+      const pname = (document.getElementById("drawer-profile-name")?.value || "").trim();
+      const act0 = activeProfile();
+      if (act0 && pname) act0.name = pname;
 
       if (tMode === "interval" && window.AstrologyCore && window.AstrologyCore.analyzeTimeInterval) {
         const rStart = document.getElementById("drawer-range-start")?.value || "09:00";
@@ -1285,6 +1529,9 @@ document.addEventListener("DOMContentLoaded", () => {
           city, gender, status
         }, true);
       }
+      saveProfiles();
+      renderProfileBar();
+      markSaveClean();
       sound.chime();
       close();
     });
@@ -1338,9 +1585,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     document.getElementById("btn-clear-history")?.addEventListener("click", () => {
-      if (confirm("确定清空全部会话记录？")) {
-        localStorage.removeItem("starbook_sessions");
+      const who = activeProfile();
+      if (confirm(`确定清空「${who ? who.name : "当前档案"}」的全部会话记录？\n（其他档案不受影响）`)) {
         state.sessions = [];
+        saveSessions();
         newSession("新的推演", true);
       }
     });

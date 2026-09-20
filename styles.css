@@ -552,9 +552,11 @@ body {
 [data-theme="light"] .kb-entrance-bar {
   background: rgba(250, 247, 242, 0.85);
 }
+/* 列数的唯一真相：这里（宽屏）→ 820px（手机仍并排）→ 380px（超小屏才堆叠）。
+   768px 断点里曾经也写过一份，和 820px 那份结论相反，是死代码，已删。 */
 .kb-entrance-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
   max-width: 920px;
   margin: 0 auto;
@@ -608,16 +610,6 @@ body {
   text-overflow: ellipsis;
   margin-top: 2px;
 }
-@media (max-width: 768px) {
-  .kb-entrance-tabs {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-  .kb-entrance-bar {
-    padding: 8px 12px;
-  }
-}
-
 /* ================= 思考条 (.think-box) —— 折叠一行，点开才看得到推演便签 ================= */
 .think-box {
   margin-bottom: 10px;
@@ -697,7 +689,6 @@ body {
 /* ================= 双独立专席窗口切换栏与知识库锁定条 ================= */
 .kb-entrance-tabs.two-rooms {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
   max-width: 900px;
   margin: 0 auto;
@@ -741,15 +732,11 @@ body {
   color: var(--text-dim);
 }
 @media (max-width: 768px) {
-  .kb-entrance-tabs.two-rooms {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
+  /* 这里不再管 Tab 列数（820px 断点说了算），padding 同理也由 820px 那份定 */
   .room-kb-lock-banner {
     flex-direction: column;
     align-items: flex-start;
     gap: 4px;
-    padding: 6px 14px;
   }
 }
 
@@ -1147,9 +1134,8 @@ body {
 
   /* ---------- 双专席入口：横向一行、可点击面积更大 ---------- */
   .kb-entrance-bar { padding: 8px 10px; }
-  .kb-entrance-tabs, .kb-entrance-tabs.two-rooms {
-    grid-template-columns: 1fr 1fr; gap: 7px;
-  }
+  /* 手机上两席仍然并排：一屏内看得见「还有另一个窗口」比省空间重要 */
+  .kb-entrance-tabs, .kb-entrance-tabs.two-rooms { gap: 7px; }
   .kb-tab { padding: 9px 8px; min-height: 48px; }
   .kb-tab-title { font-size: 12.8px; }
   .kb-tab-sub, .room-enter-badge { font-size: 10.5px; }

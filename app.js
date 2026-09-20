@@ -25,15 +25,36 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let sound = null;
 
+  /* ---------------- localStorage 键名搬迁：starbook_ → diandao_ ----------------
+   * 产品早期叫 starbook，改名「点到」之后键名一直没跟上。
+   * 这里做一次性搬迁：老键的值原样复制到新键，然后删掉老键。
+   * · 只在新键不存在时复制 —— 多标签页同时打开、或搬到一半被关掉，重跑都不会覆盖新数据
+   * · 整段包 try —— 无痕模式下 localStorage 可能不可写，搬迁失败不该拦住启动
+   * · 必须跑在任何 getItem 之前，所以放在这里而不是 init() 里
+   * ------------------------------------------------------------------------- */
+  (function migrateStorageKeys() {
+    const NAMES = ["theme", "profiles", "sessions_v2", "settings", "kb_mode",
+                   "user_profile", "sessions"];
+    try {
+      NAMES.forEach(name => {
+        const oldK = "starbook_" + name, newK = "diandao_" + name;
+        const oldV = localStorage.getItem(oldK);
+        if (oldV === null) return;
+        if (localStorage.getItem(newK) === null) localStorage.setItem(newK, oldV);
+        localStorage.removeItem(oldK);
+      });
+    } catch (e) {}
+  })();
+
   /* ---------------- 主题 ---------------- */
   function initTheme() {
-    const saved = localStorage.getItem("starbook_theme") || "light";
+    const saved = localStorage.getItem("diandao_theme") || "light";
     applyTheme(saved);
   }
   function applyTheme(t) {
     state.theme = t;
     document.documentElement.setAttribute("data-theme", t);
-    localStorage.setItem("starbook_theme", t);
+    localStorage.setItem("diandao_theme", t);
     const icon = document.getElementById("theme-icon");
     const label = document.getElementById("theme-label");
     if (icon) icon.textContent = t === "light" ? "🌙" : "☀️";
@@ -124,15 +145,15 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   /* ================= 命盘档案：可以存多个人，各自独立 =================
-   * starbook_profiles   → { activeId, list:[{id,name,profile}] }
-   * starbook_sessions_v2→ { [profileId]: sessions[] }
-   * 旧的 starbook_user_profile / starbook_sessions 会自动迁移成第一个档案，
+   * diandao_profiles   → { activeId, list:[{id,name,profile}] }
+   * diandao_sessions_v2→ { [profileId]: sessions[] }
+   * 更早的 diandao_user_profile / diandao_sessions 会自动迁移成第一个档案，
    * 并且继续同步写入，万一要回退老版本也不会丢数据。
    * ================================================================= */
-  const PROFILES_KEY = "starbook_profiles";
-  const SESSIONS_KEY = "starbook_sessions_v2";
-  const LEGACY_PROFILE_KEY = "starbook_user_profile";
-  const LEGACY_SESSIONS_KEY = "starbook_sessions";
+  const PROFILES_KEY = "diandao_profiles";
+  const SESSIONS_KEY = "diandao_sessions_v2";
+  const LEGACY_PROFILE_KEY = "diandao_user_profile";
+  const LEGACY_SESSIONS_KEY = "diandao_sessions";
   const DEFAULT_PROFILE = {
     year: 1998, month: 8, day: 18, hour: 10, minute: 30,
     city: "默认 (东经120°标准时)", gender: "female", status: "",
@@ -331,12 +352,12 @@ document.addEventListener("DOMContentLoaded", () => {
     renderProfileBar();
 
     try {
-      const s = localStorage.getItem("starbook_settings");
+      const s = localStorage.getItem("diandao_settings");
       if (s) {
         state.settings = { ...state.settings, ...JSON.parse(s) };
         if (state.settings.apiKey && state.settings.apiKey.trim() && (!state.settings.provider || state.settings.provider === "builtin")) {
           state.settings.provider = "deepseek";
-          localStorage.setItem("starbook_settings", JSON.stringify(state.settings));
+          localStorage.setItem("diandao_settings", JSON.stringify(state.settings));
         }
         const a = document.getElementById("settings-provider");
         const b = document.getElementById("settings-api-key");
@@ -350,7 +371,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (dt) dt.checked = Boolean(state.settings.deepThink);
       }
     } catch (e) {}
-    const savedKbMode = localStorage.getItem("starbook_kb_mode") || "ziwei";
+    const savedKbMode = localStorage.getItem("diandao_kb_mode") || "ziwei";
     setKbMode(savedKbMode, false);
     updateEngineBadge();
   }
@@ -367,7 +388,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (mode !== "bazi") mode = "ziwei";
     state.kbMode = mode;
     state.settings.kbMode = mode;
-    if (persist) localStorage.setItem("starbook_kb_mode", mode);
+    if (persist) localStorage.setItem("diandao_kb_mode", mode);
 
     document.querySelectorAll(".kb-tab").forEach(btn => {
       const isAct = btn.dataset.kbMode === mode;
@@ -1426,7 +1447,7 @@ document.addEventListener("DOMContentLoaded", () => {
       state.settings.provider = "deepseek";
       const provSel = document.getElementById("settings-provider");
       if (provSel) provSel.value = "deepseek";
-      localStorage.setItem("starbook_settings", JSON.stringify(state.settings));
+      localStorage.setItem("diandao_settings", JSON.stringify(state.settings));
       updateEngineBadge();
     }
     state.settings.kbMode = state.kbMode || "ziwei";
@@ -1743,7 +1764,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (mEl) state.settings.modelName = mEl.value.trim();
       const dtEl = document.getElementById("settings-deep-think");
       state.settings.deepThink = Boolean(dtEl && dtEl.checked);
-      localStorage.setItem("starbook_settings", JSON.stringify(state.settings));
+      localStorage.setItem("diandao_settings", JSON.stringify(state.settings));
       updateEngineBadge();
       closeModal("modal-settings");
       alert("已保存。" + (state.settings.apiKey && state.settings.provider !== "builtin"

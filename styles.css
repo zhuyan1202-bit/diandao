@@ -844,6 +844,18 @@ body {
 /* ================= 精准定盘 v2 =================
    一律用主题变量，不写死深色主题的颜色（否则浅色主题下看不见）
    ================================================= */
+.rx-srcnote{
+  margin: 8px 0 4px;
+  padding: 9px 11px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--audit-ink, #6b4a12);
+  background: var(--audit-bg, #fff7e6);
+  border: 1px solid var(--audit-border, #f0d9a8);
+  border-radius: 8px;
+}
+.rx-srcnote b{ font-weight: 600; }
+
 .rx-head {
   font-size: 13px;
   color: var(--text-sub);

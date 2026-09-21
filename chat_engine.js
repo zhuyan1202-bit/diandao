@@ -2593,6 +2593,10 @@ ${sectionSpec}
 5. 【🧮 预推演台】是你的工作底稿，不是给用户看的清单。里面的打分、括号注释、以及
    「你若复核后不同意可以…」这类写给你的话，一个字都不许出现在回答里。
    流年流月的干支与公历起讫必须照抄，不许自己心算，算错了就是硬伤。
+   星曜只能用盘面上列出来的那几颗。没列的就是这张盘没有，
+   不许因为“这个格局通常会有”就把它写进来，哪怕只是顺带提一句。
+   旺衰（身强／身弱）以推演台的扶抑判定为准，不许讲反；你如果不同意，
+   就按推演台的结论写，不要在回答里和它抬杠。
 6. 神煞、十二长生、拱局、流派分歧、知识库出处 —— 默认一个字都不写。
    只有当它真的改变了结论、或改变了用户该做的动作时才提。
 7. 应期默认粒度是「月」（节气月，带公历起讫日），这是命理本身能支撑的极限。
@@ -2972,10 +2976,10 @@ ${nextSpec}`;
    * 确实 —— 排盘引擎既然能算出唯一正确答案，就该在展示前改掉，
    * 而不是把错误连同更正一起交给用户，让他自己做校对。
    *
-   * 这里只动「有唯一正确答案、且替换后不动摇上下文推理」的内容：
-   *   流年干支 / 四柱 / 日元 / 虚岁 / 大运年龄段 / 应期精度（只降不升）
-   * 不动「替换后会让整段推理错位」的：
-   *   编造星曜、星曜落宫、整条大运是编的、旺衰讲反 —— 那些交给 auditAnswer 告警。
+   * 这里处理「排盘引擎能给出唯一正确答案」的全部内容：
+   *   流年干支 / 四柱 / 日元 / 虚岁 / 大运年龄段 / 应期精度（只降不升）/ 星曜落宫
+   * 剩下两类没有东西可换，只能靠 prompt 预防（见规则 5）：
+   *   盘里根本没的星曜、旺衰讲反。
    * ---------------------------------------------------------------- */
   function repairAnswer(text, chart, mode) {
     let t = String(text || "");
@@ -3072,6 +3076,29 @@ ${nextSpec}`;
       note("应期精度", mo + "月" + d + "日" + suf, mo + "月" + xun + keep);
       return mo + " 月" + xun + keep;
     });
+
+    /* ⑧ 紫微：星曜落宫说错 —— 盘上每颗星坐哪个宫是唯一的，直接改对。
+     *    注：改完之后，那句话后半段的推理可能不再跟着走 ——
+     *    但把你盘上的事实说对，比留着错的事实让推理看起来自洽要强。 */
+    if (mode === "ziwei" && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
+      const homeOf = {};
+      chart.ziwei.raw.palaces.forEach(function (pa) {
+        (pa.mainStars || []).forEach(function (x) { homeOf[x.name] = pa.name; });
+        (pa.auxStars  || []).forEach(function (x) { homeOf[x.name] = pa.name; });
+      });
+      const reStar2 = new RegExp("(" + STAR_VOCAB.join("|") + ")(星)?([】\\]]?\\s*(?:独)?(?:坐守|坐镇|坐|落在|落入|入驻|入|守|在)\\s*(?:于)?\\s*[【\\[]?)(" +
+                                 PALACE_VOCAB.join("|") + ")([】\\]]?)", "g");
+      t = t.replace(reStar2, function (all, star, sx, mid, said, close, off, str) {
+        const real = homeOf[star];
+        if (!real || real === said) return all;        // 盘里没这颗星的，没东西可换，不动
+        // 「对宫」「三合」「大限夫妻宫」这类是另一套坐标，改了反而错
+        const pre = str.slice(Math.max(0, off - 9), off);
+        if (/对宫|三合|三方|大限|流年|流月|借|会照|冲照/.test(pre)) return all;
+        if (/大限|流年|流月/.test(all)) return all;
+        note("星曜落宫", star + "在" + said, star + "在" + real);
+        return star + (sx || "") + mid + real + close;
+      });
+    }
 
     return { text: t, fixed: fixed };
   }

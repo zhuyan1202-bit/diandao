@@ -289,20 +289,6 @@ body {
 .message-bubble hr { border: none; border-top: 1px dashed var(--border-strong); margin: 16px 0; }
 
 /* 出厂检查：模型写错了干支时才出现 */
-.audit-strip {
-  margin-top: 14px; padding: 11px 13px; border-radius: 10px;
-  background: var(--audit-bg); border: 1px solid var(--audit-border);
-  font-size: 13px; line-height: 1.6;
-}
-.audit-head { color: var(--audit-ink); font-weight: 600; margin-bottom: 6px; }
-.audit-item { color: var(--audit-ink); margin-top: 4px; }
-.audit-item s { opacity: .75; }
-.audit-item b { font-weight: 600; }
-.audit-hint { display: block; opacity: .8; font-size: 12px; margin-top: 1px; }
-.audit-foot {
-  margin-top: 7px; padding-top: 6px; font-size: 11.5px; line-height: 1.55;
-  color: var(--audit-ink); opacity: .72; border-top: 1px solid currentColor;
-}
 
 /* 追问建议（模型预判的下一句，句子比以前长，得能看清） */
 .followup-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }

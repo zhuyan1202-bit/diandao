@@ -1399,23 +1399,11 @@ document.addEventListener("DOMContentLoaded", () => {
           <p>${(isReversed ? card.keywords.reversed : card.keywords.upright).join(" · ")}</p>
         </div></div>`;
     }
-    let auditHtml = "";
-    if (ai && !m.streaming && m.audit && m.audit.length) {
-      // 这条是「点到」在回答生成之后自动拿实盘复核出来的，不是 AI 自己写的。
-      // 注意：干支、四柱、日元、虚岁、大运年龄、应期精度这些「算得准」的，
-      // 已经在 repairOf 里就地改对了，根本走不到这里 —— 能留到这一步的，
-      // 都是改了就会让上下文推理错位的实质问题（编造星曜、星曜落错宫、旺衰讲反）。
-      auditHtml = '<div class="audit-strip">' +
-        '<div class="audit-head">⚠️ 这 ' + m.audit.length + ' 处请以你的实盘为准</div>' +
-        m.audit.map(function (x) {
-          return '<div class="audit-item"><s>' + escapeHtml(x.claim) + '</s> 实际是 <b>' +
-                 escapeHtml(x.actual) + '</b>' +
-                 (x.hint ? '<span class="audit-hint">' + escapeHtml(x.hint) + '</span>' : '') + '</div>';
-        }).join("") +
-        '<div class="audit-foot">这几条是回答写完后，「点到」拿你的实盘逐条比对出来的，' +
-        '不是 AI 自己说的。算得准的（干支、四柱、岁数、时间精度）已经直接改在上面了，' +
-        '这里只列改不了的。</div>' + '</div>';
-    }
+    // 没有告警条。用户要的是一份直接能看的答案，不是答案加一张勘误表。
+    // 能算准的（干支、四柱、日元、岁数、大运年龄、应期精度、星曜落宫）
+    // 已经在 repairOf 里就地改对了；剩下两类（盘里没的星曜、旺衰讲反）
+    // 没有东西可换，改成在 prompt 里预防。auditOf 仍然跑，但只归档到
+    // m.audit 里供排查，不上屏 —— 这样以后想把哪类转成自动更正，有现成数据。
     let follow = "";
     if (ai && !m.streaming && m.followups && m.followups.length) {
       follow = `<div class="followup-row">` +
@@ -1444,7 +1432,6 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="message-bubble">
         ${reasoningHtml}
         ${bodyHtml}
-        ${auditHtml}
         ${tarot}
         ${!m.streaming ? `<div class="message-actions">
             <button class="msg-action-btn" onclick="window.__copy(this)">复制</button>

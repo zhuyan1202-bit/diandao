@@ -1288,6 +1288,17 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom();
   }
 
+  // 排盘引擎能算出唯一正确答案的（干支、四柱、日元、虚岁、大运年龄、应期精度），
+  // 在显示之前就地改对。用户要的是一份对的答案，不是一份错答案外加一张勘误表。
+  function repairOf(t) {
+    try {
+      if (!window.ChatEngine || !ChatEngine.repairAnswer || !state.userChart) {
+        return { text: t, fixed: [] };
+      }
+      return ChatEngine.repairAnswer(t, state.userChart, state.kbMode);
+    } catch (e) { return { text: t, fixed: [] }; }
+  }
+
   // 把模型的回答和排盘数据对一遍，对不上就挂在答案下面
   function auditOf(t) {
     try {
@@ -1391,18 +1402,19 @@ document.addEventListener("DOMContentLoaded", () => {
     let auditHtml = "";
     if (ai && !m.streaming && m.audit && m.audit.length) {
       // 这条是「点到」在回答生成之后自动拿实盘复核出来的，不是 AI 自己写的。
-      // 原来标题只有「自检 / 排盘校验」两个词，用户根本不知道这块是什么、出了冲突该信谁。
-      const allDay = m.audit.every(function (x) { return x.kind === "dayPrecision"; });
+      // 注意：干支、四柱、日元、虚岁、大运年龄、应期精度这些「算得准」的，
+      // 已经在 repairOf 里就地改对了，根本走不到这里 —— 能留到这一步的，
+      // 都是改了就会让上下文推理错位的实质问题（编造星曜、星曜落错宫、旺衰讲反）。
       auditHtml = '<div class="audit-strip">' +
-        '<div class="audit-head">⚠️ 自动核对：这段回答有 ' + m.audit.length +
-        (allDay ? ' 处把时间说得太死了' : ' 处和你的实盘对不上') + '</div>' +
+        '<div class="audit-head">⚠️ 这 ' + m.audit.length + ' 处请以你的实盘为准</div>' +
         m.audit.map(function (x) {
           return '<div class="audit-item"><s>' + escapeHtml(x.claim) + '</s> 实际是 <b>' +
                  escapeHtml(x.actual) + '</b>' +
                  (x.hint ? '<span class="audit-hint">' + escapeHtml(x.hint) + '</span>' : '') + '</div>';
         }).join("") +
         '<div class="audit-foot">这几条是回答写完后，「点到」拿你的实盘逐条比对出来的，' +
-        '不是 AI 自己说的。有冲突时以这里为准。</div>' + '</div>';
+        '不是 AI 自己说的。算得准的（干支、四柱、岁数、时间精度）已经直接改在上面了，' +
+        '这里只列改不了的。</div>' + '</div>';
     }
     let follow = "";
     if (ai && !m.streaming && m.followups && m.followups.length) {
@@ -1563,13 +1575,18 @@ document.addEventListener("DOMContentLoaded", () => {
         // 中途偷偷切过备用厂商的话，要讲清楚 —— 两家模型口径不同，
         // 不说明会让人以为是产品自己变差了
         const foNote = ChatEngine.consumeFailoverNote ? ChatEngine.consumeFailoverNote() : "";
-        aiMsg.content = foNote ? ("> \u2139\ufe0f " + foNote + "\n\n" + sp.text) : sp.text;
+        // 顺序很重要：先按实盘把能算准的地方改对，再拿改过的文本去做出厂检查。
+        // 否则会出现「答案里写着错日期、底下再挂一条说这个日期错了」——
+        // 用户专门提过这个，说一点都不严谨。
+        const rep = repairOf(sp.text);
+        aiMsg.repaired = rep.fixed;            // 留档，便于排查模型在哪类数据上老出错
+        aiMsg.content = foNote ? ("> \u2139\ufe0f " + foNote + "\n\n" + rep.text) : rep.text;
         aiMsg.streaming = false;
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
-          : ChatEngine.followupsFor(text, state.userChart, sp.text, state.kbMode);
-        // 出厂检查：模型会不会把干支、四柱、大运写错
-        aiMsg.audit = auditOf(sp.text);
+          : ChatEngine.followupsFor(text, state.userChart, rep.text, state.kbMode);
+        // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
+        aiMsg.audit = auditOf(rep.text);
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);

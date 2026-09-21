@@ -369,6 +369,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (d) d.value = state.settings.modelName || "";
         const dt = document.getElementById("settings-deep-think");
         if (dt) dt.checked = Boolean(state.settings.deepThink);
+        const bp = document.getElementById("settings-backup-provider");
+        if (bp) bp.value = state.settings.backupProvider || "none";
+        const bk = document.getElementById("settings-backup-key");
+        if (bk) bk.value = state.settings.backupApiKey || "";
       }
     } catch (e) {}
     const savedKbMode = localStorage.getItem("diandao_kb_mode") || "ziwei";
@@ -940,7 +944,7 @@ document.addEventListener("DOMContentLoaded", () => {
     return stars || "主星";
   }
 
-  // 「我心里有件具体的事想问」点下去不发消息，只把人引到输入框，
+  // 第三张卡（「我想问自己的那件事」）点下去不发消息，只把人引到输入框，
   // 并换上一个具体的例子当 placeholder —— 示范这个产品在具体决策题上最有用
   const ASK_EXAMPLES = {
     // 紫微强在「具体到人、具体到事」：宫位对应六亲与场景，飞化能看出这件事被谁牵动
@@ -1040,18 +1044,17 @@ document.addEventListener("DOMContentLoaded", () => {
       return !!p && !(p.mainStars || []).length;
     }
 
-    // 第三张卡是「教你怎么问」，点了不发送，只把光标送到输入框
-    // 第三张卡是「教你怎么问」，点了不发送，只把光标送到输入框。
-    // 两席擅长的题型不同，这里必须分开写 —— 否则用户不知道该在哪个窗口问什么，
-    // 也就用不上各自最强的那部分（紫微的宫位飞化 vs 八字的格局与岁运节奏）。
+    // 第三张卡点了不发送，只把光标送进输入框。
+    // 前两张现在已经是具体问题了，所以这张的任务变成「示范还能问什么」——
+    // 两席擅长的题型不同，必须分开写，否则用户不知道该在哪个窗口问什么。
     function askCardFor(m) {
       return {
         icon: "\u270d\ufe0f",
         fill: true,
-        title: "我心里有件具体的事想问",
+        title: "都不是 —— 我想问自己的那件事",
         sub: (m === "bazi")
-          ? "八字看【时机与取舍】最见长 —— 比如「今年该进还是该守」「手里这两条路该走哪条」"
-          : "紫微看【具体的人与事】最见长 —— 比如「这个合伙人靠不靠得住」「这件事到底卡在谁身上」"
+          ? "八字最擅长回答「该不该、什么时候」 —— 比如「现在辞职去做自己的事，时机对吗」「想换个城市，什么时候动」"
+          : "紫微最擅长回答「是谁、会怎么发生」 —— 比如「这个合伙人靠不靠得住」「手上这个 offer，老板是什么路数」"
       };
     }
 
@@ -1068,16 +1071,35 @@ document.addEventListener("DOMContentLoaded", () => {
       else if (spHua.length) subLove = `你的夫妻宫坐【${spouseStar}】，带${spHua.join("、")}`;
       else subLove = `看夫妻宫【${spouseStar}】配对宫【${careerStar}】，连大限流年一起推`;
 
-      const carHua = huaOf("官禄宫"), weaHua = huaOf("财帛宫");
-      let subWork = `看官禄宫【${careerStar}】配财帛宫【${wealthStar}】，挑出你真正使得上劲的那条路`;
-      if (carHua.length) subWork = `你的官禄宫【${careerStar}】带${carHua.join("、")}，配财帛宫【${wealthStar}】一起看`;
-      else if (weaHua.length) subWork = `你的财帛宫【${wealthStar}】带${weaHua.join("、")}，配官禄宫【${careerStar}】一起看`;
+      // 「卡在谁身上」这张卡：盘上那个「结」（生年忌）落在哪一宫，就是卡点最常在的地方
+      function jiSpot() {
+        const ps = chart.ziwei.palaces || [];
+        for (let i = 0; i < ps.length; i++) {
+          const all = (ps[i].mainStars || []).concat(ps[i].auxStars || []);
+          for (let j = 0; j < all.length; j++) {
+            if (all[j].sihua === "忌") return { pal: ps[i].name, star: all[j].name };
+          }
+        }
+        return null;
+      }
+      // 直接写「疾厄宫」这种宫名读着莫名其妙，先翻成人话，宫名收进括号当依据
+      const PAL_PLAIN = {
+        "命宫": "你自己的性子", "兄弟宫": "平辈与合伙那块", "夫妻宫": "亲密关系那块",
+        "子女宫": "孩子与下属那块", "财帛宫": "钱这块", "疾厄宫": "身体这块",
+        "迁移宫": "往外跑的那块", "交友宫": "朋友与同事那块", "仆役宫": "朋友与同事那块",
+        "奴仆宫": "朋友与同事那块", "官禄宫": "工作这块", "田宅宫": "家里与房产那块",
+        "福德宫": "你的心气那块", "父母宫": "长辈与上级那块"
+      };
+      const ji = jiSpot();
+      const subStuck = ji
+        ? `你盘上那个解不开的结落在${PAL_PLAIN[ji.pal] || ji.pal}〔${ji.pal}坐【${ji.star}】〕`
+        : `从本命宫【${mingStar}】起，顺着飞化找出真正在牵制你的那一宫`;
 
       cards = [
-        { icon: "💫", title: "我会遇到什么样的人？什么时候？", sub: subLove,
-          prompt: "我会遇到什么样的人？大概什么时候能遇到？" },
-        { icon: "🏛️", title: "我适合靠什么吃饭？现在这条路走对了吗？", sub: subWork,
-          prompt: "我适合靠什么吃饭？现在走的这条路走对了吗？" },
+        { icon: "💔", title: "我和现在这个人，还能不能走下去？", sub: subLove,
+          prompt: "我和现在这个人，还能不能走下去？" },
+        { icon: "🧩", title: "我最近卡住的这件事，到底卡在谁身上？", sub: subStuck,
+          prompt: "我最近卡住的这件事，到底卡在谁身上？" },
         askCardFor("ziwei")
       ];
     } else {
@@ -1088,19 +1110,21 @@ document.addEventListener("DOMContentLoaded", () => {
       const st  = safeCall(window.ChatEngine && window.ChatEngine.baziStrength, chart);
       const pat = safeCall(window.ChatEngine && window.ChatEngine.derivePattern, chart);
 
-      let subTime = "看你眼下走的这步大运，叠今年的流年与逐月，排出顺逆的先后";
-      if (st && st.tiaohou) subTime = `日元【${dmLabel}】${st.verdict}，且命局偏${(st.tiaohou.indexOf("冬月") >= 0) ? "寒" : "燥"} —— 看接下来哪几段在帮你`;
-      else if (st && st.favor && st.favor.length) subTime = `日元【${dmLabel}】${st.verdict}，喜${st.favor.join("")} —— 看接下来哪几段在帮你、哪几段在抽你`;
-      else if (st) subTime = `日元【${dmLabel}】${st.verdict}，扶抑两可 —— 看接下来哪几段在帮你、哪几段在抽你`;
+      // 「走还是留」这张卡最相关的是格局＋眼下这步运，不是旺衰打分
+      let subStay = `看日元【${dmLabel}】配眼下这步大运，定这一步该动还是该稳`;
+      if (pat && pat.name) subStay = `你这张盘月令取【${pat.name}】，配眼下这步大运看动不动得`;
+      else if (st) subStay = `日元【${dmLabel}】${st.verdict}，配眼下这步大运定进退`;
 
-      let subPat = `看月令【${b.monthPillar}】取格配日元【${dmLabel}】旺衰，定你的底盘类型`;
-      if (pat && pat.name) subPat = `你这张盘月令取【${pat.name}】—— 格局比旺衰更能决定你走哪条路`;
+      // 「钱该出手还是收着」看喜忌与调候，落到今年这一段
+      let subMoney = `看日元【${dmLabel}】的喜忌，配今年的流年流月定财的进退`;
+      if (st && st.favor && st.favor.length) subMoney = `日元【${dmLabel}】${st.verdict}，喜${st.favor.join("")} —— 今年这一段是帮你还是抽你`;
+      else if (st) subMoney = `日元【${dmLabel}】${st.verdict} —— 看今年这一段是帮你还是抽你`;
 
       cards = [
-        { icon: "🔥", title: "接下来这一年，什么时候顺、什么时候要小心？", sub: subTime,
-          prompt: "接下来这一年，我什么时候顺、什么时候要小心？" },
-        { icon: "⚖️", title: "我是哪一路人，适合走什么路子？", sub: subPat,
-          prompt: "我是哪一路人？适合走什么路子？" },
+        { icon: "🚪", title: "现在这份工作，我该走还是该留？", sub: subStay,
+          prompt: "现在这份工作，我该走还是该留？" },
+        { icon: "💰", title: "今年这笔钱，该出手还是该收着？", sub: subMoney,
+          prompt: "今年这笔钱，该出手还是该收着？" },
         askCardFor("bazi")
       ];
     }
@@ -1536,7 +1560,10 @@ document.addEventListener("DOMContentLoaded", () => {
         finishThinking();
         // 模型把“你接下来最想问什么”写在最后一行，这里拆下来变成按钮
         const sp = ChatEngine.splitFollowups ? ChatEngine.splitFollowups(full) : { text: full, followups: [] };
-        aiMsg.content = sp.text;
+        // 中途偷偷切过备用厂商的话，要讲清楚 —— 两家模型口径不同，
+        // 不说明会让人以为是产品自己变差了
+        const foNote = ChatEngine.consumeFailoverNote ? ChatEngine.consumeFailoverNote() : "";
+        aiMsg.content = foNote ? ("> \u2139\ufe0f " + foNote + "\n\n" + sp.text) : sp.text;
         aiMsg.streaming = false;
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
@@ -1807,6 +1834,10 @@ document.addEventListener("DOMContentLoaded", () => {
       if (mEl) state.settings.modelName = mEl.value.trim();
       const dtEl = document.getElementById("settings-deep-think");
       state.settings.deepThink = Boolean(dtEl && dtEl.checked);
+      const bpEl = document.getElementById("settings-backup-provider");
+      const bkEl = document.getElementById("settings-backup-key");
+      state.settings.backupProvider = (bpEl && bpEl.value) || "none";
+      state.settings.backupApiKey = ((bkEl && bkEl.value) || "").trim();
       localStorage.setItem("diandao_settings", JSON.stringify(state.settings));
       updateEngineBadge();
       closeModal("modal-settings");

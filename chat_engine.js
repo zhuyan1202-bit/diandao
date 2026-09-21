@@ -2967,6 +2967,115 @@ ${nextSpec}`;
    */
   const GZ_PAT = "[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]";
 
+  /* ---------- 7.5b 自动更正：能算准的就直接改对，不要摆给用户看 ----------
+   * 用户原话：「答完又在下面说上面日期错了，这个就很奇怪，一点都不严谨」。
+   * 确实 —— 排盘引擎既然能算出唯一正确答案，就该在展示前改掉，
+   * 而不是把错误连同更正一起交给用户，让他自己做校对。
+   *
+   * 这里只动「有唯一正确答案、且替换后不动摇上下文推理」的内容：
+   *   流年干支 / 四柱 / 日元 / 虚岁 / 大运年龄段 / 应期精度（只降不升）
+   * 不动「替换后会让整段推理错位」的：
+   *   编造星曜、星曜落宫、整条大运是编的、旺衰讲反 —— 那些交给 auditAnswer 告警。
+   * ---------------------------------------------------------------- */
+  function repairAnswer(text, chart, mode) {
+    let t = String(text || "");
+    const fixed = [];
+    if (!t.trim() || !chart) return { text: t, fixed: fixed };
+    const b = chart.bazi || {};
+    const p = chart.profile || {};
+    const note = function (what, from, to) { fixed.push({ what: what, from: from, to: to }); };
+
+    // 本命四柱不参与「流年干支」更正：文中出现它们多半是在讲本命盘，
+    // 此时按附近的公历年去改反而会把对的改错。
+    const natal = {};
+    [b.yearPillar, b.monthPillar, b.dayPillar, b.hourPillar].forEach(function (x) { if (x) natal[x] = 1; });
+
+    /* ① 「2027年丁酉」——公历年配错了流年干支 */
+    const reYear = new RegExp("(20\\d\\d)(\\s*年[\\s、，,（(的是为流岁干支【]{0,6})(" + GZ_PAT + ")", "g");
+    t = t.replace(reYear, function (all, y, mid, gz, off, str) {
+      const tail = str.charAt(off + all.length);
+      if (tail === "月" || tail === "日" || tail === "时" || tail === "运") return all;  // 那是月柱/日柱/大运
+      const real = yearGanZhi(parseInt(y, 10));
+      if (!real || real === gz) return all;
+      note("流年干支", y + "年" + gz, y + "年" + real);
+      return y + mid + real;
+    });
+
+    /* ② 「丁酉年」单独出现——用附近的公历年校正 */
+    const reGzY = new RegExp("(" + GZ_PAT + ")年", "g");
+    t = t.replace(reGzY, function (all, gz, off, str) {
+      if (natal[gz]) return all;                       // 多半在讲本命盘，别动
+      // 中文语序几乎总是「2025 年是乙巳年」，所以只认往前找到的那个年份；
+      // 往后找容易把「2025年是乙巳年，2026年是丙午年」里的乙巳配到 2026 上。
+      const back = str.slice(Math.max(0, off - 20), off);
+      const bs = back.match(/20\d\d/g);
+      if (!bs || !bs.length) return all;               // 没有可靠依据就不动
+      const real = yearGanZhi(parseInt(bs[bs.length - 1], 10));
+      if (!real || real === gz) return all;
+      note("流年干支", gz + "年", real + "年");
+      return real + "年";
+    });
+
+    /* ③ 四柱写错——本盘四柱是唯一的 */
+    const POS = { "年": b.yearPillar, "月": b.monthPillar, "日": b.dayPillar, "时": b.hourPillar };
+    const rePillar = new RegExp("(年|月|日|时)柱([是为：:【\\s]{0,3})(" + GZ_PAT + ")", "g");
+    t = t.replace(rePillar, function (all, pos, mid, gz) {
+      const real = POS[pos];
+      if (!real || real === gz) return all;
+      note("四柱", pos + "柱" + gz, pos + "柱" + real);
+      return pos + "柱" + mid + real;
+    });
+
+    /* ④ 日元写错——日元就是日柱天干 */
+    t = t.replace(/日元([是为：:\s]{0,3})([甲乙丙丁戊己庚辛壬癸])/g, function (all, mid, g) {
+      if (!b.dayMaster || g === b.dayMaster) return all;
+      note("日元", "日元" + g, "日元" + b.dayMaster);
+      return "日元" + mid + b.dayMaster;
+    });
+
+    /* ⑤ 大运的年龄段对不上（大运本身不在序列里的不动，那是整条编的） */
+    if (mode === "bazi") {
+      let dy = null;
+      try { dy = computeDayun(chart); } catch (e) {}
+      if (dy && dy.list && dy.list.length) {
+        const ok = {};
+        dy.list.forEach(function (d) { ok[d.gz] = d; });
+        const reAge = new RegExp("(" + GZ_PAT + ")(\\s*(?:大)?运[^。；\\n]{0,10}?)(\\d{1,2})(\\s*[-–~至到]\\s*)(\\d{1,2})(\\s*岁)", "g");
+        t = t.replace(reAge, function (all, gz, mid, a1, sep, a2, suf) {
+          const d = ok[gz];
+          if (!d) return all;
+          if (parseInt(a1, 10) === d.fromAge && parseInt(a2, 10) === d.toAge) return all;
+          note("大运年龄", gz + "运 " + a1 + "-" + a2 + "岁", gz + "运 " + d.fromAge + "-" + d.toAge + "岁");
+          return gz + mid + d.fromAge + sep + d.toAge + suf;
+        });
+      }
+    }
+
+    /* ⑥ 虚岁写错 */
+    const realAge = getCurrentTimeAnchor().Y - p.year + 1;
+    t = t.replace(/((?:你今年|现在你|你现在|今年你)[^。；\n]{0,6}?)(\d{1,3})(\s*岁)/g,
+      function (all, lead, n, suf) {
+        const v = parseInt(n, 10);
+        if (v === realAge || v === realAge - 1) return all;   // 虚岁/周岁都算对
+        note("年龄", "今年 " + v + " 岁", "今年 " + realAge + " 岁");
+        return lead + realAge + suf;
+      });
+
+    /* ⑦ 应期被断到「某一天」——命盘给不出这个精度。
+     *    这里只把精度往下降（某一天 → 上/中/下旬），绝不凭空造出更细的精度。 */
+    const reDay = /(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(之前|以前|前后|左右|当天|当日|这天|那天|之后|以后)/g;
+    t = t.replace(reDay, function (all, mo, d, suf) {
+      const dd = parseInt(d, 10);
+      const xun = dd <= 10 ? "上旬" : (dd <= 20 ? "中旬" : "下旬");
+      // 「之前/之后」是方向词，去掉会改变意思，保留；「前后/左右/当天」本身就是模糊词，旬已经涵盖
+      const keep = /之前|以前|之后|以后/.test(suf) ? suf : "";
+      note("应期精度", mo + "月" + d + "日" + suf, mo + "月" + xun + keep);
+      return mo + " 月" + xun + keep;
+    });
+
+    return { text: t, fixed: fixed };
+  }
+
   function auditAnswer(text, chart, mode) {
     const t = String(text || "");
     if (!t.trim() || !chart) return [];
@@ -3252,7 +3361,7 @@ ${nextSpec}`;
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
     followupsFor, splitFollowups, stripNextBlock,
-    auditAnswer,
+    auditAnswer, repairAnswer,
     collectCovered, recentClaims, lastFocusOf,   // 供测试与调试使用
     buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor,
     testConnection,                             // 设置面板的「测试连接」

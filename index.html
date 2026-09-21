@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260920174756">
+  <link rel="stylesheet" href="styles.css?v=20260921101625">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -379,9 +379,9 @@
           <label class="form-label-xs">引擎</label>
           <select class="form-select-xs" id="settings-provider" style="width:100%;">
             <option value="builtin">内置推演引擎（无需密钥 · 模板式）</option>
-            <option value="deepseek">DeepSeek（推荐 · 便宜 · 国内直连）</option>
+            <option value="deepseek">DeepSeek（便宜 · 但部分网络会间歇性连不上）</option>
             <option value="qwen">通义千问 Qwen</option>
-            <option value="zhipu">智谱 GLM（有免费额度）</option>
+            <option value="zhipu">智谱 GLM（有免费额度 · 链路较稳）</option>
             <option value="moonshot">Moonshot Kimi</option>
             <option value="doubao">豆包 Doubao</option>
             <option value="openai">OpenAI / 其它兼容接口</option>
@@ -413,6 +413,24 @@
           <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>
           <input type="text" class="form-input-xs" id="settings-api-endpoint" placeholder="自动" style="width:100%;">
         </div>
+        <div style="border-top:1px dashed var(--border-strong); padding-top:12px;">
+          <label class="form-label-xs">备用厂商（选填 —— 主厂商连不上时自动顶上）</label>
+          <select class="form-select-xs" id="settings-backup-provider" style="width:100%;">
+            <option value="none">不设备用</option>
+            <option value="zhipu">智谱 GLM</option>
+            <option value="deepseek">DeepSeek</option>
+            <option value="qwen">通义千问 Qwen</option>
+            <option value="moonshot">Moonshot Kimi</option>
+            <option value="doubao">豆包 Doubao</option>
+            <option value="openai">OpenAI / 其它兼容接口</option>
+          </select>
+          <input type="password" class="form-input-xs" id="settings-backup-key"
+                 placeholder="备用厂商的 API Key" style="width:100%; margin-top:8px;" autocomplete="off">
+          <div style="font-size:10.5px;color:var(--text-dim);margin-top:4px;line-height:1.5;">
+            主厂商退避重试 3 次仍然连不上时，自动改用这一家，并在回答开头注明是谁答的。<br>
+            要用得上，备用必须是<b>另一家</b>，且填它自己的 Key。
+          </div>
+        </div>
         <div style="display:flex; gap:8px; align-items:stretch;">
           <button class="save-chart-btn" id="btn-test-conn"
                   style="flex:0 0 auto; background:transparent; border:1.5px solid var(--border-strong); color:var(--text-main);">测试连接</button>
@@ -436,18 +454,18 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260920174756"></script>
-  <script src="calendar_core.js?v=20260920174756"></script>
-  <script src="ziwei_engine.js?v=20260920174756"></script>
-  <script src="bazi_analyze.js?v=20260920174756"></script>
+  <script src="vsop87.js?v=20260921101625"></script>
+  <script src="calendar_core.js?v=20260921101625"></script>
+  <script src="ziwei_engine.js?v=20260921101625"></script>
+  <script src="bazi_analyze.js?v=20260921101625"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260920174756"></script>
-  <script src="kb_retrieve.js?v=20260920174756"></script>
-  <script src="bazi_kb.js?v=20260920174756"></script>
-  <script src="bazi_retrieve.js?v=20260920174756"></script>
-  <script src="tarot_data.js?v=20260920174756"></script>
-  <script src="ziwei_bazi_core.js?v=20260920174756"></script>
-  <script src="chat_engine.js?v=20260920174756"></script>
-  <script src="app.js?v=20260920174756"></script>
+  <script src="knowledge_base.js?v=20260921101625"></script>
+  <script src="kb_retrieve.js?v=20260921101625"></script>
+  <script src="bazi_kb.js?v=20260921101625"></script>
+  <script src="bazi_retrieve.js?v=20260921101625"></script>
+  <script src="tarot_data.js?v=20260921101625"></script>
+  <script src="ziwei_bazi_core.js?v=20260921101625"></script>
+  <script src="chat_engine.js?v=20260921101625"></script>
+  <script src="app.js?v=20260921101625"></script>
 </body>
 </html>

@@ -1372,7 +1372,7 @@
     }
     L.push("");
 
-    // 流月（斗君法，未来六个农历月，公历起始日精确到日）
+    // 流月（斗君法，未来 13 个农历月，公历起讫精确到日）
     const CC = global.CalendarCore;
     const hourZhi = String((chart.bazi || {}).hourPillar || "").charAt(1);
     const birthLM = chart.lunar ? chart.lunar.lMonth : 0;
@@ -1384,20 +1384,34 @@
       }
       try {
         const cur = CC.newMoonOnOrBefore(CC.dayNumber(t.Y, t.M, t.D));
-        const rows = [];
-        for (let sft = 0; sft < 6; sft++) {
+        const N = 13;                      // 覆盖整整一年，「明年这个时候」也能落到区间
+        // 先把 N+1 个月的起日全算出来 —— 要给区间就得知道下一个月从哪天开始。
+        // 只给起日的话，模型写「9月11日起」还是得自己编结束日。
+        const ms = [];
+        for (let sft = 0; sft <= N; sft++) {
           const dn = CC.newMoonDayNum(cur.k + sft);
           const g = CC.jdToGregorian(dn - 0.5);
           const gd = Math.floor(g.d);
           const lu = CC.solarToLunar(g.y, g.m, gd);
-          if (!lu) continue;
-          const i = (douJun(lu.lYear) + (lu.lMonth - 1)) % 12;
+          ms.push({ jd: dn, y: g.y, m: g.m, d: gd, lu: lu });
+        }
+        const rows = [];
+        for (let sft = 0; sft < N; sft++) {
+          const a = ms[sft], b2 = ms[sft + 1];
+          if (!a.lu || !b2) continue;
+          const endG = CC.jdToGregorian(b2.jd - 1.5);         // 下个月起日的前一天
+          const ed = Math.floor(endG.d);
+          const i = (douJun(a.lu.lYear) + (a.lu.lMonth - 1)) % 12;
           const flag = (tIdx >= 0 && i === tIdx) ? "　⚑【流月命宫正落本题宫，本月是关键引动点】" : "";
-          rows.push("  · " + (lu.isLeap ? "闰" : "") + lu.lMonthLabel + "（公历" + g.m + "月" + gd + "日 起）：流月命宫＝本命【" +
-                    P[i].name + "】" + P[i].branch + "：" + starsOf(i) + flag);
+          const far = sft >= 6;
+          rows.push("  · " + (a.lu.isLeap ? "闰" : "") + a.lu.lMonthLabel +
+                    "（公历" + a.m + "月" + a.d + "日–" + endG.m + "月" + ed + "日）：流月命宫＝本命【" +
+                    P[i].name + "】" + P[i].branch +
+                    (far ? "" : ("：" + starsOf(i))) + flag);
         }
         if (rows.length) {
-          L.push("【未来六个月 · 流月命宫（斗君法已精确排定，直接用，勿自行推算）】");
+          L.push("【未来 " + rows.length + " 个月 · 流月命宫（斗君法已精确排定，" +
+                 "公历起讫也算好了；回答里的时间区间只能从这里抄）】");
           L.push(rows.join("\n"));
         }
       } catch (e) {}
@@ -2113,9 +2127,16 @@
       L.push("");
     }
 
-    L.push("【流年推演 · " + t.Y + "–" + (t.Y + 2) + "】");
+    // 命理年以立春分界，不是元旦。不把这个公历起讫摆出来，
+    // 模型写「2027 年」时会默认指 1/1，年初那一段就差一个年柱。
+    const lichunOf = function (yy) {
+      try { const d = CC.solarTermDate(yy, 2); return d.m + "/" + d.d; } catch (e) { return ""; }
+    };
+    L.push("【流年推演 · " + t.Y + "–" + (t.Y + 2) + "（命理年以立春切，不是 1 月 1 日）】");
     for (let yy = t.Y; yy <= t.Y + 2; yy++) {
       const gz = yearGanZhi(yy), g2 = gz.charAt(0), z2 = gz.charAt(1);
+      const lc0 = CC ? lichunOf(yy) : "", lc1 = CC ? lichunOf(yy + 1) : "";
+      const span = (lc0 && lc1) ? "（" + yy + "/" + lc0 + " – " + (yy + 1) + "/" + lc1 + "）" : "";
       const rels = [];
       const r1 = branchRel(z2, dayZhi); if (r1) rels.push("与日支" + dayZhi + r1);
       const r2 = branchRel(z2, yrZhi);  if (r2) rels.push("与年支" + yrZhi + r2);
@@ -2131,7 +2152,7 @@
         const dgz = String(curDy.gz).charAt(0);
         const q3 = stemRel(g2, dgz, moZhi, true); if (q3) gRels.push("与运干" + dgz + q3);
       }
-      L.push("  ◆ " + yy + "年 " + gz + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
+      L.push("  ◆ " + yy + "年 " + gz + span + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
              "】" + (gRels.length ? "｜天干：" + gRels.join("，") : "") +
              "｜年支" + z2 + "（日元在此＝" + changSheng(dg, z2) + "）" +
              (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
@@ -2153,7 +2174,7 @@
         let st = 0;
         for (let i = 0; i < terms.length; i++) if (terms[i].jd <= nowJD) st = i;
         const rows = [];
-        for (let i = st; i < st + 6 && i + 1 < terms.length; i++) {
+        for (let i = st; i < st + 13 && i + 1 < terms.length; i++) {
           const cu = terms[i], nx = terms[i + 1];
           const zi = ((cu.k / 2) + 1) % 12;
           const z2 = DIZHI[zi];
@@ -2169,12 +2190,17 @@
             if (r4) rels.push("与大运支" + dz + r4);
           }
           const mq = stemRel(g2, dg, moZhi, true);
+          // 头 6 个月给全量细节；再往后只留「干支 + 公历起讫 + 十神」——
+          // 远月的刑冲会合写了也用不上，只会把台面撑肿。
+          const far = (i - st) >= 6;
           rows.push("  · " + g2 + z2 + "月（" + cu.name + " " + cu.m + "/" + cu.d + " – " + nx.name + " " + nx.m + "/" + nx.d +
-                    "）｜月干" + g2 + "＝【" + god(g2) + "】" + (mq ? "（与日元" + dg + mq + "）" : "") +
-                    (rels.length ? "｜" + rels.join("，") : ""));
+                    "）｜月干" + g2 + "＝【" + god(g2) + "】" +
+                    (far ? "" : ((mq ? "（与日元" + dg + mq + "）" : "") +
+                                 (rels.length ? "｜" + rels.join("，") : ""))));
         }
         if (rows.length) {
-          L.push("【未来六个节气月（公历起讫已算好，给时间点必须落到这些区间里）】");
+          L.push("【未来 " + rows.length + " 个节气月（公历起讫已由天文算法算出，" +
+                 "回答里的任何时间区间只能从这里抄，不许自己算）】");
           L.push(rows.join("\n"));
         }
       } catch (e) {}
@@ -2197,7 +2223,8 @@
     let skipping = false, dropped = 0;
     for (let i = 0; i < src.length; i++) {
       const ln = src[i];
-      if (/^\u3010\u672a\u6765\u516d\u4e2a/.test(ln)) { skipping = true; dropped++; continue; }
+      // 两席各有一张流月表：八字是「节气月」，紫微是「月 · 流月命宫」
+      if (/^\u3010\u672a\u6765\s*\d+\s*\u4e2a(?:\u8282\u6c14)?\u6708/.test(ln)) { skipping = true; dropped++; continue; }
       if (skipping) {
         if (/^\u3010/.test(ln)) skipping = false;
         else { dropped++; continue; }
@@ -2599,9 +2626,11 @@ ${sectionSpec}
    就按推演台的结论写，不要在回答里和它抬杠。
 6. 神煞、十二长生、拱局、流派分歧、知识库出处 —— 默认一个字都不写。
    只有当它真的改变了结论、或改变了用户该做的动作时才提。
-7. 应期默认粒度是「月」（节气月，带公历起讫日），这是命理本身能支撑的极限。
-   盘上真有硬引动时才可以收窄到「上旬／中旬／下旬」。
-   ❌ 禁止断到某一天。推演台里的公历日期是节气月的边界，不是应期。
+7. 【最硬的一条】提到时间，就必须是具体的公历区间，两头日期从流月表里抄。
+   ✅「10月8日–11月7日这一个月」「明年2月4日之后」
+   ❌「下半年」「年底」「近期」「未来几个月」「明年开春」—— 不排盘也能说，等于没说。
+   ❌ 也不要断到某一天（「10月15日会…」）。起讫日是月的边界，不是事发当天；
+      盘上真有硬引动才可收到「上／中／下旬」。表里没的年份只给到年，不编月日。
 8. 不许反问用户、不许索要更多信息（信息不足就分情况给结论，别把问题抛回去）。
    不许写「仅供参考」「命运掌握在自己手里」「还要看个人努力」。
    不许空泛的正能量收尾 —— 最后一句必须是一个能照做的动作，或一个明确判断。
@@ -2971,6 +3000,49 @@ ${nextSpec}`;
    */
   const GZ_PAT = "[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]";
 
+  /* 节气表：模型写出来的公历区间必须能对得上实际节气，否则「说得具体」是假的。
+   * 从去年到后年一共四年，足够覆盖回答里会提到的范围；算一次缓存住。 */
+  const TERM_NAMES = ["小寒","立春","惊蛰","清明","立夏","芒种","小暑","立秋","白露","寒露","立冬","大雪"];
+  let _termCache = null;
+  function solarTermTable() {
+    if (_termCache) return _termCache;
+    const out = [];
+    try {
+      const CC2 = (typeof CalendarCore !== "undefined") ? CalendarCore : null;
+      if (!CC2) return (_termCache = []);
+      const y0 = getCurrentTimeAnchor().Y;
+      for (let yy = y0 - 1; yy <= y0 + 2; yy++) {
+        for (let k = 0; k < 24; k += 2) {
+          const d = CC2.solarTermDate(yy, k);
+          out.push({ y: yy, k: k, m: d.m, d: d.d, name: d.name, jd: d.jd });
+        }
+      }
+      out.sort(function (a, b) { return a.jd - b.jd; });
+    } catch (e) { return (_termCache = []); }
+    return (_termCache = out);
+  }
+  /* 同一个节气四年里有四个日期（相差 1–2 天）—— 取月份对得上、
+     且离今天最近的那一个。月份对不上就说明模型把节气季节都记错了，不插手。 */
+  /* 这个公历日是不是某个节的交接日 */
+  function isTermBoundary(mo, d) {
+    const tb = solarTermTable();
+    for (let i = 0; i < tb.length; i++) if (tb[i].m === mo && tb[i].d === d) return true;
+    return false;
+  }
+
+  function termByName(terms, name, mo) {
+    let best = null, bd = 1e9;
+    const nowY = getCurrentTimeAnchor().Y;
+    for (let i = 0; i < terms.length; i++) {
+      const x = terms[i];
+      if (x.name !== name) continue;
+      if (typeof mo === "number" && !isNaN(mo) && Math.abs(x.m - mo) > 1 && Math.abs(x.m - mo) < 11) continue;
+      const gap = Math.abs(x.y - nowY);
+      if (gap < bd) { bd = gap; best = x; }
+    }
+    return best;
+  }
+
   /* ---------- 7.5b 自动更正：能算准的就直接改对，不要摆给用户看 ----------
    * 用户原话：「答完又在下面说上面日期错了，这个就很奇怪，一点都不严谨」。
    * 确实 —— 排盘引擎既然能算出唯一正确答案，就该在展示前改掉，
@@ -3065,10 +3137,57 @@ ${nextSpec}`;
         return lead + realAge + suf;
       });
 
-    /* ⑦ 应期被断到「某一天」——命盘给不出这个精度。
+    /* ⑦ 节气日期写错 —— 这是【最硬的一条】的兼容网。
+     *    我们要求模型把时间落到公历区间，那就得保证那个区间是对的 ——
+     *    否则只是把「说得空」换成了「说得具体但是错的」，那更糟。
+     *    节气时刻是天文量，有唯一答案，所以可以直接改对。 */
+    const terms = solarTermTable();
+    if (terms.length) {
+      const near = function (mo, d, tol) {          // 找离「mo/d」最近的节气（不跨年区分）
+        let best = null, bd = 1e9;
+        for (let i = 0; i < terms.length; i++) {
+          const x = terms[i];
+          let gap = Math.abs((x.m - mo) * 31 + (x.d - d));
+          if (Math.abs(x.m - mo) > 1 && Math.abs(x.m - mo) < 11) continue;
+          if (gap < bd) { bd = gap; best = { i: i, t: x }; }
+        }
+        return (best && bd <= tol) ? best : null;
+      };
+
+      /* ⑦a 「寒露 10月9日」—— 带节气名的，直接查表改对 */
+      const reNamed = new RegExp("(" + TERM_NAMES.join("|") + ")([\\s\\uff08(]{0,2})(\\d{1,2})\\s*[月/]\\s*(\\d{1,2})(\\u65e5?)", "g");
+      t = t.replace(reNamed, function (all, nm, mid, mo, d, ri) {
+        const hit = termByName(terms, nm, parseInt(mo, 10));
+        if (!hit || (hit.m === parseInt(mo, 10) && hit.d === parseInt(d, 10))) return all;
+        note("\u8282\u6c14\u65e5\u671f", nm + " " + mo + "\u6708" + d + "\u65e5", nm + " " + hit.m + "\u6708" + hit.d + "\u65e5");
+        return nm + mid + hit.m + "\u6708" + hit.d + (ri || "\u65e5");
+      });
+
+      /* ⑦b 「10月9日–11月8日」—— 两头分别落在相邻两个节气附近才能吸附，
+         否则那就是一个普通区间，不关节气的事，不能乱改。 */
+      const reSpan = /(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*([–\-—~至到])\s*(?:明年|今年)?\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/g;
+      t = t.replace(reSpan, function (all, m1, d1, sep, m2, d2) {
+        const a = near(parseInt(m1, 10), parseInt(d1, 10), 4);
+        const b2 = near(parseInt(m2, 10), parseInt(d2, 10), 4);
+        if (!a || !b2 || b2.i !== a.i + 1) return all;        // 不是一个完整节气月，不动
+        if (a.t.m === parseInt(m1, 10) && a.t.d === parseInt(d1, 10) &&
+            b2.t.m === parseInt(m2, 10) && b2.t.d === parseInt(d2, 10)) return all;
+        note("\u8282\u6c14\u6708\u8d77\u8bab",
+             m1 + "\u6708" + d1 + "\u65e5\u2013" + m2 + "\u6708" + d2 + "\u65e5",
+             a.t.m + "\u6708" + a.t.d + "\u65e5\u2013" + b2.t.m + "\u6708" + b2.t.d + "\u65e5");
+        return a.t.m + "\u6708" + a.t.d + "\u65e5" + sep + b2.t.m + "\u6708" + b2.t.d + "\u65e5";
+      });
+    }
+
+    /* ⑧ 应期被断到「某一天」——命盘给不出这个精度。
      *    这里只把精度往下降（某一天 → 上/中/下旬），绝不凭空造出更细的精度。 */
     const reDay = /(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(之前|以前|前后|左右|当天|当日|这天|那天|之后|以后)/g;
     t = t.replace(reDay, function (all, mo, d, suf) {
+      // 豁免：这个日子就是节气交接日，而且后面跟的是方向词。
+      // 「立冬 11月7日之后」是我们要求的区间表达，不是假精度，
+      // 改成「11月上旬之后」反而把算出来的边界抹掉了。
+      // 但「那天／当天」是真在指一天，哪怕压在节气上也要降。
+      if (/之前|以前|之后|以后|前后|左右/.test(suf) && isTermBoundary(parseInt(mo, 10), parseInt(d, 10))) return all;
       const dd = parseInt(d, 10);
       const xun = dd <= 10 ? "上旬" : (dd <= 20 ? "中旬" : "下旬");
       // 「之前/之后」是方向词，去掉会改变意思，保留；「前后/左右/当天」本身就是模糊词，旬已经涵盖
@@ -3077,7 +3196,7 @@ ${nextSpec}`;
       return mo + " 月" + xun + keep;
     });
 
-    /* ⑧ 紫微：星曜落宫说错 —— 盘上每颗星坐哪个宫是唯一的，直接改对。
+    /* ⑨ 紫微：星曜落宫说错 —— 盘上每颗星坐哪个宫是唯一的，直接改对。
      *    注：改完之后，那句话后半段的推理可能不再跟着走 ——
      *    但把你盘上的事实说对，比留着错的事实让推理看起来自洽要强。 */
     if (mode === "ziwei" && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {

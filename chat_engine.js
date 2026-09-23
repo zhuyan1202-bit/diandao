@@ -1093,7 +1093,7 @@
    * 7.1.5 预推演台（Forecast Desk）
    * 大模型不会心算流年/流月/大限/大运，让它自己推就只能给空话。
    * 这里用排盘引擎把「本题相关宫位 + 当前大限/大运 + 未来三年流年 +
-   * 未来六个月流月」全部精确算好，直接塞进 prompt 让它引用。
+   * 未来 13 个月流月」全部精确算好，直接塞进 prompt 让它引用。
    * ============================================================ */
 
   function idx60(gz) {
@@ -2159,7 +2159,7 @@
     }
     L.push("");
 
-    // 流月：未来六个节气月（起始日精确到日）
+    // 流月：未来 13 个节气月（公历起讫精确到日）
     if (CC) {
       try {
         const nowJD = CC.gregorianToJD(t.Y, t.M, t.D + (t.H + t.Min / 60) / 24);
@@ -2315,7 +2315,7 @@
         const yg = yearGanZhi(t.Y);
         out.push("流年 " + yg + "：年干" + yg.charAt(0) + "为" +
                  (global.AstrologyCore ? global.AstrologyCore.getTenGod(b.dayMaster, yg.charAt(0)) : "—"));
-        out.push("比对未来六个节气月与大运、日支的冲合");
+        out.push("比对未来一年的节气月与大运、日支的冲合");
       } else {
         const zw = chart.ziwei || {};
         const mp = (zw.palaces || []).find(function (x) { return x.name === "命宫"; });
@@ -2339,7 +2339,7 @@
           const li = DIZHI.indexOf(yg.charAt(1));
           if (li >= 0) out.push("流年 " + yg + "：流年命宫入本命【" + P2[li].name + "】");
         }
-        out.push("推未来六个月流月命宫落点");
+        out.push("推未来一年的流月命宫落点");
       }
     } catch (e) {}
     return out.filter(function (x) { return x && x.length; }).slice(0, 6);

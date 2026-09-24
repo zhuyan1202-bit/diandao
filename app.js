@@ -1295,6 +1295,7 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("chat-title-text").textContent = s.title;
     renderSessions();
     renderMessages(getRoomMessages(s, state.kbMode));
+    renderCtxChip(s);
     toggleMobileSidebar(false);
   }
 
@@ -1345,18 +1346,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // 在显示之前就地改对。用户要的是一份对的答案，不是一份错答案外加一张勘误表。
   function repairOf(t) {
     try {
-      if (!window.ChatEngine || !ChatEngine.repairAnswer || !state.userChart) {
+      const ch = state.turnChart || state.userChart;
+      if (!window.ChatEngine || !ChatEngine.repairAnswer || !ch) {
         return { text: t, fixed: [] };
       }
-      return ChatEngine.repairAnswer(t, state.userChart, state.kbMode);
+      return ChatEngine.repairAnswer(t, ch, state.turnPair ? "pair" : state.kbMode);
     } catch (e) { return { text: t, fixed: [] }; }
   }
 
   // 把模型的回答和排盘数据对一遍，对不上就挂在答案下面
   function auditOf(t) {
     try {
-      if (!window.ChatEngine || !ChatEngine.auditAnswer || !state.userChart) return null;
-      const r = ChatEngine.auditAnswer(t, state.userChart, state.kbMode);
+      const ch = state.turnChart || state.userChart;
+      if (!window.ChatEngine || !ChatEngine.auditAnswer || !ch || state.turnPair) return null;
+      const r = ChatEngine.auditAnswer(t, ch, state.kbMode);
       // internal 条目只做内部质量监控，不往界面上放
       const shown = (r || []).filter(function (x) { return !x.internal; });
       return shown.length ? shown : null;
@@ -1520,6 +1523,95 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------------- 发送（思考匣逐步推演 + 整段答案优雅浮现） ---------------- */
   window.__ask = (q) => send(q);
 
+  /* ---------------- 合盘 / 帮朋友看盘 ---------------- */
+  function chartFromBirth(bi) {
+    return AstrologyCore.analyzeFullNatalChart({
+      year: bi.year, month: bi.month, day: bi.day, hour: bi.hour, minute: bi.minute,
+      gender: bi.gender, city: "默认 (东经120°标准时)"
+    });
+  }
+  function resolveTurnTarget(s, text) {
+    const own = state.userChart && state.userChart.profile;
+    let bi = null;
+    try { bi = (window.ChatEngine && ChatEngine.parseBirthInText) ? ChatEngine.parseBirthInText(text, own) : null; } catch (e) {}
+    if (bi) {
+      const who = { label: bi.label, birth: bi, noTime: !bi.hasTime, genderGuessed: bi.genderGuessed };
+      if (bi.pairWithMe) { s.partner = Object.assign({ name: "对方" }, who); s.friend = null; }
+      else { s.friend = who; s.partner = null; }
+      saveSessions();
+    }
+    const out = { chart: state.userChart, cfg: {}, pair: false };
+    try {
+      if (s.partner) {
+        let pc = null, nm = s.partner.name || "对方";
+        if (s.partner.profileId) {
+          const pf = state.profiles.find(x => x.id === s.partner.profileId);
+          if (pf) { pc = AstrologyCore.analyzeFullNatalChart(pf.profile); nm = pf.name || nm; }
+        } else if (s.partner.birth) {
+          pc = chartFromBirth(s.partner.birth);
+        }
+        if (pc) { out.cfg = { partner: pc, partnerName: nm, partnerNoTime: !!s.partner.noTime }; out.pair = true; }
+      } else if (s.friend && s.friend.birth) {
+        out.chart = chartFromBirth(s.friend.birth);
+        out.cfg = { subject: { label: s.friend.label, noTime: !!s.friend.noTime, genderGuessed: !!s.friend.genderGuessed } };
+      }
+    } catch (e) {}
+    renderCtxChip(s);
+    return out;
+  }
+  function renderCtxChip(s) {
+    const el = document.getElementById("ctx-chip");
+    if (!el) return;
+    let html = "";
+    if (s && s.partner) {
+      let nm = s.partner.name || "对方";
+      if (s.partner.profileId) {
+        const pf = state.profiles.find(x => x.id === s.partner.profileId);
+        if (pf) nm = pf.name || nm;
+      } else if (s.partner.label) nm += "（" + s.partner.label + "）";
+      html = "💞 正在和「" + escapeHtml(nm) + "」合盘，接着问都会带上两个人的盘 <button type=\"button\" class=\"ctx-chip-x\">✕ 结束合盘</button>";
+    } else if (s && s.friend) {
+      html = "👤 正在看朋友的盘：" + escapeHtml(s.friend.label) + " <button type=\"button\" class=\"ctx-chip-x\">✕ 回到我自己</button>";
+    }
+    el.innerHTML = html;
+    el.style.display = html ? "flex" : "none";
+  }
+  function clearCtx() {
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s) return;
+    s.partner = null; s.friend = null;
+    saveSessions();
+    renderCtxChip(s);
+  }
+  function openPairModal() {
+    const act = activeProfile();
+    const others = state.profiles.filter(x => !act || x.id !== act.id);
+    const body = document.getElementById("pair-modal-body");
+    if (body) {
+      body.innerHTML = others.length
+        ? '<p class="pair-hint">选一个人，和「' + escapeHtml(act ? act.name : "你") + '」的盘合在一起看：</p>' +
+          '<div class="pair-list">' + others.map(o =>
+            '<button type="button" class="pair-pick" data-pid="' + escapeHtml(o.id) + '">' + escapeHtml(o.name || "未命名") +
+            '<span>' + escapeHtml([o.profile.year, o.profile.month, o.profile.day].join("-")) + '</span></button>').join("") + '</div>' +
+          '<p class="pair-foot">不在列表里？直接在聊天里打出对方生日也行，比如：<br>「我和他合不合？他 1995年3月2日下午3点出生，男」</p>'
+        : '<p class="pair-hint">合盘需要两个人的档案。</p>' +
+          '<p class="pair-foot">① 在左边「档案」里新建一个，填上对方的生日；<br>② 或者直接在聊天里打：<br>「我和他合不合？他 1995年3月2日下午3点出生，男」</p>';
+    }
+    document.getElementById("modal-pair")?.classList.add("show");
+  }
+  function startPair(pid) {
+    const pf = state.profiles.find(x => x.id === pid);
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!pf || !s) return;
+    s.partner = { profileId: pid, name: pf.name || "对方" };
+    s.friend = null;
+    saveSessions();
+    window.closeModal("modal-pair");
+    toggleMobileSidebar(false);
+    send("我和" + (pf.name || "对方") + "合不合？最容易在哪些事上吵，怎么相处最好？");
+  }
+  window.__openPairModal = openPairModal;
+
   async function send(raw) {
     const input = document.getElementById("chat-input");
     const text = (raw !== undefined && raw !== null ? raw : input.value).trim();
@@ -1531,6 +1623,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const s = state.sessions.find(x => x.id === state.currentSessionId);
     if (!s) return;
     const roomMsgs = getRoomMessages(s, state.kbMode);
+    // 这一轮看谁的盘：聊天里给了别人的生日 → 看朋友或合盘；否则沿用本会话里的合盘对象／朋友
+    const turn = resolveTurnTarget(s, text);
+    state.turnChart = turn.chart;
+    state.turnPair = turn.pair;
 
     roomMsgs.push({ role: "user", content: text, ck: state.chartKey });
     if (roomMsgs.length === 1 && s.title === "命理推演档案") {
@@ -1554,7 +1650,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 思考便签：只记这次推演真正用到的坐标，几条短句，默认折叠
     const thinkNotes = ChatEngine.buildThinkingNotes
-      ? ChatEngine.buildThinkingNotes(text, state.userChart, state.kbMode)
+      ? ChatEngine.buildThinkingNotes(text, turn.chart, state.kbMode)
       : [];
 
     const aiMsg = {
@@ -1591,7 +1687,7 @@ document.addEventListener("DOMContentLoaded", () => {
       try {
         let lastReasonPaint = 0;
         const full = await ChatEngine.callLiveAPIStream(
-          text, state.userChart, history, state.settings,
+          text, turn.chart, history, Object.assign({}, state.settings, turn.cfg),
           (delta, soFar) => {
             if (!aiMsg.content) finishThinking();      // 第一个字落地 = 思考结束
             aiMsg.content = soFar;
@@ -1624,7 +1720,7 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.streaming = false;
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
-          : ChatEngine.followupsFor(text, state.userChart, rep.text, state.kbMode);
+          : ChatEngine.followupsFor(text, turn.chart, rep.text, state.kbMode);
         // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
         aiMsg.audit = auditOf(rep.text);
         saveSessions();
@@ -1633,7 +1729,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sound.chime();
       } catch (err) {
         finishThinking();
-        const fb = ChatEngine.composeAnswer(text, state.userChart, history, state.kbMode);
+        const fb = ChatEngine.composeAnswer(text, turn.chart, history, state.kbMode);
         aiMsg.streaming = false;
         aiMsg.content =
           `> ⚠️ **AI 接口调用失败**：${err.message || "网络或接口异常"}\n` +
@@ -1642,7 +1738,7 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.tarotWidget = fb.tarotWidget || null;
         aiMsg.followups = (fb.followups && fb.followups.length)
           ? fb.followups
-          : ChatEngine.followupsFor(text, state.userChart, fb.text, state.kbMode);
+          : ChatEngine.followupsFor(text, turn.chart, fb.text, state.kbMode);
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);
@@ -1652,14 +1748,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     /* ---------- 内置引擎 ---------- */
     try {
-      const res = await ChatEngine.generateChatResponse(text, state.userChart, historyForLLM(roomMsgs, -1), state.settings);
+      const res = await ChatEngine.generateChatResponse(text, turn.chart, historyForLLM(roomMsgs, -1), state.settings);
       finishThinking();
       aiMsg.content = res.text;
       aiMsg.streaming = false;
       aiMsg.tarotWidget = res.tarotWidget || null;
       aiMsg.followups = (res.followups && res.followups.length)
         ? res.followups
-        : ChatEngine.followupsFor(text, state.userChart, res.text, state.kbMode);
+        : ChatEngine.followupsFor(text, turn.chart, res.text, state.kbMode);
       saveSessions();
       renderMessages(roomMsgs);
       scrollBottom(false);
@@ -1721,6 +1817,14 @@ document.addEventListener("DOMContentLoaded", () => {
       window.__openRectifyModal();
     });
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", open);
+    document.getElementById("btn-open-pair")?.addEventListener("click", () => openPairModal());
+    document.getElementById("pair-modal-body")?.addEventListener("click", e => {
+      const b = e.target.closest(".pair-pick");
+      if (b && b.dataset.pid) startPair(b.dataset.pid);
+    });
+    document.getElementById("ctx-chip")?.addEventListener("click", e => {
+      if (e.target.closest(".ctx-chip-x")) clearCtx();
+    });
     document.getElementById("btn-open-wuxing")?.addEventListener("click", () => {
       toggleMobileSidebar(false);
       openWuxingReport();
@@ -2281,13 +2385,19 @@ document.addEventListener("DOMContentLoaded", () => {
       h += '<section class="wx-sec wx-today wx-mood-' + (d.mood === "顺" ? "good" : d.mood === "耗" ? "bad" : "flat") + '">' +
         '<div class="wx-sec-title">📅 今天 ' + escapeHtml(d.date) +
           (d.tag ? '<span class="wx-tag">' + escapeHtml(d.tag) + '</span>' : '') + '</div>' +
-        '<p class="wx-lead">' + escapeHtml(d.moodPlain) + '</p>' +
+        (typeof d.score === "number"
+          ? '<div class="wx-score-row"><div class="wx-score">' + d.score + '<small>分</small></div>' +
+            '<div class="wx-score-why"><p class="wx-lead">' + escapeHtml(d.moodPlain) + '</p><ul>' +
+            (d.why || []).map(function (w) { return '<li>' + escapeHtml(w) + '</li>'; }).join("") + '</ul></div></div>'
+          : '<p class="wx-lead">' + escapeHtml(d.moodPlain) + '</p>') +
+        (d.lucky ? '<div class="wx-row"><b>🍀 幸运</b><span>颜色 ' + escapeHtml(d.lucky.color) + ' · 数字 ' +
+          escapeHtml(d.lucky.num.join("、")) + ' · 方位 ' + escapeHtml(d.lucky.dir) + '</span></div>' : '') +
         '<div class="wx-row"><b>👕 今天穿</b>' + wxChips([d.wear.main]) +
           (d.wear.accent ? '<span class="wx-sub">点缀</span>' + wxChips([d.wear.accent]) : '') + '</div>' +
         (d.wear.avoid ? '<div class="wx-row"><b>🙅 少穿</b>' + wxChips([d.wear.avoid]) + '</div>' : '') +
         (d.yi.length ? '<div class="wx-row"><b>✅ 适合</b><span>' + escapeHtml(d.yi.join("；")) + '</span></div>' : '') +
         (d.ji.length ? '<div class="wx-row"><b>⚠️ 少做</b><span>' + escapeHtml(d.ji.join("；")) + '</span></div>' : '') +
-        (d.dir ? '<div class="wx-row"><b>🧭 方位</b><span>出门办事、选座位，偏' + escapeHtml(d.dir) + '一点</span></div>' : '') +
+        (d.dir && !d.lucky ? '<div class="wx-row"><b>🧭 方位</b><span>出门办事、选座位，偏' + escapeHtml(d.dir) + '一点</span></div>' : '') +
       '</section>';
     }
 

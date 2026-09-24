@@ -94,6 +94,11 @@
     return { favor: favor, avoid: avoid, strongest: strongest, weakest: weakest, tiaohou: th };
   }
 
+  /* ---------- 今日打分用 ---------- */
+  const LUCKY_NUM = { 水: [1, 6], 火: [2, 7], 木: [3, 8], 金: [4, 9], 土: [5, 0] };   // 河图数
+  const LIUHE = { 子: "丑", 丑: "子", 寅: "亥", 亥: "寅", 卯: "戌", 戌: "卯", 辰: "酉", 酉: "辰", 巳: "申", 申: "巳", 午: "未", 未: "午" };
+  const CHONG = { 子: "午", 午: "子", 丑: "未", 未: "丑", 寅: "申", 申: "寅", 卯: "酉", 酉: "卯", 辰: "戌", 戌: "辰", 巳: "亥", 亥: "巳" };
+
   /* ---------- 旺衰 → 人话 ---------- */
   const VERDICT_PLAIN = {
     身强: "你底气足，自己就能扛事 —— 需要的是把力气用出去，而不是再给自己加码",
@@ -147,9 +152,22 @@
     if (t && t.dPillar) {
       const dg = t.dPillar.charAt(0), dz = t.dPillar.charAt(1);
       const dWx = [GANWX[dg], ZHIWX[dz]];
-      let s = 0;
-      dWx.forEach(function (w) { if (fa.favor.indexOf(w) >= 0) s++; if (fa.avoid.indexOf(w) >= 0) s--; });
-      const mood = s >= 1 ? "顺" : (s <= -1 ? "耗" : "平");
+      // 今日分数：每一分都能说出来源，不加随机数。
+      //   日干（天上的气）±9，日支（脚下的气）±11 —— 地支是当天真正落地的那股力量，权重略高；
+      //   日支和你本命日支（亲密关系、身体那一柱）六合 +5、相冲 −8。
+      let score = 68;
+      const why = [];
+      const gw = dWx[0], zw = dWx[1];
+      if (fa.favor.indexOf(gw) >= 0)      { score += 9;  why.push("今天上层的气是" + gw + "，正好是你需要的"); }
+      else if (fa.avoid.indexOf(gw) >= 0) { score -= 9;  why.push("今天上层的气是" + gw + "，偏耗你"); }
+      if (fa.favor.indexOf(zw) >= 0)      { score += 11; why.push("今天落地的气是" + zw + "，给你撑腰"); }
+      else if (fa.avoid.indexOf(zw) >= 0) { score -= 11; why.push("今天落地的气是" + zw + "，拖你后腿"); }
+      const myZhi = String(b.dayPillar || "").charAt(1);
+      if (myZhi && LIUHE[dz] === myZhi)      { score += 5; why.push("今天和你合得来，人缘顺、事好谈"); }
+      else if (myZhi && CHONG[dz] === myZhi) { score -= 8; why.push("今天冲你，容易临时变卦、和亲近的人磕碰"); }
+      if (!why.length) why.push("今天的气跟你不帮也不耗");
+      score = Math.max(35, Math.min(95, score));
+      const mood = score >= 78 ? "顺" : (score <= 60 ? "耗" : "平");
       const god = tenGod(dm, dg);
       const theme = DAY_THEME[god] || { tag: "", yi: [], ji: [] };
 
@@ -178,7 +196,9 @@
         wear: { main: { wx: key, c: COLOR[key] },
                 accent: accent ? { wx: accent, c: COLOR[accent] } : null,
                 avoid: fa.avoid.length ? { wx: fa.avoid[0], c: COLOR[fa.avoid[0]] } : null },
-        dir: DIR[key]
+        dir: DIR[key],
+        score: score, why: why,
+        lucky: { color: COLOR[key][0], num: LUCKY_NUM[key], dir: DIR[key] }
       };
     }
     return { report: report, today: today };

@@ -57,7 +57,8 @@
       <div class="profile-actions">
         <button class="profile-action-btn" id="btn-open-drawer">🪢 命盘设置</button>
         <button class="profile-action-btn is-accent" id="btn-open-rectify">🧭 精准定盘</button>
-        <button class="profile-action-btn is-wx" id="btn-open-wuxing">🌿 五行报告 · 今日穿搭</button>
+        <button class="profile-action-btn is-wx is-pair" id="btn-open-pair">💞 合盘 · 看两个人合不合</button>
+        <button class="profile-action-btn is-wx" id="btn-open-wuxing">🌿 今日运势 · 五行报告</button>
       </div>
 
       <div class="sidebar-sessions" id="sessions-container">
@@ -158,6 +159,7 @@
             <span class="switch-chart-btn" id="btn-modify-chart-trigger"><span class="sc-full">修改本人出生时间</span><span class="sc-mini">改时间</span> ✎</span>
           </div>
 
+          <div class="ctx-chip" id="ctx-chip" style="display:none"></div>
           <div class="input-box-container">
             <textarea id="chat-input" rows="1" placeholder="想问什么…"></textarea>
             <button class="send-btn" id="btn-send-msg" title="发送">↑</button>
@@ -365,6 +367,16 @@
   </div>
 
   <!-- ========== 五行报告 + 今日建议 ========== -->
+  <div class="modal-overlay" id="modal-pair">
+    <div class="modal-box wx-modal-box">
+      <div class="wx-modal-head">
+        <h3>💞 合盘</h3>
+        <button class="wx-close" onclick="closeModal('modal-pair')">×</button>
+      </div>
+      <div id="pair-modal-body"></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-wuxing">
     <div class="modal-box wx-modal-box">
       <div class="wx-modal-head">

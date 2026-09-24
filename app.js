@@ -10,8 +10,8 @@ document.addEventListener("DOMContentLoaded", () => {
     currentSessionId: null,
     soundEnabled: true,
     theme: "light",
-    kbMode: "ziwei",
-    settings: { provider: "builtin", apiKey: "", apiEndpoint: "", kbMode: "ziwei" }
+    kbMode: "all",
+    settings: { provider: "builtin", apiKey: "", apiEndpoint: "", kbMode: "all" }
   };
 
   // 紫微十二宫盘方位：巳午未申 / 辰□□酉 / 卯□□戌 / 寅丑子亥
@@ -375,21 +375,29 @@ document.addEventListener("DOMContentLoaded", () => {
         if (bk) bk.value = state.settings.backupApiKey || "";
       }
     } catch (e) {}
-    const savedKbMode = localStorage.getItem("diandao_kb_mode") || "ziwei";
-    setKbMode(savedKbMode, false);
+    // 紫微、八字已合并成一个窗口：不再读旧的窗口偏好
+    setKbMode("all", false);
     updateEngineBadge();
   }
 
   function getRoomMessages(s, mode) {
     if (!s) return [];
-    const m = mode || state.kbMode || "ziwei";
+    const m = mode || state.kbMode || "all";
     if (!s.ziweiMessages) s.ziweiMessages = Array.isArray(s.messages) ? [...s.messages] : [];
     if (!s.baziMessages) s.baziMessages = [];
+    if (m === "all") {
+      // 合并窗口：以前八字窗口里的对话接到同一条记录后面，一条都不丢
+      if (s.baziMessages.length) {
+        s.ziweiMessages = s.ziweiMessages.concat(s.baziMessages);
+        s.baziMessages = [];
+      }
+      return s.ziweiMessages;
+    }
     return m === "bazi" ? s.baziMessages : s.ziweiMessages;
   }
 
   function setKbMode(mode, persist = true) {
-    if (mode !== "bazi") mode = "ziwei";
+    mode = "all";            // 只剩一个窗口，两张盘一起用
     state.kbMode = mode;
     state.settings.kbMode = mode;
     if (persist) localStorage.setItem("diandao_kb_mode", mode);
@@ -801,7 +809,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const spouse = (sp.mainStarNames && sp.mainStarNames.length)
       ? sp.mainStarNames.join("\u00b7") : "\u7a7a\u5bab\uff08\u501f\u5bf9\u5bab\uff09";
-    const starLine = (state.kbMode === "bazi")
+    const starLine = (state.kbMode === "all")
+      ? "\u56db\u67f1 <b>" + escapeHtml([b.yearPillar, b.monthPillar, b.dayPillar, b.hourPillar].join(" ")) + "</b> \u00b7 \u547d\u5bab <b>" + escapeHtml(getPalaceStarLabel(chart, "\u547d\u5bab")) + "</b>"
+      : (state.kbMode === "bazi")
       ? "\u56db\u67f1 <b>" + escapeHtml([b.yearPillar, b.monthPillar, b.dayPillar, b.hourPillar].join(" ")) + "</b>"
       : "\u547d\u5bab <b>" + escapeHtml(getPalaceStarLabel(chart, "\u547d\u5bab")) + "</b> \u00b7 \u592b\u59bb\u5bab <b>" + escapeHtml(spouse) + "</b>";
 
@@ -948,6 +958,15 @@ document.addEventListener("DOMContentLoaded", () => {
   // 并换上一个具体的例子当 placeholder —— 示范这个产品在具体决策题上最有用
   const ASK_EXAMPLES = {
     // 紫微强在「具体到人、具体到事」：宫位对应六亲与场景，飞化能看出这件事被谁牵动
+    // 合并窗口：主打「了解自己」，但例子要具体到一件事
+    all: [
+      "例如：我为什么总是存不住钱？",
+      "例如：我适合上班，还是自己干？",
+      "例如：我为什么总在感情里先退一步？",
+      "例如：我和父母总处不好，问题出在哪？",
+      "例如：我适合什么样的伴侣？",
+      "例如：我做事总是三分钟热度，怎么破？"
+    ],
     ziwei: [
       "例如：这个合伙人靠不靠得住？",
       "例如：这件事到底卡在谁身上？",
@@ -969,7 +988,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function focusAsk() {
     const ta = document.getElementById("chat-input");
     if (!ta) return;
-    const pool = ASK_EXAMPLES[state.kbMode === "bazi" ? "bazi" : "ziwei"];
+    const pool = ASK_EXAMPLES[state.kbMode === "all" ? "all" : (state.kbMode === "bazi" ? "bazi" : "ziwei")];
     ta.placeholder = pool[Math.floor(Math.random() * pool.length)];
     const box = document.querySelector(".input-box-container");
     if (box) {
@@ -992,13 +1011,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const fudeStar = getPalaceStarLabel(chart, "福德宫");
     const dmLabel = `${b.dayMaster}${b.wuxing}`;
     const marriageBranch = b.marriageBranch;
-    const mode = state.kbMode === "bazi" ? "bazi" : "ziwei";
+    const mode = state.kbMode === "bazi" ? "bazi" : (state.kbMode === "all" ? "all" : "ziwei");
 
     renderMiniProfile(chart);
 
     const tag = document.getElementById("chart-context-tag");
     if (tag) {
-      tag.textContent = mode === "ziwei"
+      tag.textContent = mode === "all"
+        ? `✦ 你的盘：${g} · 命宫【${mingStar}】 · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】 · 日元【${dmLabel}】`
+        : mode === "ziwei"
         ? `🔮 你的紫微盘：${g} · 命宫【${mingStar}】 · 夫妻宫【${sp.primaryStar}(${sp.sihua || "无四化"})】 · 福德宫【${fudeStar}】`
         : `📜 你的八字盘：${g} · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】 · 日元【${dmLabel}】 · 婚姻宫【${marriageBranch}】`;
     }
@@ -1014,7 +1035,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const lockSummary = document.getElementById("kb-lock-chart-summary");
     const tst = chart.profile.trueSolarTime || {};
     const cityTag = tst.isCalibrated ? `📍 ${tst.city}(真太阳时${tst.trueTimeStr})` : `📍 东经120°标准时`;
-    if (mode === "ziwei") {
+    if (mode === "all") {
+      if (lockBadge) lockBadge.innerHTML = `🔮 <strong>紫微</strong> + 📜 <strong>八字</strong> · 两张盘都已排好`;
+      if (lockSummary) lockSummary.innerHTML = `${timeBadgeStr} ｜ ${cityTag} · ${g} · 命宫【${mingStar}】 · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】`;
+    } else if (mode === "ziwei") {
       if (lockBadge) lockBadge.innerHTML = `🔮 <strong>紫微斗数</strong> · 十二宫已排定`;
       if (lockSummary) lockSummary.innerHTML = `${timeBadgeStr} ｜ ${cityTag} · ${g} · 命宫【${mingStar}】 · 夫妻【${spouseStar}】`;
     } else {
@@ -1052,14 +1076,43 @@ document.addEventListener("DOMContentLoaded", () => {
         icon: "\u270d\ufe0f",
         fill: true,
         title: "都不是 —— 我想问自己的那件事",
-        sub: (m === "bazi")
+        sub: (m === "all")
+          ? "问得越具体越准 —— 比如「我为什么总是存不住钱」「我适合上班还是自己干」"
+          : (m === "bazi")
           ? "八字最擅长回答「该不该、什么时候」 —— 比如「现在辞职去做自己的事，时机对吗」「想换个城市，什么时候动」"
           : "紫微最擅长回答「是谁、会怎么发生」 —— 比如「这个合伙人靠不靠得住」「手上这个 offer，老板是什么路数」"
       };
     }
 
     let cards = [];
-    if (mode === "ziwei") {
+    if (mode === "all") {
+      if (greetIcon) greetIcon.textContent = "🔮";
+      if (greetTitle) greetTitle.textContent = "点到 · 更懂你自己";
+      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">紫微和八字两张盘都已按你的出生时刻排好，一起看。下面几个问题是按你的盘挑的；心里有具体的事，直接在下面问。</div>`;
+
+      const st = safeCall(window.ChatEngine && window.ChatEngine.baziStrength, chart);
+      const spHua = huaOf("夫妻宫");
+      const loveTag = noMainStar("夫妻宫")
+        ? `夫妻宫空宫，借对宫【${careerStar}】`
+        : `夫妻宫【${spouseStar}】${spHua.length ? "带" + spHua.join("、") : ""}`;
+      const favorTag = (st && st.favor && st.favor.length) ? ` · 喜${st.favor.join("")}` : "";
+
+      cards = [
+        { icon: "🙂", title: "我到底是个什么样的人？",
+          sub: `遇事的第一反应、别人眼里的你、你最常卡在哪〔命宫【${mingStar}】· 日元${dmLabel}${st ? st.verdict : ""}〕`,
+          prompt: "我到底是个什么样的人？" },
+        { icon: "💞", title: "我在感情里其实是什么样的人？",
+          sub: `你会被哪种人吸引、在关系里最容易犯哪种错〔${loveTag}〕`,
+          prompt: "我在感情里其实是什么样的人？" },
+        { icon: "💼", title: "我真正擅长什么、适合做什么？",
+          sub: `直接给出具体的职业和岗位，不说空话〔官禄宫【${careerStar}】${favorTag}〕`,
+          prompt: "我真正擅长什么、适合做什么？请列出具体的职业或岗位。" },
+        { icon: "📅", title: "接下来一年，我的重点该放在哪？",
+          sub: `哪几个月该发力、哪几个月该收着，都给到具体日期〔流年${t.yPillar}〕`,
+          prompt: "接下来一年，我的重点该放在哪？" },
+        askCardFor("all")
+      ];
+    } else if (mode === "ziwei") {
       if (greetIcon) greetIcon.textContent = "🔮";
       if (greetTitle) greetTitle.textContent = "紫微斗数 · 一语点到";
       if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">十二宫已按你的出生时刻排定。下面两个入口是按你的盘挑的；心里有具体的事，直接在下面问更有用。</div>`;
@@ -1481,7 +1534,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     roomMsgs.push({ role: "user", content: text, ck: state.chartKey });
     if (roomMsgs.length === 1 && s.title === "命理推演档案") {
-      s.title = (state.kbMode === "bazi" ? "[八字] " : "[紫微] ") + text.slice(0, 12) + (text.length > 12 ? "…" : "");
+      s.title = (state.kbMode === "all" ? "" : (state.kbMode === "bazi" ? "[八字] " : "[紫微] ")) + text.slice(0, 12) + (text.length > 12 ? "…" : "");
       document.getElementById("chat-title-text").textContent = s.title;
       renderSessions();
     }
@@ -1496,7 +1549,7 @@ document.addEventListener("DOMContentLoaded", () => {
       localStorage.setItem("diandao_settings", JSON.stringify(state.settings));
       updateEngineBadge();
     }
-    state.settings.kbMode = state.kbMode || "ziwei";
+    state.settings.kbMode = state.kbMode || "all";
     const useLLM = Boolean(state.settings.apiKey && state.settings.apiKey.trim()) && state.settings.provider !== "builtin";
 
     // 思考便签：只记这次推演真正用到的坐标，几条短句，默认折叠

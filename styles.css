@@ -1590,3 +1590,6 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
   .wx-sec { font-size: 15px; }
   .wx-bar { grid-template-columns: 1.8em 1fr 5.8em; }
 }
+
+/* 合并窗口：「我想问自己的那件事」横跨整行 */
+.starter-prompts-grid .prompt-card.is-ask { grid-column: 1 / -1; }

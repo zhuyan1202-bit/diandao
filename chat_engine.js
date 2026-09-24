@@ -977,6 +977,13 @@
 
   /* ---------- 7.1 把真实命盘压成结构化档案喂给模型 ---------- */
   function buildChartDossier(chart, mode = "ziwei") {
+    // 合并窗口：两张盘一起给。八字档案（含头部基础信息）在前，紫微十二宫接在后面。
+    if (mode === "all") {
+      const bzTxt = buildChartDossier(chart, "bazi");
+      const zwTxt = buildChartDossier(chart, "ziwei");
+      const k = zwTxt.indexOf("\u3010\u7d2b\u5fae\u547d\u76d8");
+      return bzTxt + "\n\n" + (k >= 0 ? zwTxt.slice(k) : zwTxt);
+    }
     const zw = chart.ziwei;
     const b  = chart.bazi;
     const p  = chart.profile;
@@ -1018,7 +1025,7 @@
     lines.push("");
 
     if (mode === "bazi") {
-      lines.push(`【八字四柱（本窗口专属实盘）】${b.yearPillar}　${b.monthPillar}　${b.dayPillar}　${b.hourPillar}`);
+      lines.push(`【八字四柱】${b.yearPillar}　${b.monthPillar}　${b.dayPillar}　${b.hourPillar}`);
       lines.push(`日元：${b.dayMaster}（${b.wuxing}）　婚姻宫（日支）：${b.marriageBranch}　出生节气月：${b.solarTerm}`);
       lines.push(`配偶星：${b.tenGodSpouse}　婚姻神煞：${b.shensha.join("、")}`);
       if (b.detail) {
@@ -1038,7 +1045,7 @@
     }
 
     // 紫微专席实盘档案（完全隔离八字四柱）
-    lines.push(`【紫微命盘（本窗口专属实盘）】${zw.juName}（纳音${zw.nayin}）　命宫：${zw.mingPalace.gan}${zw.mingPalace.branch}　身宫落：${zw.shenPalace}`);
+    lines.push(`【紫微命盘】${zw.juName}（纳音${zw.nayin}）　命宫：${zw.mingPalace.gan}${zw.mingPalace.branch}　身宫落：${zw.shenPalace}`);
     const sy = zw.sihuaYear || {};
     lines.push(`生年四化（${sy.gan}干）：${sy["禄"]}化禄、${sy["权"]}化权、${sy["科"]}化科、${sy["忌"]}化忌`);
     lines.push("");
@@ -2241,7 +2248,18 @@
     try {
       const t = getCurrentTimeAnchor();
       const dom = resolveDomainAndPalace(question, chart);
-      let body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
+      let body;
+      if (mode === "all") {
+        // 紫微流月按农历月切，八字按节气月切 —— 两张表的起讫对不上，模型会写出两套日期。
+        // 合并后时间区间只认节气月表，紫微这边只留流年、大限与四化。
+        let zb = ziweiForecast(chart, dom, t) || "";
+        const cut = zb.search(/\n\u3010\u672a\u6765\s*\d+\s*\u4e2a\u6708 \u00b7 \u6d41\u6708\u547d\u5bab/);
+        if (cut >= 0) zb = zb.slice(0, cut);
+        body = (baziForecast(chart, dom, t) || "") +
+               (zb ? "\n\u3010\u7d2b\u5fae \u00b7 \u6d41\u5e74\u4e0e\u5927\u9650\uff08\u65f6\u95f4\u533a\u95f4\u4e00\u5f8b\u7528\u4e0a\u9762\u7684\u8282\u6c14\u6708\u8868\uff0c\u4e0d\u53e6\u6392\uff09\u3011\n" + zb : "");
+      } else {
+        body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
+      }
       if (!body) return "";
       body = trimDeskForFollowup(body, question, ctx);
       const yTable = [];
@@ -2293,6 +2311,11 @@
    * 和旧的四步仪式感文案不同 —— 这里不写「正在检索古籍」这种废话。
    */
   function buildThinkingNotes(question, chart, kbMode) {
+    if (kbMode === "all") {
+      const zn = buildThinkingNotes(question, chart, "ziwei");
+      const bn = buildThinkingNotes(question, chart, "bazi");
+      return zn.slice(0, 2).concat(bn.slice(0, 3), bn.slice(-1));
+    }
     const out = [];
     try {
       const t = getCurrentTimeAnchor();
@@ -2408,7 +2431,7 @@
     // 八字答案里未必出现十神名，再兼容一批柱位词
     const vocab = (mode === "bazi")
       ? GOD_VOCAB.concat(["\u65e5\u5143","\u6708\u4ee4","\u5e74\u67f1","\u6708\u67f1","\u65e5\u67f1","\u65f6\u67f1","\u5927\u8fd0"])
-      : PALACE_VOCAB;
+      : (mode === "all" ? PALACE_VOCAB.concat(GOD_VOCAB) : PALACE_VOCAB);
     const found = vocab.filter(function (w) { return last.indexOf(w) >= 0; })
                        .sort(function (x, y) { return last.indexOf(x) - last.indexOf(y); });
     return found.length ? found[0] : "";
@@ -2430,18 +2453,18 @@
 
   function buildSystemPrompt(chart, question, kbMode = "ziwei", ctx = {}) {
     ctx = ctx || {};
-    const mode = kbMode === "bazi" ? "bazi" : "ziwei";
+    const mode = kbMode === "bazi" ? "bazi" : (kbMode === "all" ? "all" : "ziwei");
     const t = getCurrentTimeAnchor();
     const age = t.Y - chart.profile.year + 1;
 
     // 严格隔离两套知识库（仅作为AI内部推演的底层依据，严禁向用户展示引文）
     let kbBlock = "";
-    if (mode === "ziwei" && global.ZiweiKBRetriever) {
+    if (mode !== "bazi" && global.ZiweiKBRetriever) {
       // 把本题锁定的宫位一并传进去 —— 以前检索器只看关键词，
       // 问事业也会先塞一堆夫妻宫断语，真正相关的反而被预算砍掉。
       let _focusPal = "";
       try { _focusPal = resolveDomainAndPalace(question || "", chart).palName || ""; } catch (e) {}
-      const hits = global.ZiweiKBRetriever.retrieve(chart, question || "", 2800, _focusPal);
+      const hits = global.ZiweiKBRetriever.retrieve(chart, question || "", mode === "all" ? 1600 : 2800, _focusPal);
       if (hits.length) {
         kbBlock =
 `\n════════ 【内部底层推演依据：紫微斗数知识库（仅供你内部推理遵循，严禁在回答中展示引文或书名）】 ════════
@@ -2452,10 +2475,10 @@ ${global.ZiweiKBRetriever.toPromptBlock(hits)}
     }
 
     let baziKbBlock = "";
-    if (mode === "bazi" && global.BaziKBRetriever && chart.bazi && chart.bazi.detail) {
+    if (mode !== "ziwei" && global.BaziKBRetriever && chart.bazi && chart.bazi.detail) {
       const res = global.BaziKBRetriever.retrieve(
         chart.bazi.detail, question || "", chart.profile.gender);
-      const blk = global.BaziKBRetriever.toPromptBlock(res, 2400);
+      const blk = global.BaziKBRetriever.toPromptBlock(res, mode === "all" ? 1400 : 2400);
       if (blk) {
         baziKbBlock =
 `\n════════ 【内部底层推演依据：子平八字知识库（仅供你内部推理遵循，严禁在回答中展示引文或书名）】 ════════
@@ -2465,7 +2488,14 @@ ${blk}
       }
     }
 
-    const roomIdentity = mode === "ziwei"
+    const ALL_IDENTITY =
+`你是「点到」的分析师。手里是同一个人的两张实盘：紫微十二宫、八字四柱，都已由天文历法精确排好。
+这个产品的目的，是帮用户更了解自己 —— 他是什么样的人、为什么总会这样、接下来该怎么走。
+【两张盘怎么分工】
+- 紫微负责「画像和场景」：他是什么性子，在感情／工作／钱／家里各是什么样子，对方是什么样的人，事情会以什么方式发生。
+- 八字负责「底子和节奏」：他是什么料，什么对他有利、什么耗他，这一步运顺还是逆，哪个月该动。
+- 先用最能定这件事的那张盘下结论，另一张只在能补上新东西时才用。不要两张盘各讲一遍。`;
+    const roomIdentity = mode === "all" ? ALL_IDENTITY : mode === "ziwei"
       ? `你是【🔮 紫微斗数专席】的分析师，100% 基于下方紫微十二宫实盘推演。
 【本席边界】你交付的是**人、场景、事象**：这事会以什么方式发生、由谁引动、
 对方是个什么样的人（气质／行业感／年龄差／性格短板）、卡点具体卡在哪一环。
@@ -2482,7 +2512,16 @@ ${blk}
     const timeBase = `\`> 🕒 推演时间基准：公历${t.solarDateOnly}（${t.lunarStr} · ${t.yPillar}年${t.mPillar}月${t.dPillar}日）\``;
     // 两席各自的看家本事。刻意写成「用得上就用」的提示，不是必答项 ——
     // 一旦写成必答项，模型就会不管问题是什么都硬塞一遍。
-    const modeStrength = mode === "ziwei" ?
+    const ALL_STRENGTH =
+`■ 两张盘的看家本事（用得上就用，跟这个问题无关就别硬塞）
+- 紫微：写画面，不写道理。先看谁化忌飞进本题宫 —— 问题的来源常常不在本宫；本题宫化忌飞去哪，是他最放不下的地方。
+- 八字：喜用忌神要翻译成能照做的东西（往哪走、做什么性质的事、避开什么），不要停在五行名字上。
+■ 问「我是什么样的人」这类了解自己的题
+- 写别人一看就认得出是他的具体样子：在什么场合会怎么做、身边人常怎么说他、他自己常在哪卡住。
+  不许用「外柔内刚」「有责任心」「重感情」这种谁都对得上的形容词。
+- 讲完「是什么样」，一句话讲「为什么」，最后给一条怎么用好这点、或怎么绕开短板。
+■ 问职业／方向：列出 3–5 个具体的职业或岗位名称，不许笼统说「属火的行业」「创意类工作」。`;
+    const modeStrength = mode === "all" ? ALL_STRENGTH : mode === "ziwei" ?
 `■ 你的看家本事（用得上就用，跟这个问题无关就别硬塞）
 紫微能把事讲具体：对方是个什么样的人、这事会以什么方式发生、卡点卡在哪一环。
 - 写画面，不要写道理。
@@ -2502,12 +2541,19 @@ ${blk}
     // 原先写死了三段式 + 其下 14 条必填项，用户反馈「还不如没改过的」：
     // 必填清单是可勾选的任务，而「说人话」只是风格要求 —— 模型永远先把清单填满，
     // 于是不管问什么，回答都长成同一份报表。删清单比再加一条规则有用。
+    const noMenu = mode === "all"
+      ? "不要因为手里有两张盘，就把十二宫、四化、格局、旺衰、大运挨个讲一遍"
+      : "不要因为你是" + (mode === "ziwei" ? "紫微" : "八字") + "席，就非得把" +
+        (mode === "ziwei" ? "十二宫、四化、三方四正" : "格局、旺衰、喜忌、大运") + "挨个讲一遍";
+    const rule9 = mode === "all"
+      ? "9. 两张盘说的是同一个人，结论只能有一个。两边一致就合起来讲，更笃定；\n   不一致就挑证据更硬的那个写，不许把两种说法摆出来让用户自己挑。"
+      : "9. 守住开头写的本席边界。用户同时开着另一个窗口用另一套体系问同一个问题，\n   你越界去讲对方的内容，两边就雷同了 —— 这是本产品最严重的失败。";
     const fullSpec =
 `■ 结构跟着问题走，没有固定章节
 - 第一行照抄这个时间基准：${timeBase}
 - 紧接着开门见山，2–3 句大白话把话说死：这件事成不成／该不该做／卡在哪／哪个月见分晓。
 - 然后**只围绕他问的这件事**展开。他问「这份工作要不要辞」，你就回答辞不辞；
-  不要因为你是${mode === "ziwei" ? "紫微" : "八字"}席，就非得把${mode === "ziwei" ? "十二宫、四化、三方四正" : "格局、旺衰、喜忌、大运"}挨个讲一遍 ——
+  ${noMenu} ——
   那是报菜名，不是回答。盘上哪一条最能定这件事就讲哪一条，其余的一个字都不要提。
 - 时间窗口最多 2 个，每个写成「几月到几月（带公历起讫）＋ 会遇到什么 ＋ 该做什么」。
 - 收尾给 1–2 条能照做的动作（什么时间、对谁、做什么）。禁止「多沟通」「提升自我」这类空话。
@@ -2634,8 +2680,7 @@ ${sectionSpec}
 8. 不许反问用户、不许索要更多信息（信息不足就分情况给结论，别把问题抛回去）。
    不许写「仅供参考」「命运掌握在自己手里」「还要看个人努力」。
    不许空泛的正能量收尾 —— 最后一句必须是一个能照做的动作，或一个明确判断。
-9. 守住开头写的本席边界。用户同时开着另一个窗口用另一套体系问同一个问题，
-   你越界去讲对方的内容，两边就雷同了 —— 这是本产品最严重的失败。
+${rule9}
 10. 同一件事只说一次。不要「先预告、再展开、再总结」。没有总结段，讲完就停。
 11. 这三类一字不推：⏳ 寿元与生死 ／ 🏥 疾病诊断与治疗 ／ 🔏 他人隐私与具体数字
     （别人背着你干了什么、彩票号码、股票代码、考试分数、官司判决结果）。
@@ -3110,7 +3155,7 @@ ${nextSpec}`;
     });
 
     /* ⑤ 大运的年龄段对不上（大运本身不在序列里的不动，那是整条编的） */
-    if (mode === "bazi") {
+    if ((mode === "bazi" || mode === "all")) {
       let dy = null;
       try { dy = computeDayun(chart); } catch (e) {}
       if (dy && dy.list && dy.list.length) {
@@ -3199,7 +3244,7 @@ ${nextSpec}`;
     /* ⑨ 紫微：星曜落宫说错 —— 盘上每颗星坐哪个宫是唯一的，直接改对。
      *    注：改完之后，那句话后半段的推理可能不再跟着走 ——
      *    但把你盘上的事实说对，比留着错的事实让推理看起来自洽要强。 */
-    if (mode === "ziwei" && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
+    if ((mode === "ziwei" || mode === "all") && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
       const homeOf = {};
       chart.ziwei.raw.palaces.forEach(function (pa) {
         (pa.mainStars || []).forEach(function (x) { homeOf[x.name] = pa.name; });
@@ -3290,7 +3335,7 @@ ${nextSpec}`;
     }
 
     /* ⑤ 大运干支不在本人的大运序列里（只查八字席） */
-    if (mode === "bazi") {
+    if ((mode === "bazi" || mode === "all")) {
       const dy = computeDayun(chart);
       if (dy && dy.list && dy.list.length) {
         const ok = {};
@@ -3330,7 +3375,7 @@ ${nextSpec}`;
     }
 
     /* ⑧ 紫微：星曜落宫说错 —— 这是紫微 AI 最高发的幻觉 */
-    if (mode === "ziwei" && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
+    if ((mode === "ziwei" || mode === "all") && chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces) {
       const PZ = chart.ziwei.raw.palaces;
       const homeOf = {};
       PZ.forEach(function (pa) {
@@ -3362,7 +3407,7 @@ ${nextSpec}`;
     }
 
     /* ⑩ 八字：旺衰讲反了（与扶抑打分矛盾） */
-    if (mode === "bazi") {
+    if ((mode === "bazi" || mode === "all")) {
       const st = baziStrength(chart);
       if (st && st.verdict) {
         const strongSide = (st.verdict === "身强" || st.verdict === "偏强");

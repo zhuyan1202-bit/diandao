@@ -204,7 +204,16 @@ document.addEventListener("DOMContentLoaded", () => {
   // updateChart 每次落盘都会走这里，所以只要排过盘就一定存下来了
   function persistActiveProfile(p) {
     const act = activeProfile();
-    if (act) act.profile = p;
+    if (act) {
+      // 表单每次存盘都是新拼的对象，不带「定盘／格局断定」的已验证结论 ——
+      // 生辰没变就原样带过去；生辰改了，旧结论作废。
+      const prev = act.profile || {};
+      const sameDay = ["year", "month", "day", "gender"].every(k => String(prev[k]) === String(p[k]));
+      const sameTime = sameDay && prev.hour === p.hour && (prev.minute || 0) === (p.minute || 0);
+      if (p.gejuVerified === undefined && prev.gejuVerified && sameTime) { p.gejuVerified = prev.gejuVerified; p.gejuAt = prev.gejuAt; }
+      if (p.rectifyNote === undefined && prev.rectifyNote && sameDay && p.rectified) p.rectifyNote = prev.rectifyNote;
+      act.profile = p;
+    }
     saveProfiles();
   }
 
@@ -447,7 +456,7 @@ document.addEventListener("DOMContentLoaded", () => {
         el.innerHTML = `⚠️ <strong>这个区间跨了 ${res.candidates.length} 个时辰，命盘还不唯一</strong><br>`
           + `你填的区间（${rStart}–${rEnd}）经【${city}】真太阳时校准后是 <strong>${res.tstStart.trueTimeStr}–${res.tstEnd.trueTimeStr}</strong>，可能落在 ${names}。`
           + `<span class="tst-note">时辰不同，命宫主星与八字时柱完全不同，结论会差很远。用几道客观题就能定到唯一一盘。</span>`
-          + `<button type="button" class="drawer-open-rectify-btn" onclick="window.__openRectifyModal()">🧭 开始精准定盘</button>`;
+          + `<button type="button" class="drawer-open-rectify-btn" onclick="window.__startFlow('rectify')">🎯 开始定盘</button>`;
       }
       return;
     }
@@ -880,6 +889,8 @@ document.addEventListener("DOMContentLoaded", () => {
     chart.profile.intervalCandidates = p.intervalCandidates || null;
     chart.profile.rectified = Boolean(p.rectified);
     chart.profile.rectifiedShichen = p.rectifiedShichen || "";
+    chart.profile.rectifyNote = p.rectifyNote || "";
+    chart.profile.gejuVerified = p.gejuVerified || "";
 
     const newKey = chartKeyOf(chart.profile);
     const changed = Boolean(state.chartKey) && state.chartKey !== newKey;
@@ -1474,6 +1485,25 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>`;
     }
 
+    let flowHtml = "";
+    if (!m.streaming && m.flowProbs && m.flowProbs.length) {
+      flowHtml += '<div class="flow-probs">' + m.flowProbs.map(x =>
+        '<div class="flow-prob"><span class="flow-prob-name">' + escapeHtml(x.name) + '</span>' +
+        '<span class="flow-prob-bar"><i style="width:' + Math.max(2, x.p) + '%"></i></span>' +
+        '<span class="flow-prob-pct">' + x.p + '%</span></div>').join("") + '</div>';
+    }
+    if (!m.streaming && m.flowDone) {
+      const what = m.flowDone.kind === "rectify"
+        ? "把出生时辰定为【" + escapeHtml(m.flowDone.pick) + "】"
+        : "格局断定：" + escapeHtml(m.flowDone.summary);
+      flowHtml += '<div class="flow-done">' +
+        '<div class="flow-done-what">' + what + '</div>' +
+        (m.flowConfirmed
+          ? '<div class="flow-done-ok">✅ 已存进档案</div>'
+          : '<button type="button" class="flow-done-btn" onclick="window.__flowConfirm(\'' + escapeHtml(m.fid || "") + '\')">✅ 确认，存进档案</button>' +
+            '<div class="flow-done-sub">存了之后，每次回答都会以这个为准。觉得不对就接着跟它说。</div>') +
+        '</div>';
+    }
     const reasoningHtml = renderThinkBoxHtml(m);
     const bodyHtml = m.streaming
       ? `<div class="ai-final-answer streaming" id="active-answer">${
@@ -1488,6 +1518,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="message-bubble">
         ${reasoningHtml}
         ${bodyHtml}
+        ${flowHtml}
         ${tarot}
         ${!m.streaming ? `<div class="message-actions">
             <button class="msg-action-btn" onclick="window.__copy(this)">复制</button>
@@ -1523,6 +1554,66 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------------- 发送（思考匣逐步推演 + 整段答案优雅浮现） ---------------- */
   window.__ask = (q) => send(q);
 
+  /* ---------------- 对话式定盘 / 格局断定 ---------------- */
+  function startFlow(kind) {
+    if (!state.userChart) return;
+    if (!(state.settings.apiKey && state.settings.apiKey.trim())) {
+      alert("定盘和格局断定要跟 AI 来回聊几轮，请先在「⚙ 设置」里填好 AI 接口的 Key。");
+      window.openModal("modal-settings");
+      return;
+    }
+    newSession(kind === "rectify" ? "🎯 定盘" : "🧭 格局断定", true);
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s) return;
+    s.flow = { kind: kind, round: 0, done: false };
+    if (kind === "rectify" && ChatEngine.rectifyCandidates) {
+      s.flow.cands = (ChatEngine.rectifyCandidates(state.userChart.profile) || [])
+        .map(c => ({ name: c.name, clockH: c.clockH, clockM: c.clockM }));
+    }
+    saveSessions();
+    toggleMobileSidebar(false);
+    send(kind === "rectify"
+      ? "帮我定盘：我不确定出生时辰准不准，请问我过去发生过的事来确认。"
+      : "帮我做格局断定：先说你的判断，再拿我过去的经历来验证。");
+  }
+  window.__startFlow = startFlow;
+
+  window.__flowConfirm = function (fid) {
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s) return;
+    const msgs = getRoomMessages(s, state.kbMode);
+    const m = msgs.find(x => x.fid === fid);
+    if (!m || !m.flowDone || m.flowConfirmed) return;
+    const pad = n => String(n).padStart(2, "0");
+    const t = ChatEngine.getCurrentTimeAnchor ? ChatEngine.getCurrentTimeAnchor() : { solarDateOnly: "" };
+    let saved = "";
+    if (m.flowDone.kind === "rectify") {
+      const c = ((s.flow && s.flow.cands) || []).find(x => x.name === m.flowDone.pick);
+      if (!c) { alert("没找到这个候选时辰，请重新定盘。"); return; }
+      window.__lockCandidateShichen(c.clockH, c.clockM, c.name);
+      const act = activeProfile();
+      const note = "出生时辰确认为【" + c.name + "】（按钟表 " + pad(c.clockH) + ":" + pad(c.clockM) + " 排盘），" +
+                   (t.solarDateOnly || "") + " 通过过往经历逐条核对";
+      if (act) act.profile.rectifyNote = note;
+      if (state.userChart) state.userChart.profile.rectifyNote = note;
+      saveProfiles();
+      saved = "出生时辰定为【" + c.name + "】，命盘已按这个时辰重排。";
+    } else {
+      const act = activeProfile();
+      if (act) { act.profile.gejuVerified = m.flowDone.summary; act.profile.gejuAt = t.solarDateOnly || ""; }
+      if (state.userChart) state.userChart.profile.gejuVerified = m.flowDone.summary;
+      saveProfiles();
+      saved = "格局断定：" + m.flowDone.summary;
+    }
+    m.flowConfirmed = true;
+    if (s.flow) s.flow.done = true;
+    msgs.push({ role: "ai", content: "✅ 已存进档案。\n\n" + saved + "\n\n之后每次回答都会以这个为准。", ck: state.chartKey });
+    saveSessions();
+    renderMessages(msgs);
+    renderCtxChip(s);
+    if (sound && sound.chime) sound.chime();
+  };
+
   /* ---------------- 合盘 / 帮朋友看盘 ---------------- */
   function chartFromBirth(bi) {
     return AstrologyCore.analyzeFullNatalChart({
@@ -1531,6 +1622,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   function resolveTurnTarget(s, text) {
+    if (s.flow && !s.flow.done) {
+      // 定盘／格局断定进行中：用户的回答里常有「2015年6月3日我结婚了」这种日期，不能当成朋友生日
+      s.flow.round = (s.flow.round || 0) + 1;
+      saveSessions();
+      renderCtxChip(s);
+      return { chart: state.userChart, cfg: { flow: s.flow.kind, flowRound: s.flow.round },
+               pair: s.flow.kind === "rectify", flow: s.flow.kind };
+    }
     const own = state.userChart && state.userChart.profile;
     let bi = null;
     try { bi = (window.ChatEngine && ChatEngine.parseBirthInText) ? ChatEngine.parseBirthInText(text, own) : null; } catch (e) {}
@@ -1563,7 +1662,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const el = document.getElementById("ctx-chip");
     if (!el) return;
     let html = "";
-    if (s && s.partner) {
+    if (s && s.flow && !s.flow.done) {
+      const mx = (ChatEngine.FLOW_MAX || {})[s.flow.kind] || 5;
+      html = (s.flow.kind === "rectify" ? "🎯 正在定盘" : "🧭 正在做格局断定") +
+             "（第 " + Math.max(1, s.flow.round || 1) + " / " + mx + " 轮）· 照实回答，记不清就说记不清 " +
+             '<button type="button" class="ctx-chip-x">✕ 退出</button>';
+    } else if (s && s.partner) {
       let nm = s.partner.name || "对方";
       if (s.partner.profileId) {
         const pf = state.profiles.find(x => x.id === s.partner.profileId);
@@ -1580,6 +1684,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const s = state.sessions.find(x => x.id === state.currentSessionId);
     if (!s) return;
     s.partner = null; s.friend = null;
+    if (s.flow && !s.flow.done) s.flow.done = true;   // 退出定盘／格局断定，回到普通聊天
     saveSessions();
     renderCtxChip(s);
   }
@@ -1721,6 +1826,13 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
           : ChatEngine.followupsFor(text, turn.chart, rep.text, state.kbMode);
+        if (turn.flow && ChatEngine.parseFlow) {
+          const fl = ChatEngine.parseFlow(full);
+          if (fl.probs.length) aiMsg.flowProbs = fl.probs;
+          if (turn.flow === "rectify" && fl.done) aiMsg.flowDone = { kind: "rectify", pick: fl.done };
+          if (turn.flow === "geju" && fl.geju) aiMsg.flowDone = { kind: "geju", summary: fl.geju };
+          if (aiMsg.flowDone) { aiMsg.fid = "f" + Date.now(); aiMsg.followups = []; }
+        }
         // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
         aiMsg.audit = auditOf(rep.text);
         saveSessions();
@@ -1814,7 +1926,11 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-open-drawer")?.addEventListener("click", open);
     document.getElementById("btn-open-rectify")?.addEventListener("click", () => {
       toggleMobileSidebar(false);
-      window.__openRectifyModal();
+      startFlow("rectify");
+    });
+    document.getElementById("btn-open-geju")?.addEventListener("click", () => {
+      toggleMobileSidebar(false);
+      startFlow("geju");
     });
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", open);
     document.getElementById("btn-open-pair")?.addEventListener("click", () => openPairModal());

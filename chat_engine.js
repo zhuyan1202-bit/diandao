@@ -1008,6 +1008,10 @@
       lines.push(`  💡 提示：若用户尚未在排盘抽屉中点击锁定单一时辰，你在回答时可结合其年柱、月柱、日柱（前三柱100%确定）给出稳健定论，并顺带用1-2句大白话点出上述候选时辰在当前问题上的细微差异，帮用户自然核对。`);
     }
     if (chart.lunar) lines.push(`出生农历：${chart.lunar.lYear}年${chart.lunar.lMonthLabel}${chart.lunar.lDayLabel}`);
+    // 用户在「定盘」「格局断定」里亲自验证过的结论 —— 之后每次回答都以此为底
+    if (p.rectifyNote) lines.push("【定盘结果（用户已用过往经历验证过）】" + p.rectifyNote);
+    if (p.gejuVerified) lines.push("【格局断定结果（已验证）】" + p.gejuVerified +
+      "\n  → 这是用户逐条核对过的结论。之后所有判断以它为底，不许推翻；确有新证据要修正，必须明说改了哪条、为什么。");
 
     // 排盘引擎算出来的不确定性（节气跨界、晚子时流派、闰月分歧……）
     // 以前只在界面上提示，从来没告诉过模型 —— 模型因此会把一个可能排错的柱当成铁案讲。
@@ -2583,6 +2587,226 @@
       (ctx.subject.genderGuessed ? "性别没说，按男命排的；大运顺逆会受影响，讲大运时一句话提醒。\n" : "");
   }
 
+  /* ============================================================
+   * 对话式定盘 + 格局断定
+   * 不再用一张固定问卷：AI 拿着几个候选盘的差异，一轮轮问过去的事，
+   * 用户点「确认」后结论存进档案，之后每次回答都带着它。
+   * ============================================================ */
+  const FLOW_MAX = { rectify: 6, geju: 5 };
+
+  // 候选时辰：填的时间前后各两小时（区间模式用区间），得到 2–3 个相邻时辰
+  function rectifyCandidates(profile) {
+    const AC = global.AstrologyCore;
+    if (!AC || !AC.analyzeTimeInterval || !profile) return [];
+    const p = profile;
+    let sMin, eMin;
+    if (p.timeMode === "interval" && p.rangeStart && p.rangeEnd && !p.rectified) {
+      const a = String(p.rangeStart).split(":").map(Number), b = String(p.rangeEnd).split(":").map(Number);
+      sMin = a[0] * 60 + (a[1] || 0); eMin = b[0] * 60 + (b[1] || 0);
+      if (eMin - sMin < 150) { const mid = (sMin + eMin) / 2; sMin = mid - 120; eMin = mid + 120; }
+    } else {
+      const m0 = (p.hour || 0) * 60 + (p.minute || 0);
+      sMin = m0 - 120; eMin = m0 + 120;
+    }
+    sMin = Math.max(0, Math.round(sMin)); eMin = Math.min(23 * 60 + 59, Math.round(eMin));
+    let iv = null;
+    try {
+      iv = AC.analyzeTimeInterval({
+        year: p.year, month: p.month, day: p.day,
+        startHour: Math.floor(sMin / 60), startMinute: sMin % 60,
+        endHour: Math.floor(eMin / 60), endMinute: eMin % 60,
+        city: p.city || "默认 (东经120°标准时)", gender: p.gender || "female", status: p.status || ""
+      });
+    } catch (e) { return []; }
+    let enteredHP = "";
+    if (!(p.timeMode === "interval" && !p.rectified)) {
+      try { enteredHP = AC.analyzeFullNatalChart(Object.assign({}, p)).bazi.hourPillar; } catch (e) {}
+    }
+    return (iv.candidates || []).map(function (c) {
+      // 落盘用的钟表时间：用户原来填的时间就在这个时辰里 → 保留原时间；
+      // 否则在该时辰里挑一个离边界有余量的时刻（边界上 1 分钟之差就会跳时辰）
+      let h = c.clockHour, mi = c.clockMinute;
+      const same = Boolean(enteredHP) && c.hourPillar === enteredHP;
+      if (same) { h = p.hour; mi = p.minute || 0; }
+      else {
+        const base = c.clockHour * 60 + c.clockMinute;
+        const tries = [base + 30, base + 20, base + 40, base + 10, base];
+        for (let k = 0; k < tries.length; k++) {
+          const tm = Math.max(0, Math.min(1439, tries[k]));
+          try {
+            const ch = AC.analyzeFullNatalChart(Object.assign({}, p, { hour: Math.floor(tm / 60), minute: tm % 60 }));
+            if (ch.bazi.hourPillar === c.hourPillar) { h = Math.floor(tm / 60); mi = tm % 60; break; }
+          } catch (e) {}
+        }
+      }
+      return { name: c.shichenName, hourPillar: c.hourPillar, clockH: h, clockM: mi, isEntered: same, chart: c.chart };
+    }).sort(function (x, y) { return (x.clockH * 60 + x.clockM) - (y.clockH * 60 + y.clockM); }).slice(0, 5);
+  }
+
+  function candidateBrief(c, birthYear, nowY) {
+    const ch = c.chart;
+    const b = ch.bazi || {}, zw = ch.ziwei || {};
+    const AC = global.AstrologyCore;
+    const god = AC && AC.getTenGod ? AC.getTenGod(b.dayMaster, String(b.hourPillar).charAt(0)) : "";
+    const pal = function (n) { return (zw.palaces || []).find(function (x) { return x.name === n; }) || null; };
+    const st = function (n) {
+      const x = pal(n); if (!x) return "—";
+      const m = (x.mainStars || []).map(function (s) { return s.name + (s.sihua ? "化" + s.sihua : ""); }).join("");
+      return m || "空宫";
+    };
+    const L = [];
+    L.push("候选【" + c.name + "】（按钟表约 " + String(c.clockH).padStart(2, "0") + ":" + String(c.clockM).padStart(2, "0") + " 排）" + (c.isEntered ? " ← 用户原来填的时间落在这个时辰" : ""));
+    L.push("  - 时柱：" + b.hourPillar + (god ? "（时干为" + god + "）" : ""));
+    const mg = pal("命宫");
+    L.push("  - 紫微命宫在" + (mg ? mg.branch : "?") + "，坐【" + st("命宫") + "】；身宫落【" + (zw.shenPalace || "?") + "】");
+    L.push("  - 兄弟宫【" + st("兄弟宫") + "】 父母宫【" + st("父母宫") + "】 夫妻宫【" + st("夫妻宫") + "】 官禄宫【" + st("官禄宫") + "】 疾厄宫【" + st("疾厄宫") + "】 迁移宫【" + st("迁移宫") + "】");
+    const dx = (zw.palaces || []).filter(function (x) { return x.daxian; })
+      .sort(function (x, y) { return x.daxian.start - y.daxian.start; })
+      .filter(function (x) { return birthYear + x.daxian.start - 1 <= nowY; });
+    if (dx.length) {
+      L.push("  - 大限（虚岁 → 公历）：" + dx.map(function (x) {
+        const y1 = birthYear + x.daxian.start - 1, y2 = birthYear + x.daxian.end - 1;
+        return x.daxian.start + "–" + x.daxian.end + "岁（" + y1 + "–" + y2 + "）走" + x.name + "【" + st(x.name) + "】";
+      }).join("；"));
+      L.push("  - 大限换宫的年份（前后一两年多半有大变化）：" + dx.slice(1).map(function (x) { return birthYear + x.daxian.start - 1; }).join("、"));
+    }
+    return L.join("\n");
+  }
+
+  function flowCloseRule(round, max) {
+    return round >= max
+      ? "【这是最后一轮（第 " + round + " 轮，上限 " + max + " 轮）：这一轮必须收】"
+      : "【这是第 " + round + " 轮，最多 " + max + " 轮】";
+  }
+
+  function buildRectifyPrompt(chart, round) {
+    const t = getCurrentTimeAnchor();
+    const p = chart.profile || {};
+    const cands = rectifyCandidates(p);
+    const max = FLOW_MAX.rectify;
+    const names = cands.map(function (c) { return c.name; });
+    const even = names.length ? Math.floor(100 / names.length) : 0;
+    const pad = function (n) { return String(n).padStart(2, "0"); };
+    return `你是「点到」的定盘助手。只做一件事：通过问用户过去真实发生过的事，判断他的出生时辰到底是下面哪一个。
+今天是公历 ${t.solarDateOnly}。用户是${p.gender === "female" ? "女" : "男"}，出生于公历 ${p.year}年${p.month}月${p.day}日，填的时间是 ${p.timeMode === "interval" && !p.rectified && p.rangeStart ? p.rangeStart + "–" + p.rangeEnd + " 之间" : pad(p.hour) + ":" + pad(p.minute || 0)}。
+时辰两小时一换，出生记录差半小时到一小时很常见，所以要拿事实来定，而不是信填的数字。
+
+════════ 【候选时辰】每个候选的盘都已精确排好，只能引用这里的数据 ════════
+${cands.map(function (c) { return candidateBrief(c, p.year, t.Y); }).join("\n\n")}
+══════════════════════════════════════════════
+
+【怎么问】
+1. 每轮只问 2–3 个问题，挑最能把候选分开的：
+   - 优先：两个候选在同一段年份说法不同的地方 —— 那几年发生过什么（搬家换城市、升学、换工作、恋爱结婚分手、家里大事、生病住院）。问的时候写清公历年份区间。
+   - 其次：能客观核对的事实 —— 兄弟姐妹几个、排行第几；父母谁更强势、关系怎样；身上哪个部位真出过问题；个子高矮、胖瘦。
+2. 问题必须能用事实回答。不许问「你是不是比较内向」这类感受题 —— 人会顺着你的话选。
+3. 用户的回答只当证据，不当结论。「我觉得是某某时」不算证据；对不上就说对不上，不要硬圆；回答含糊就追问具体哪一年。
+4. 第一轮：一两句话说清楚在做什么（${names.length > 1 ? "你的时间落在「" + names.join("／") + "」附近" : "核对你的时辰"}，我问几件过去的事来定），然后直接提问。
+5. 之后每轮：先用一两句大白话说上一轮的回答让你更倾向哪个、为什么（可以带一句〔〕依据），再问新问题。
+6. 不写长篇、不科普、不许出现书名。称呼用户「你」。全程简体中文。
+
+【每轮末尾固定输出两行】
+⟦RECT⟧${names.map(function (n) { return n + "=" + even; }).join("|")}
+⟦NEXT⟧快捷回答一｜快捷回答二｜快捷回答三
+- ⟦RECT⟧ 是按目前证据给的概率，合计 100；只能用上面这几个候选名。第一轮还没证据就均分。
+- ⟦NEXT⟧ 是给用户点的快捷回复，贴着你刚问的问题写，比如「对，那年换了城市」「没有这回事」「记不清了」，每条 ≤ 14 字。
+
+【什么时候收】
+- 某个候选 ≥ 80%，并且至少 2 条互相独立的事实对上了 → 给结论：是哪个时辰、靠哪几件事定下来的、另外几个为什么排除。
+  结论这一轮末尾只输出一行 ⟦RECT⟧（最终概率）和一行 ⟦DONE⟧时辰名（例如 ⟦DONE⟧${names[0] || "子时"}），不要 ⟦NEXT⟧。
+- 最后一轮还没到 80%：照实说「目前更像某某，但证据还不够硬」，同样输出 ⟦DONE⟧领先的那个。
+${flowCloseRule(round, max)}`;
+  }
+
+  function buildGejuPrompt(chart, round) {
+    const t = getCurrentTimeAnchor();
+    const p = chart.profile || {};
+    const max = FLOW_MAX.geju;
+    const b = chart.bazi || {};
+    const AC = global.AstrologyCore;
+    const god = function (g) { try { return AC.getTenGod(b.dayMaster, g); } catch (e) { return ""; } };
+    let st = null, pat = null, dy = null;
+    try { st = baziStrength(chart); } catch (e) {}
+    try { pat = derivePattern(chart); } catch (e) {}
+    try { dy = computeDayun(chart); } catch (e) {}
+    const desk = [];
+    if (pat) {
+      desk.push("月令取格：【" + pat.name + "】" + (pat.tier ? "（" + pat.tier + "）" : "") + (pat.road ? " —— " + pat.road : ""));
+      (pat.steps || []).forEach(function (x) { desk.push("  · " + x); });
+      (pat.broken || []).forEach(function (x) { desk.push("  · 破格：" + x); });
+      (pat.saved || []).forEach(function (x) { desk.push("  · 成格／救应：" + x); });
+    }
+    if (st) {
+      desk.push("扶抑：日元" + st.dm + st.dmWx + "【" + st.verdict + "】（帮扶度 " + st.score + "）");
+      (st.why || []).forEach(function (x) { desk.push("  · " + x); });
+      desk.push("  喜：" + ((st.favor || []).join("、") || "扶抑两可") + "　忌：" + ((st.avoid || []).join("、") || "—") + "　" + (st.rule || ""));
+      if (st.tiaohou) desk.push("  调候：" + st.tiaohou);
+    }
+    const dyLines = (dy && dy.list ? dy.list : []).filter(function (d) { return d.fromYear <= t.Y + 10; }).map(function (d) {
+      return "  · " + d.gz + "运 " + d.fromYear + "–" + d.toYear + "（" + d.fromAge + "–" + d.toAge + "岁，运干为" + god(d.gz.charAt(0)) + "）" + (d.fromYear <= t.Y && t.Y <= d.toYear ? " ← 现在" : "");
+    });
+    const yrs = [];
+    for (let y = Math.max(p.year + 12, t.Y - 16); y <= t.Y; y++) {
+      const gz = yearGanZhi(y);
+      yrs.push(y + gz + "（" + god(gz.charAt(0)) + "）");
+    }
+    return `你是「点到」的格局断定助手。任务：先给出这张八字的格局与喜忌判断，再拿用户过去的真实经历逐条验证。验证通过后，用户会把结论存进档案，之后所有分析都以它为底 —— 所以宁可慢，不能错。
+今天是公历 ${t.solarDateOnly}。
+
+════════ 【本人八字】 ════════
+${buildChartDossier(chart, "bazi")}
+
+【🧮 推演台（排盘引擎已算好，直接引用）】
+${desk.join("\n")}
+
+【大运（公历起讫已算好）】
+${dyLines.join("\n")}
+
+【过去的流年（年干对日元的十神）】
+${yrs.join("　")}
+══════════════════════════════
+
+【怎么做】
+第 1 轮：
+- 先用大白话给判断：你是什么格局（一句话讲它意味着你是什么样的人）、身强还是身弱、喜什么忌什么 —— 喜忌要翻译成「什么对你有利、什么耗你」，别停在五行名字上。每条后面带一句〔〕依据。
+- 然后给 3 条可以验证的推论，全部落在过去的具体公历年份：「按这个判断，你 2016–2018 年应该过得比较辛苦，多半是工作或钱上压力大，对吗？」挑喜忌反差最大的那几步运和那几年。
+之后每轮：
+- 用户说对上了 → 记为已验证，简短带过。
+- 对不上 → 必须重新检讨：是不是格局取错、旺衰判反、调候该优先。明说改了哪条、盘上的理由是什么，再给新的推论去验证。
+  不许无视对不上的反馈；也不许用户说什么就改什么 —— 改判断必须有盘上的理由。
+- 每轮 2–3 条推论。不写长篇、不许出现书名。称呼用户「你」。全程简体中文。
+
+【每轮末尾】
+没收的轮次，最后另起一行输出给用户点的快捷回复，贴着你刚问的推论写：
+⟦NEXT⟧对，确实是这样｜不太对｜记不清了
+
+【什么时候收】
+- 至少 3 条推论被用户确认，而且没有还没解释的对不上 → 收：写最终结论（格局、旺衰、喜忌、哪几条经历对上了），最后一行输出：
+  ⟦GEJU⟧一段话总结（不超过 150 字）：格局名＋一句话含义；身强／身弱；喜用；忌神；已验证过的关键年份与事。
+  收的这一轮不要 ⟦NEXT⟧。
+- 最后一轮必须收：证据不足就在 ⟦GEJU⟧ 总结里写明哪条还没验证。
+${flowCloseRule(round, max)}`;
+  }
+
+  // 从回答里拆出定盘／格局断定的标记
+  function parseFlow(text) {
+    const s = String(text || "");
+    const out = { probs: [], done: "", geju: "" };
+    const r = /\u27E6RECT\u27E7([^\n\u27E6]*)/.exec(s);
+    if (r) {
+      r[1].split(/[|｜,，]/).forEach(function (kv) {
+        const m = /\s*([子丑寅卯辰巳午未申酉戌亥]时)\s*[=：:]\s*(\d{1,3})/.exec(kv);
+        if (m) out.probs.push({ name: m[1], p: Math.min(100, +m[2]) });
+      });
+      out.probs.sort(function (a, b) { return b.p - a.p; });
+    }
+    const d = /\u27E6DONE\u27E7\s*([子丑寅卯辰巳午未申酉戌亥]时)/.exec(s);
+    if (d) out.done = d[1];
+    const g = /\u27E6GEJU\u27E7\s*([^\n\u27E6]+)/.exec(s);
+    if (g) out.geju = g[1].trim().slice(0, 240);
+    return out;
+  }
+
   function buildSystemPrompt(chart, question, kbMode = "ziwei", ctx = {}) {
     ctx = ctx || {};
     const mode = kbMode === "bazi" ? "bazi" : (kbMode === "all" ? "all" : "ziwei");
@@ -3122,9 +3346,11 @@ ${nextSpec}`;
       partnerNoTime: Boolean(config.partnerNoTime),
       subject: config.subject || null
     };
-    const messages = [{ role: "system", content: buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
-    // 最近 3 轮对话（6 条），保留追问上下文
-    history.slice(-6).forEach(function (h) {
+    const flowPrompt = config.flow === "rectify" ? buildRectifyPrompt(chart, config.flowRound || 1)
+                     : config.flow === "geju" ? buildGejuPrompt(chart, config.flowRound || 1) : "";
+    const messages = [{ role: "system", content: flowPrompt || buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
+    // 最近 3 轮对话（6 条），保留追问上下文；定盘／格局断定要看到每一轮的问答，放宽到 12 条
+    history.slice(flowPrompt ? -12 : -6).forEach(function (h) {
       messages.push({
         role: (h.role === "ai" || h.role === "assistant") ? "assistant" : "user",
         content: String(h.content || "").slice(0, 2000)
@@ -3595,11 +3821,12 @@ ${nextSpec}`;
   // 流式输出时还要切掉「正在打一半的标记」，否则用户会看到 ⟦NE 这种乱码
   function stripNextBlock(s) {
     let t = String(s || "");
-    const i = t.indexOf(NEXT_MARK);
-    if (i >= 0) {
-      t = t.slice(0, i);
+    // 正文到第一个标记为止：⟦RECT⟧ ⟦DONE⟧ ⟦GEJU⟧（定盘／格局断定）和 ⟦NEXT⟧ 都只给前端用
+    const mk = /\u27E6(?:NEXT|RECT|DONE|GEJU)\u27E7/.exec(t);
+    if (mk) {
+      t = t.slice(0, mk.index);
     } else {
-      const m = t.match(/\u27E6(?:N(?:E(?:X(?:T)?)?)?)?$/);
+      const m = t.match(/\u27E6[A-Z]{0,4}$/);
       if (m) t = t.slice(0, t.length - m[0].length);
     }
     // 模型偶尔会把这一行包进代码块，切完会剩一个孤零零的 ```
@@ -3621,7 +3848,7 @@ ${nextSpec}`;
             .trim();
         })
         .filter(function (x) {
-          if (x.length < 4 || x.length > 30) return false;
+          if (x.length < 2 || x.length > 30) return false;   // 定盘的快捷回复可以很短，如「不太对」
           if (seen[x]) return false;
           seen[x] = 1;
           return true;
@@ -3689,6 +3916,7 @@ ${nextSpec}`;
 
   global.ChatEngine = {
     synastry, parseBirthInText,
+    rectifyCandidates, buildRectifyPrompt, buildGejuPrompt, parseFlow, FLOW_MAX,
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
     followupsFor, splitFollowups, stripNextBlock,

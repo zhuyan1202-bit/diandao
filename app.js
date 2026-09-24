@@ -1668,6 +1668,10 @@ document.addEventListener("DOMContentLoaded", () => {
       window.__openRectifyModal();
     });
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", open);
+    document.getElementById("btn-open-wuxing")?.addEventListener("click", () => {
+      toggleMobileSidebar(false);
+      openWuxingReport();
+    });
 
     // 档案切换器
     document.getElementById("btn-profile-switch")?.addEventListener("click", e => {
@@ -2203,6 +2207,79 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.openModal = id => document.getElementById(id)?.classList.add("show");
   window.closeModal = id => document.getElementById(id)?.classList.remove("show");
+
+  /* ================= 五行报告 + 今日建议 =================
+   * 纯排盘计算，不调模型。「今日」那块用当天真实日柱，每天会变。 */
+  function wxChips(list) {
+    return (list || []).map(function (x) {
+      return '<span class="wx-chip wx-' + escapeHtml(x.wx) + '">' + escapeHtml(x.c.join(" · ")) + '</span>';
+    }).join("");
+  }
+  function renderWuxingReport(data, name) {
+    if (!data || !data.report) {
+      return '<div class="wx-empty">先在「🪢 命盘设置」里填好出生信息，才能生成五行报告。</div>';
+    }
+    const r = data.report, d = data.today;
+    const WXN = { 木: "木", 火: "火", 土: "土", 金: "金", 水: "水" };
+    let h = "";
+
+    /* ---- 今日（放最上面：每天打开第一眼要看到的） ---- */
+    if (d) {
+      h += '<section class="wx-sec wx-today wx-mood-' + (d.mood === "顺" ? "good" : d.mood === "耗" ? "bad" : "flat") + '">' +
+        '<div class="wx-sec-title">📅 今天 ' + escapeHtml(d.date) +
+          (d.tag ? '<span class="wx-tag">' + escapeHtml(d.tag) + '</span>' : '') + '</div>' +
+        '<p class="wx-lead">' + escapeHtml(d.moodPlain) + '</p>' +
+        '<div class="wx-row"><b>👕 今天穿</b>' + wxChips([d.wear.main]) +
+          (d.wear.accent ? '<span class="wx-sub">点缀</span>' + wxChips([d.wear.accent]) : '') + '</div>' +
+        (d.wear.avoid ? '<div class="wx-row"><b>🙅 少穿</b>' + wxChips([d.wear.avoid]) + '</div>' : '') +
+        (d.yi.length ? '<div class="wx-row"><b>✅ 适合</b><span>' + escapeHtml(d.yi.join("；")) + '</span></div>' : '') +
+        (d.ji.length ? '<div class="wx-row"><b>⚠️ 少做</b><span>' + escapeHtml(d.ji.join("；")) + '</span></div>' : '') +
+        (d.dir ? '<div class="wx-row"><b>🧭 方位</b><span>出门办事、选座位，偏' + escapeHtml(d.dir) + '一点</span></div>' : '') +
+      '</section>';
+    }
+
+    /* ---- 五行分布 ---- */
+    h += '<section class="wx-sec"><div class="wx-sec-title">📊 你的五行分布</div><div class="wx-bars">' +
+      r.bars.map(function (b) {
+        return '<div class="wx-bar"><span class="wx-bar-name wx-' + b.wx + '">' + WXN[b.wx] + '</span>' +
+               '<span class="wx-bar-track"><span class="wx-bar-fill wx-bg-' + b.wx + '" style="width:' + Math.max(b.pct, 2) + '%"></span></span>' +
+               '<span class="wx-bar-pct">' + b.pct + '%' + (b.level ? ' · ' + b.level : '') + '</span></div>';
+      }).join("") + '</div></section>';
+
+    /* ---- 你是什么样的人 ---- */
+    h += '<section class="wx-sec"><div class="wx-sec-title">🙂 你的底色</div>' +
+      '<p>你本人属<b>' + escapeHtml(r.dayMaster.slice(-1)) + '</b>：' + escapeHtml(r.core) + '。</p>' +
+      '<p>' + escapeHtml(r.verdictPlain) + '。</p>' +
+      '<p>你盘里<b>' + escapeHtml(r.strongest) + '</b>最多，所以' + escapeHtml(r.over) + '。</p>' +
+      (r.lack ? '<p><b>' + escapeHtml(r.weakest) + '</b>几乎没有：' + escapeHtml(r.lack) + '。</p>' : '') +
+    '</section>';
+
+    /* ---- 日常怎么补 ---- */
+    h += '<section class="wx-sec"><div class="wx-sec-title">🌱 日常怎么补</div>' +
+      '<div class="wx-row"><b>常穿的颜色</b>' + wxChips(r.colors.good) + '</div>' +
+      (r.colors.bad.length ? '<div class="wx-row"><b>别穿太多</b>' + wxChips(r.colors.bad) + '</div>' : '') +
+      r.boost.map(function (x) {
+        return '<div class="wx-boost"><b>补' + escapeHtml(x.wx) + '</b><ul>' +
+               x.how.map(function (t) { return '<li>' + escapeHtml(t) + '</li>'; }).join("") + '</ul></div>';
+      }).join("") +
+    '</section>';
+
+    h += '<div class="wx-foot">以上全部按' + (name ? '「' + escapeHtml(name) + '」' : '你') +
+         '的八字直接算出，每天零点后「今天」那一块会自动更新。</div>';
+    return h;
+  }
+  function openWuxingReport() {
+    const act = activeProfile();
+    const name = act && act.profile ? (act.profile.name || "") : "";
+    let data = null;
+    try { data = window.WuxingReport ? window.WuxingReport.build(state.userChart) : null; } catch (e) { data = null; }
+    const title = document.getElementById("wx-modal-title");
+    if (title) title.textContent = (name ? name + " 的" : "") + "五行报告";
+    const body = document.getElementById("wx-modal-body");
+    if (body) body.innerHTML = renderWuxingReport(data, name);
+    document.getElementById("modal-wuxing")?.classList.add("show");
+  }
+  window.__openWuxingReport = openWuxingReport;
 
   /* ---------------- 统一启动入口（确保所有常量、函数、window挂载已就绪） ---------------- */
   initTheme();

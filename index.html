@@ -57,6 +57,7 @@
       <div class="profile-actions">
         <button class="profile-action-btn" id="btn-open-drawer">🪢 命盘设置</button>
         <button class="profile-action-btn is-accent" id="btn-open-rectify">🧭 精准定盘</button>
+        <button class="profile-action-btn is-wx" id="btn-open-wuxing">🌿 五行报告 · 今日穿搭</button>
       </div>
 
       <div class="sidebar-sessions" id="sessions-container">
@@ -363,6 +364,17 @@
     </div>
   </div>
 
+  <!-- ========== 五行报告 + 今日建议 ========== -->
+  <div class="modal-overlay" id="modal-wuxing">
+    <div class="modal-box wx-modal-box">
+      <div class="wx-modal-head">
+        <h3>🌿 <span id="wx-modal-title">五行报告</span></h3>
+        <button class="wx-close" onclick="closeModal('modal-wuxing')">×</button>
+      </div>
+      <div id="wx-modal-body"></div>
+    </div>
+  </div>
+
   <!-- ========== 设置弹窗 ========== -->
   <div class="modal-overlay" id="modal-settings">
     <div class="modal-box">
@@ -466,6 +478,7 @@
   <script src="tarot_data.js"></script>
   <script src="ziwei_bazi_core.js"></script>
   <script src="chat_engine.js"></script>
+  <script src="wuxing_report.js"></script>
   <script src="app.js?v=20260918b"></script>
 </body>
 </html>

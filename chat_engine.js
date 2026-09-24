@@ -2451,6 +2451,138 @@
            "把篇幅全部让给这个新问题带来的新东西。\n";
   }
 
+  /* ---------- 合盘：两张盘之间能算出来的关系（纯计算，交给模型当依据） ---------- */
+  const SY_GANWX = { 甲: "木", 乙: "木", 丙: "火", 丁: "火", 戊: "土", 己: "土", 庚: "金", 辛: "金", 壬: "水", 癸: "水" };
+  const SY_ZHIWX = { 子: "水", 丑: "土", 寅: "木", 卯: "木", 辰: "土", 巳: "火", 午: "火", 未: "土", 申: "金", 酉: "金", 戌: "土", 亥: "水" };
+  const SY_SHENG = { 木: "火", 火: "土", 土: "金", 金: "水", 水: "木" };
+  const SY_KE = { 木: "土", 火: "金", 土: "水", 金: "木", 水: "火" };
+  const SY_WUHE = { 甲: "己", 己: "甲", 乙: "庚", 庚: "乙", 丙: "辛", 辛: "丙", 丁: "壬", 壬: "丁", 戊: "癸", 癸: "戊" };
+  const SY_LIUHE = { 子: "丑", 丑: "子", 寅: "亥", 亥: "寅", 卯: "戌", 戌: "卯", 辰: "酉", 酉: "辰", 巳: "申", 申: "巳", 午: "未", 未: "午" };
+  const SY_CHONG = { 子: "午", 午: "子", 丑: "未", 未: "丑", 寅: "申", 申: "寅", 卯: "酉", 酉: "卯", 辰: "戌", 戌: "辰", 巳: "亥", 亥: "巳" };
+  const SY_HAI = { 子: "未", 未: "子", 丑: "午", 午: "丑", 寅: "巳", 巳: "寅", 卯: "辰", 辰: "卯", 申: "亥", 亥: "申", 酉: "戌", 戌: "酉" };
+  const SY_SANHE = ["申子辰", "亥卯未", "寅午戌", "巳酉丑"];
+  const SY_SX = { 子: "鼠", 丑: "牛", 寅: "虎", 卯: "兔", 辰: "龙", 巳: "蛇", 午: "马", 未: "羊", 申: "猴", 酉: "鸡", 戌: "狗", 亥: "猪" };
+
+  function synastry(a, bc, nameB) {
+    const A = a.bazi || {}, B = bc.bazi || {};
+    const nb = nameB || "对方";
+    let score = 62;
+    const L = [];
+    const ga = A.dayMaster, gb = B.dayMaster, wa = SY_GANWX[ga], wb = SY_GANWX[gb];
+    if (ga && gb) {
+      if (SY_WUHE[ga] === gb)      { score += 12; L.push("日主相合（" + ga + gb + "合）：两个人天然互相吸引，在一起不累"); }
+      else if (wa === wb)          { score += 2;  L.push("日主同类（都属" + wa + "）：像朋友、像战友，懂彼此，但也容易较劲、谁都不让"); }
+      else if (SY_SHENG[wa] === wb){ score += 5;  L.push("你生" + nb + "（" + wa + "生" + wb + "）：你更多是付出、照顾的那一方"); }
+      else if (SY_SHENG[wb] === wa){ score += 5;  L.push(nb + "生你（" + wb + "生" + wa + "）：" + nb + "更多是付出、托着你的那一方"); }
+      else if (SY_KE[wa] === wb)   { score -= 3;  L.push("你克" + nb + "（" + wa + "克" + wb + "）：你容易管着" + nb + "，" + nb + "会觉得有压力"); }
+      else if (SY_KE[wb] === wa)   { score -= 3;  L.push(nb + "克你（" + wb + "克" + wa + "）：" + nb + "容易管着你，你会觉得被压着"); }
+    }
+    const za = String(A.dayPillar || "").charAt(1), zb = String(B.dayPillar || "").charAt(1);
+    if (za && zb) {
+      if (SY_LIUHE[za] === zb)       { score += 10; L.push("两人日支六合（" + za + zb + "）：日常相处合拍，生活习惯容易磨合到一起"); }
+      else if (SY_CHONG[za] === zb)  { score -= 10; L.push("两人日支相冲（" + za + zb + "）：生活节奏和习惯差很多，住到一起最容易为小事起冲突"); }
+      else if (SY_HAI[za] === zb)    { score -= 5;  L.push("两人日支相害（" + za + zb + "）：表面没事，心里容易积小委屈"); }
+      else if (za === zb)            { score += 0;  L.push("两人日支相同（" + za + "）：习惯很像，舒服，但缺点也一样，容易一起钻牛角尖"); }
+    }
+    const ya = String(A.yearPillar || "").charAt(1), yb = String(B.yearPillar || "").charAt(1);
+    if (ya && yb) {
+      const sx = "属" + SY_SX[ya] + "和属" + SY_SX[yb];
+      if (SY_LIUHE[ya] === yb || SY_SANHE.some(function (g) { return ya !== yb && g.indexOf(ya) >= 0 && g.indexOf(yb) >= 0; })) {
+        score += 5; L.push(sx + "相合：两家人、两边朋友圈比较容易处到一起");
+      } else if (SY_CHONG[ya] === yb) {
+        score -= 5; L.push(sx + "相冲：两边家庭背景、成长环境差异大，见家长那一关要多用心");
+      }
+    }
+    let stA = null, stB = null;
+    try { stA = baziStrength(a); stB = baziStrength(bc); } catch (e) {}
+    const top = function (c) {
+      const cnt = (c.bazi && c.bazi.detail && c.bazi.detail.wuxingCount) || {};
+      return Object.keys(cnt).sort(function (x, y) { return cnt[y] - cnt[x]; })[0] || "";
+    };
+    const tA = top(a), tB = top(bc);
+    if (stA && stA.favor && stA.favor.indexOf(tB) >= 0) { score += 6; L.push(nb + "身上最多的是" + tB + "，正好是你缺、你需要的 —— 跟" + nb + "在一起你会更顺"); }
+    if (stB && stB.favor && stB.favor.indexOf(tA) >= 0) { score += 6; L.push("你身上最多的是" + tA + "，正好是" + nb + "需要的 —— " + nb + "跟你在一起会更顺"); }
+    if (stA && stA.avoid && stA.avoid.indexOf(tB) >= 0) { score -= 4; L.push(nb + "身上最多的" + tB + "恰好是耗你的那股气 —— 相处久了你容易累"); }
+    // 紫微：你的夫妻宫画的是什么样的人，和对方命宫主星对一对
+    try {
+      const pal = function (c, n) { return ((c.ziwei && c.ziwei.palaces) || []).find(function (x) { return x.name === n; }) || null; };
+      const stars = function (x) { return x ? (x.mainStars || []).map(function (s) { return s.name; }) : []; };
+      const spA = pal(a, "夫妻宫"), mgB = pal(bc, "命宫"), spB = pal(bc, "夫妻宫"), mgA = pal(a, "命宫");
+      const sA = stars(spA), sB = stars(mgB), sB2 = stars(spB), sA2 = stars(mgA);
+      const hit1 = sA.filter(function (x) { return sB.indexOf(x) >= 0; });
+      const hit2 = sB2.filter(function (x) { return sA2.indexOf(x) >= 0; });
+      L.push("紫微：你的夫妻宫主星【" + (sA.join("") || "空宫") + "】，" + nb + "的命宫主星【" + (sB.join("") || "空宫") + "】" +
+             (hit1.length ? " —— 对上了，" + nb + "就是你盘上画的那种伴侣" : ""));
+      L.push("紫微：" + nb + "的夫妻宫主星【" + (sB2.join("") || "空宫") + "】，你的命宫主星【" + (sA2.join("") || "空宫") + "】" +
+             (hit2.length ? " —— 对上了，你正是" + nb + "盘上画的那种伴侣" : ""));
+      if (hit1.length) score += 6;
+      if (hit2.length) score += 6;
+    } catch (e) {}
+    score = Math.max(30, Math.min(96, score));
+    return { score: score, lines: L };
+  }
+
+  /* ---------- 聊天里直接给出生日：「我朋友1995年3月2日下午3点出生，女…」 ---------- */
+  function parseBirthInText(text, own) {
+    const s = String(text || "");
+    const m = /((?:19|20)\d{2})\s*[年\/\.\-]\s*(\d{1,2})\s*[月\/\.\-]\s*(\d{1,2})\s*[日号]?/.exec(s);
+    if (!m) return null;
+    const y = +m[1], mo = +m[2], d = +m[3];
+    const nowY = getCurrentTimeAnchor().Y;
+    if (y > nowY - 1 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    // 必须看得出这是「某个人的生日」，否则「2019年3月我换了工作」也会被当成生日
+    if (!/出生|生日|生的|生于|八字|的盘|命盘|朋友|男朋友|女朋友|老公|老婆|对象|同事|闺蜜|兄弟|孩子|儿子|女儿|妈|爸|他|她/.test(s)) return null;
+    if (own && own.year === y && own.month === mo && own.day === d) return null;   // 说的是自己
+    const rest = s.slice(m.index + m[0].length, m.index + m[0].length + 24);
+    let hour = 12, minute = 0, hasTime = false;
+    const tm = /(凌晨|早上|早晨|上午|中午|下午|傍晚|晚上|夜里|半夜)?\s*(\d{1,2})\s*(?:[:：]\s*(\d{1,2})|点\s*(半|(\d{1,2})\s*分?)?)/.exec(rest);
+    if (tm) {
+      let h = +tm[2];
+      const mm = tm[3] ? +tm[3] : (tm[4] === "半" ? 30 : (tm[5] ? +tm[5] : 0));
+      const pm = tm[1] && /下午|傍晚|晚上|夜里/.test(tm[1]);
+      if (pm && h < 12) h += 12;
+      if (tm[1] === "中午" && h < 6) h += 12;
+      if ((tm[1] === "凌晨" || tm[1] === "半夜") && h === 12) h = 0;
+      if (h >= 0 && h <= 23 && mm >= 0 && mm < 60) { hour = h; minute = mm; hasTime = true; }
+    }
+    let gender = "";
+    const g = /(女朋友|老婆|女儿|闺蜜|妈|她|女)|(男朋友|老公|儿子|兄弟|爸|他|男)/.exec(s);
+    if (g) gender = g[1] ? "female" : "male";
+    const pair = /合不合|合盘|配不配|适不适合在一起|能不能在一起|我们|我和(?:他|她)|我跟(?:他|她)|我俩|姻缘|结婚/.test(s);
+    return { year: y, month: mo, day: d, hour: hour, minute: minute, hasTime: hasTime,
+             gender: gender || "male", genderGuessed: !gender, pairWithMe: pair,
+             label: y + "年" + mo + "月" + d + "日" + (hasTime ? " " + String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0") : "（时辰未给）") +
+                    (gender ? (gender === "female" ? " 女" : " 男") : "") };
+  }
+
+  function partnerBlock(ctx) {
+    if (!ctx || !ctx.partner) return "";
+    const nm = ctx.partnerName || "对方";
+    let sy = null;
+    try { sy = synastry(ctx.self || ctx.partnerSelf, ctx.partner, nm); } catch (e) { sy = null; }
+    let dossier = "";
+    try {
+      dossier = buildChartDossier(ctx.partner, "all")
+        .split("\n").filter(function (ln) { return ln.indexOf("\u3010\u23f0") !== 0 && ln.indexOf("\u3010\u5f53\u524d\u5b9e\u65f6") !== 0; }).join("\n");
+    } catch (e) {}
+    return "\n════════ 【💞 合盘 · 对方「" + nm + "」的实盘】 ════════\n" + dossier +
+      (ctx.partnerNoTime ? "\n  ⚠️ " + nm + "的出生时辰没给，时柱和紫微命宫按中午估的 —— 凡是靠时辰的判断只能当参考，要说明。" : "") +
+      (sy ? "\n【💞 合盘推演台（两张盘之间的关系，已算好，直接用）】\n契合度：" + sy.score + " 分（下面几条加减出来的）\n- " + sy.lines.join("\n- ") : "") +
+      "\n【这一轮是合盘题，怎么写】\n" +
+      "- 第一段直接给结论：你们合不合、契合度多少分、一句大白话说清为什么。\n" +
+      "- 然后写三块，每块都要具体到相处场景：你们合在哪；最容易在什么事上吵（各自的毛病怎么撞上）；谁该让一步、具体怎么做。\n" +
+      "- 称呼：用户是「你」，对方叫「" + nm + "」。两个人的盘都只能引用上面给出的，不许编。\n" +
+      "- 下面的【🧮 预推演台】是你（用户）本人的岁运；讲「什么时候」时以它为准。\n";
+  }
+
+  function subjectBlock(ctx) {
+    if (!ctx || !ctx.subject) return "";
+    return "\n【👤 这一轮看的是别人的盘】下面这张实盘是用户朋友的（" + ctx.subject.label + "），不是用户本人。\n" +
+      "称呼这位朋友用「他／她」或「你朋友」，对用户说话仍然用「你」。\n" +
+      (ctx.subject.noTime ? "出生时辰没给，时柱和紫微命宫按中午估的 —— 凡是靠时辰的判断，一句话说明只是参考。\n" : "") +
+      (ctx.subject.genderGuessed ? "性别没说，按男命排的；大运顺逆会受影响，讲大运时一句话提醒。\n" : "");
+  }
+
   function buildSystemPrompt(chart, question, kbMode = "ziwei", ctx = {}) {
     ctx = ctx || {};
     const mode = kbMode === "bazi" ? "bazi" : (kbMode === "all" ? "all" : "ziwei");
@@ -2630,10 +2762,10 @@ ${mode === "ziwei"
 2. 分析流年、流月或近期趋势时，必须以【当前已经是 ${t.Y}年${t.M}月（${t.lunarStr}，${t.mPillar}月）】为时间起点！今年前八个月已过去，分析“接下来/近期/今年剩余时间”必须聚焦于【当下本月（${t.lMonthLabel}·${t.mPillar}月）及接下来的秋冬月份（农历九月戊戌、十月己亥、十一月庚子、十二月辛丑）与明年（${t.Y + 1}年）】！
 ════════════════════════════════════════════════════════════════════════════
 
-════════ 本人真实排盘数据（天文历法精确排出，严禁篡改） ════════
+${subjectBlock(ctx)}════════ ${ctx.subject ? "这位朋友的" : "本人"}真实排盘数据（天文历法精确排出，严禁篡改） ════════
 ${buildChartDossier(chart, mode)}
 ══════════════════════════════════════════════════════════════════
-${buildForecastDesk(chart, question, mode, ctx)}${kbBlock}${baziKbBlock}${coveredBlock(ctx.covered)}${claimsBlock(ctx.claims)}
+${buildForecastDesk(chart, question, mode, ctx)}${partnerBlock(Object.assign({ self: chart }, ctx))}${kbBlock}${baziKbBlock}${coveredBlock(ctx.covered)}${claimsBlock(ctx.claims)}
 
 【怎么写这段回答 —— 下面就是全部的规则，没有别的了】
 读你回答的人不懂命理。他带着一个具体问题来，要的是「我该怎么办」，不是一份命盘解析报告。
@@ -2984,7 +3116,11 @@ ${nextSpec}`;
       turn: turn,
       covered: collectCovered(hist),
       claims: recentClaims(hist),
-      lastFocus: lastFocusOf(hist, config.kbMode || "ziwei")
+      lastFocus: lastFocusOf(hist, config.kbMode || "ziwei"),
+      partner: config.partner || null,
+      partnerName: config.partnerName || "",
+      partnerNoTime: Boolean(config.partnerNoTime),
+      subject: config.subject || null
     };
     const messages = [{ role: "system", content: buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
     // 最近 3 轮对话（6 条），保留追问上下文
@@ -3105,6 +3241,9 @@ ${nextSpec}`;
     const b = chart.bazi || {};
     const p = chart.profile || {};
     const note = function (what, from, to) { fixed.push({ what: what, from: from, to: to }); };
+    // 合盘轮：答案里同时有两个人的四柱、日元、年龄 —— 按一个人的盘去「改对」会把对方的改成你的。
+    // 这时只做跟具体哪张盘无关的更正（流年干支、节气日期、应期精度）。
+    const pair = mode === "pair";
 
     // 本命四柱不参与「流年干支」更正：文中出现它们多半是在讲本命盘，
     // 此时按附近的公历年去改反而会把对的改错。
@@ -3141,7 +3280,7 @@ ${nextSpec}`;
     const POS = { "年": b.yearPillar, "月": b.monthPillar, "日": b.dayPillar, "时": b.hourPillar };
     const rePillar = new RegExp("(年|月|日|时)柱([是为：:【\\s]{0,3})(" + GZ_PAT + ")", "g");
     t = t.replace(rePillar, function (all, pos, mid, gz) {
-      const real = POS[pos];
+      const real = pair ? null : POS[pos];
       if (!real || real === gz) return all;
       note("四柱", pos + "柱" + gz, pos + "柱" + real);
       return pos + "柱" + mid + real;
@@ -3149,7 +3288,7 @@ ${nextSpec}`;
 
     /* ④ 日元写错——日元就是日柱天干 */
     t = t.replace(/日元([是为：:\s]{0,3})([甲乙丙丁戊己庚辛壬癸])/g, function (all, mid, g) {
-      if (!b.dayMaster || g === b.dayMaster) return all;
+      if (pair || !b.dayMaster || g === b.dayMaster) return all;
       note("日元", "日元" + g, "日元" + b.dayMaster);
       return "日元" + mid + b.dayMaster;
     });
@@ -3177,7 +3316,7 @@ ${nextSpec}`;
     t = t.replace(/((?:你今年|现在你|你现在|今年你)[^。；\n]{0,6}?)(\d{1,3})(\s*岁)/g,
       function (all, lead, n, suf) {
         const v = parseInt(n, 10);
-        if (v === realAge || v === realAge - 1) return all;   // 虚岁/周岁都算对
+        if (pair || v === realAge || v === realAge - 1) return all;   // 虚岁/周岁都算对
         note("年龄", "今年 " + v + " 岁", "今年 " + realAge + " 岁");
         return lead + realAge + suf;
       });
@@ -3549,6 +3688,7 @@ ${nextSpec}`;
   }
 
   global.ChatEngine = {
+    synastry, parseBirthInText,
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
     followupsFor, splitFollowups, stripNextBlock,

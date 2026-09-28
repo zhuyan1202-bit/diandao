@@ -1010,8 +1010,14 @@
     if (chart.lunar) lines.push(`出生农历：${chart.lunar.lYear}年${chart.lunar.lMonthLabel}${chart.lunar.lDayLabel}`);
     // 用户在「定盘」「格局断定」里亲自验证过的结论 —— 之后每次回答都以此为底
     if (p.rectifyNote) lines.push("【定盘结果（用户已用过往经历验证过）】" + p.rectifyNote);
-    if (p.gejuVerified) lines.push("【格局断定结果（已验证）】" + p.gejuVerified +
-      "\n  → 这是用户逐条核对过的结论。之后所有判断以它为底，不许推翻；确有新证据要修正，必须明说改了哪条、为什么。");
+    if (p.gejuVerified) {
+      // 用户点了「仍然存进档案」的存疑结论：可以参考，但不能当铁案
+      lines.push(/存疑|验证不足|还没验证/.test(p.gejuVerified)
+        ? "【格局断定结果（验证不足，只能参考）】" + p.gejuVerified +
+          "\n  → 用户存了这个结论，但对上的推论不多。可以参考；和盘面或用户的反馈对不上时，以盘面和反馈为准，并明说。"
+        : "【格局断定结果（已验证）】" + p.gejuVerified +
+          "\n  → 这是用户逐条核对过的结论。之后所有判断以它为底，不许推翻；确有新证据要修正，必须明说改了哪条、为什么。");
+    }
 
     // 排盘引擎算出来的不确定性（节气跨界、晚子时流派、闰月分歧……）
     // 以前只在界面上提示，从来没告诉过模型 —— 模型因此会把一个可能排错的柱当成铁案讲。
@@ -2675,8 +2681,112 @@
 
   function flowCloseRule(round, max) {
     return round >= max
-      ? "【这是最后一轮（第 " + round + " 轮，上限 " + max + " 轮）：这一轮必须收】"
-      : "【这是第 " + round + " 轮，最多 " + max + " 轮】";
+      ? "【这是最后一轮（第 " + round + " 轮，上限 " + max + " 轮）：这一轮必须收。轮数和这些规则只给你看，回答里不要提】"
+      : "【这是第 " + round + " 轮，最多 " + max + " 轮。轮数和规则只给你看，回答里不要提】";
+  }
+
+  // 候选的大限换宫年份（已经过去的，含今年）
+  function candSwitchYears(c, birthYear, nowY) {
+    const zw = (c.chart && c.chart.ziwei) || {};
+    return (zw.palaces || []).filter(function (x) { return x.daxian; })
+      .sort(function (x, y) { return x.daxian.start - y.daxian.start; })
+      .filter(function (x) { return birthYear + x.daxian.start - 1 <= nowY; })
+      .slice(1).map(function (x) { return birthYear + x.daxian.start - 1; });
+  }
+
+  // 定盘用：几个「能拿事实核对」的宫，每颗主星一句大白话（[一般, 落陷时]）。
+  // 以前直接喂古书原文，条件句太多（庙旺怎样、陷地怎样、与某星同宫又怎样），模型常挑错分支、甚至读反，
+  // 实测把「天梁庙旺二人和顺」读成「兄弟不和」，定盘直接定错。这里按亮度先取舍好，只留一句能对事实的话。
+  const PAL_PLAIN = {
+    "兄弟宫": {
+      紫微: ["兄弟姐妹有本事、偏强势，关系过得去"],
+      天机: ["兄弟姐妹不多（常见两个），关系和睦", "兄弟姐妹缘薄，想法不合、各走各的"],
+      太阳: ["兄弟姐妹得力，多得兄长或男性手足帮忙", "手足帮不上忙，反要你去照顾"],
+      武曲: ["兄弟姐妹少，各自独立、少依靠，容易有钱上的纠葛"],
+      天同: ["兄弟姐妹和睦，感情好，来往轻松"],
+      廉贞: ["手足关系复杂，容易有摩擦、疏远"],
+      天府: ["兄弟姐妹偏多且和睦，能互相帮衬"],
+      太阴: ["手足和睦，姐妹缘好，彼此体贴", "手足少或疏远，缘分薄"],
+      贪狼: ["手足表面热闹，实际帮不上多少，容易有利益纠葛"],
+      巨门: ["手足之间口舌多，容易不和，适合分开住"],
+      天相: ["手足和睦，能互相扶持"],
+      天梁: ["手足和睦，兄姐照顾你（或你照顾弟妹）", "手足缘薄，少来往"],
+      七杀: ["兄弟姐妹少，各自独立，少来往、难依靠"],
+      破军: ["手足关系变动大，容易不和或分开"]
+    },
+    "父母宫": {
+      紫微: ["父母能力强、有威严，家教偏严"],
+      天机: ["父母头脑灵活，关系尚可，家里变动多", "和父母缘分薄，聚少离多"],
+      太阳: ["父亲得力，照顾多", "父亲辛劳或缘薄，帮得少"],
+      武曲: ["父母性子硬、管得严，早年和父母有隔阂"],
+      天同: ["父母温和随和，家里气氛轻松，很少管束"],
+      廉贞: ["和父母有代沟，容易起摩擦"],
+      天府: ["父母家底稳，照顾周到"],
+      太阴: ["母亲得力，和母亲亲近", "母亲辛劳或缘薄"],
+      贪狼: ["父母交际广、各忙各的，关系表面热络"],
+      巨门: ["和父母容易拌嘴，沟通不畅"],
+      天相: ["父母和善，能得到帮助"],
+      天梁: ["父母庇护多，长辈照顾周到", "和父母缘薄，早早离家或少得照顾"],
+      七杀: ["父母严厉或缘薄，早年就离家独立"],
+      破军: ["父母缘薄，家里变动多，关系不稳"]
+    },
+    "夫妻宫": {
+      紫微: ["配偶能力强、有主见，适合年长一些的"],
+      天机: ["配偶聪明灵活、心思多，年龄差大些更好", "感情多变，想法难合"],
+      太阳: ["男：妻子能干外向；女：丈夫有地位、热心", "配偶辛劳，婚后付出多"],
+      武曲: ["配偶刚强务实、会管钱，适合晚婚"],
+      天同: ["配偶温和好相处，感情平顺"],
+      廉贞: ["感情路曲折，恋爱次数多、容易有纠葛"],
+      天府: ["配偶稳重顾家，婚姻稳定"],
+      太阴: ["配偶温柔细腻（男命妻子好看）", "配偶多愁善感，感情容易冷淡"],
+      贪狼: ["异性缘旺、感情多波折，适合晚婚"],
+      巨门: ["夫妻容易拌嘴，有隔阂"],
+      天相: ["配偶端正、有原则，婚姻稳"],
+      天梁: ["配偶年长，或是照顾人的性格", "感情里常有孤独感，聚少离多"],
+      七杀: ["配偶强势，婚姻容易冲突，适合晚婚"],
+      破军: ["婚姻变动大，容易有离合"]
+    },
+    "疾厄宫": {
+      紫微: ["要留意脾胃、消化"],
+      天机: ["要留意肝胆、神经紧张、四肢"],
+      太阳: ["要留意心脏、血压、眼睛"],
+      武曲: ["要留意肺、呼吸道、骨骼牙齿"],
+      天同: ["要留意肾、膀胱、泌尿"],
+      廉贞: ["要留意血液循环、心脏、生殖系统"],
+      天府: ["要留意脾胃、消化"],
+      太阴: ["要留意肾、眼睛、内分泌"],
+      贪狼: ["要留意肝胆、肾与生殖系统"],
+      巨门: ["要留意口腔、肠胃、消化道"],
+      天相: ["要留意皮肤、泌尿"],
+      天梁: ["要留意心脏、胃、慢性病"],
+      七杀: ["要留意肺、呼吸道、外伤"],
+      破军: ["要留意外伤意外、泌尿生殖"]
+    }
+  };
+  const HUA_PLAIN = { 禄: "化禄：这方面多得益", 权: "化权：这方面强势、说了算", 科: "化科：这方面有好名声、遇贵人", 忌: "化忌：这方面波折、麻烦更多" };
+  function candKbLines(c) {
+    const zw = (c.chart && c.chart.ziwei) || {};
+    const pals = zw.palaces || [];
+    const out = [];
+    ["兄弟宫", "父母宫", "夫妻宫", "疾厄宫"].forEach(function (pn) {
+      const pa = pals.find(function (x) { return x.name === pn; });
+      if (!pa) return;
+      let ms = pa.mainStars || [], borrowed = false;
+      if (!ms.length) {
+        const opp = pals.find(function (x) { return x.index === (pa.index + 6) % 12; });
+        ms = (opp && opp.mainStars) || [];
+        borrowed = true;
+      }
+      const parts = ms.map(function (s) {
+        const row = (PAL_PLAIN[pn] || {})[s.name];
+        if (!row) return "";
+        const weak = /^(陷|不)/.test(String(s.brightness || ""));
+        return s.name + (s.brightness ? "（" + s.brightness + "）" : "") + " → " + (weak && row[1] ? row[1] : row[0]) +
+               (s.sihua && HUA_PLAIN[s.sihua] ? "；" + HUA_PLAIN[s.sihua] : "");
+      }).filter(Boolean);
+      if (parts.length) out.push("  - " + pn.replace("宫", "") + (borrowed ? "（空宫，借对面的星看，力量弱）" : "") + "：" + parts.join("；"));
+    });
+    return out;
   }
 
   function buildRectifyPrompt(chart, round) {
@@ -2687,34 +2797,72 @@
     const names = cands.map(function (c) { return c.name; });
     const even = names.length ? Math.floor(100 / names.length) : 0;
     const pad = function (n) { return String(n).padStart(2, "0"); };
+    // 换宫年份对照：每个年份只归给真在那年换宫的候选。
+    // 实测模型会说「2017 前后的转折跟辰时这步大限吻合」（辰时根本不在 2017 换），
+    // 或把卯时、辰时共用的 2024 写成辰时一个人的证据、说成「三个盘都换」—— 让它查表，别自己推。
+    const yearOwners = {};
+    cands.forEach(function (c) {
+      candSwitchYears(c, p.year, t.Y).forEach(function (y) { (yearOwners[y] = yearOwners[y] || []).push(c.name); });
+    });
+    const yearGroups = {};
+    Object.keys(yearOwners).map(Number).sort(function (a, b) { return a - b; }).forEach(function (y) {
+      const k = yearOwners[y].join("、");
+      (yearGroups[k] = yearGroups[k] || []).push(y);
+    });
+    const yearTable = Object.keys(yearGroups).map(function (k) {
+      const ys = yearGroups[k], who = k.split("、");
+      const others = names.filter(function (n) { return who.indexOf(n) < 0; });
+      const win = ys.map(function (y) { return (y - 1) + "–" + (y + 1); }).join("、");
+      const head = "  - " + ys.join("、") + "：";
+      if (!others.length) return head + "几个候选都在这几年换宫 → 这几年的事分不开任何候选，不算证据。";
+      if (who.length > 1) {
+        return head + who.join("、") + " 换宫，" + others.join("、") + " 不换 → " + win + " 有大变动，只说明更像" +
+          who.join("或") + "、不像" + others.join("、") + "；分不开" + who.join("和") + "，不许算成其中一个的证据。";
+      }
+      return head + "只有" + who[0] + "换宫，" + others.join("、") + " 不换 → " + win + " 有大变动，算" + who[0] + "的证据。";
+    });
+    const kb = cands.map(function (c) {
+      const ls = candKbLines(c);
+      return ls.length ? "候选【" + c.name + "】\n" + ls.join("\n") : "";
+    }).filter(Boolean);
     return `你是「点到」的定盘助手。只做一件事：通过问用户过去真实发生过的事，判断他的出生时辰到底是下面哪一个。
 今天是公历 ${t.solarDateOnly}。用户是${p.gender === "female" ? "女" : "男"}，出生于公历 ${p.year}年${p.month}月${p.day}日，填的时间是 ${p.timeMode === "interval" && !p.rectified && p.rangeStart ? p.rangeStart + "–" + p.rangeEnd + " 之间" : pad(p.hour) + ":" + pad(p.minute || 0)}。
 时辰两小时一换，出生记录差半小时到一小时很常见，所以要拿事实来定，而不是信填的数字。
 
 ════════ 【候选时辰】每个候选的盘都已精确排好，只能引用这里的数据 ════════
 ${cands.map(function (c) { return candidateBrief(c, p.year, t.Y); }).join("\n\n")}
-══════════════════════════════════════════════
+${yearTable.length ? "\n【换宫年份对照】（换宫那年前后一年，常有搬家、换工作、感情或家里的大变化）\n" + yearTable.join("\n") +
+      "\n不在这张表里的年份，哪个候选都不换宫：不许说某年「撞上」「吻合」某个候选的换宫或大限节奏。" +
+      "\n年份这条线比下面各宫的说法弱（人几乎每隔几年都有变动），只当辅助；定盘主要靠各宫的说法。\n" : ""}
+${kb.length ? "════════ 【各候选在这几个宫的意思】已按星曜亮度取舍好，拿用户的回答去对 ════════\n" + kb.join("\n\n") + "\n同一个宫里两颗星说法不一样时，这一项两种情况都算说得通，不能拿它排除这个候选。\n" : ""}══════════════════════════════════════════════
 
 【怎么问】
 1. 每轮只问 2–3 个问题，挑最能把候选分开的：
-   - 优先：两个候选在同一段年份说法不同的地方 —— 那几年发生过什么（搬家换城市、升学、换工作、恋爱结婚分手、家里大事、生病住院）。问的时候写清公历年份区间。
-   - 其次：能客观核对的事实 —— 兄弟姐妹几个、排行第几；父母谁更强势、关系怎样；身上哪个部位真出过问题；个子高矮、胖瘦。
-2. 问题必须能用事实回答。不许问「你是不是比较内向」这类感受题 —— 人会顺着你的话选。
-3. 用户的回答只当证据，不当结论。「我觉得是某某时」不算证据；对不上就说对不上，不要硬圆；回答含糊就追问具体哪一年。
+   - 优先：上面各候选说法相反的地方 —— 兄弟姐妹几个、关系亲疏；父母的脾气、和父母关系好坏；配偶是什么样的人；身上哪里真出过问题、哪一年。
+   - 其次：按【换宫年份对照】，问只有部分候选换宫的那几年发生过什么（搬家换城市、升学、换工作、恋爱结婚分手、家里大事、生病住院）。问的时候写清公历年份区间。
+2. 只问能用事实回答的事。性格、脾气、做事风格、内向外向、急不急、能不能忍，这类感受题一律不问；用户自己说的性格也不算证据（人会顺着你的话选）。
+3. 证据怎么算 —— 用户的回答只当证据，不当结论：
+   - 用户原来填的时间、家里人说的时间，都不是证据。结论里不许拿「你原来填的就在某时」「你妈说六点多」当理由。
+   - 一件事如果两个候选都说得通，它就分不开这两个：概率不动，也不许算成其中一个的证据。
+   - 对不上就说对不上，不要硬圆；回答含糊就追问具体哪一年、具体什么情况。
 4. 第一轮：一两句话说清楚在做什么（${names.length > 1 ? "你的时间落在「" + names.join("／") + "」附近" : "核对你的时辰"}，我问几件过去的事来定），然后直接提问。
-5. 之后每轮：先用一两句大白话说上一轮的回答让你更倾向哪个、为什么（可以带一句〔〕依据），再问新问题。
-6. 不写长篇、不科普、不许出现书名。称呼用户「你」。全程简体中文。
+5. 之后每轮：先用一两句大白话说上一轮的回答让你更倾向哪个、为什么，再问新问题。
+6. 不写长篇、不科普、不许出现书名和古文原句。称呼用户「你」。全程简体中文。
+7. 读的人不懂命理：正文里不写星名、宫名，也不给断语加引号照抄；用大白话转述意思，例如「辰时的盘说你和兄弟姐妹处得好」「卯时的盘说你父亲管得严」。
+   实在要点名星曜，只放进单独一行「〔依据：……〕」里，每轮最多 1 行。
 
-【每轮末尾固定输出两行】
+【每一轮末尾都固定输出这两行 —— 第 2、3、4 轮也要，不能省】
 ⟦RECT⟧${names.map(function (n) { return n + "=" + even; }).join("|")}
 ⟦NEXT⟧快捷回答一｜快捷回答二｜快捷回答三
 - ⟦RECT⟧ 是按目前证据给的概率，合计 100；只能用上面这几个候选名。第一轮还没证据就均分。
 - ⟦NEXT⟧ 是给用户点的快捷回复，贴着你刚问的问题写，比如「对，那年换了城市」「没有这回事」「记不清了」，每条 ≤ 14 字。
 
 【什么时候收】
-- 某个候选 ≥ 80%，并且至少 2 条互相独立的事实对上了 → 给结论：是哪个时辰、靠哪几件事定下来的、另外几个为什么排除。
+- 某个候选 ≥ 80%，并且至少有 2 条「只有它对得上、别的候选对不上」的事实 → 给结论：是哪个时辰、靠哪几件事定下来的、另外几个为什么排除。
+  「靠哪几件事定下来」只许列分得开的事实：另一个候选也解释得通的事（比如共用的换宫年份）不许列进去。
+  结论和排除理由里凡是提到年份，都要和【换宫年份对照】一致。
   结论这一轮末尾只输出一行 ⟦RECT⟧（最终概率）和一行 ⟦DONE⟧时辰名（例如 ⟦DONE⟧${names[0] || "子时"}），不要 ⟦NEXT⟧。
-- 最后一轮还没到 80%：照实说「目前更像某某，但证据还不够硬」，同样输出 ⟦DONE⟧领先的那个。
+- 到最后一轮还达不到：概率照实给，不许为了收而抬到 80%。第一句写「还定不下来，目前更像某某」，说清还差什么证据，同样输出 ⟦DONE⟧领先的那个。
 ${flowCloseRule(round, max)}`;
   }
 
@@ -2737,7 +2885,7 @@ ${flowCloseRule(round, max)}`;
       (pat.saved || []).forEach(function (x) { desk.push("  · 成格／救应：" + x); });
     }
     if (st) {
-      desk.push("扶抑：日元" + st.dm + st.dmWx + "【" + st.verdict + "】（帮扶度 " + st.score + "）");
+      desk.push("扶抑：日元" + st.dm + st.dmWx + "【" + st.verdict + "】");   // 不给打分数字：实测模型会原样抄进回答
       (st.why || []).forEach(function (x) { desk.push("  · " + x); });
       desk.push("  喜：" + ((st.favor || []).join("、") || "扶抑两可") + "　忌：" + ((st.avoid || []).join("、") || "—") + "　" + (st.rule || ""));
       if (st.tiaohou) desk.push("  调候：" + st.tiaohou);
@@ -2766,25 +2914,41 @@ ${dyLines.join("\n")}
 ${yrs.join("　")}
 ══════════════════════════════
 
+【怎么写 —— 读的人不懂命理】
+- 判断句全是大白话；术语只准出现在「〔依据：……〕」这样括起来的依据句里，每轮最多 3 句。
+- 推演台里的打分、括号注释一个字都不许写进回答。
+- 提到年份就写年份，不要在后面挂一串干支（不写「2016–2018 年（丙申、丁酉、戊戌）」）。
+
 【怎么做】
 第 1 轮：
-- 先用大白话给判断：你是什么格局（一句话讲它意味着你是什么样的人）、身强还是身弱、喜什么忌什么 —— 喜忌要翻译成「什么对你有利、什么耗你」，别停在五行名字上。每条后面带一句〔〕依据。
+- 先用大白话给判断：你是什么格局（一句话讲它意味着你是什么样的人）、身强还是身弱、喜什么忌什么 —— 喜忌要翻译成「什么对你有利、什么耗你」，别停在五行名字上。
 - 然后给 3 条可以验证的推论，全部落在过去的具体公历年份：「按这个判断，你 2016–2018 年应该过得比较辛苦，多半是工作或钱上压力大，对吗？」挑喜忌反差最大的那几步运和那几年。
+  推论要说得够具体、能被否定 —— 「那几年有起伏」这种怎么答都对的话不算推论。
+  性格、脾气、做事风格不算推论（「你爱自己拍板」这种人多半会认），推论只落在某一年发生的具体事上。
+  推论只能说已经过去的事；「你今年年底前会……」这种还没发生的，没法核对，不算推论。
 之后每轮：
-- 用户说对上了 → 记为已验证，简短带过。
-- 对不上 → 必须重新检讨：是不是格局取错、旺衰判反、调候该优先。明说改了哪条、盘上的理由是什么，再给新的推论去验证。
+- 先记账：上一轮每条推论，全对上了记 ✓，没对上记 ✗，只对上一半（两年只对上一年、两件事只对上一件）记 ½，记不清记 ?。
+  ½ 不是 ✓：算「对上几条」时只数 ✓。
+- ✗ 就是 ✗。不许事后换一种解释把它说成对上（例如「其实这也可以理解为……」「那年其实是冲……」）。推论说出口就不能改口。
+  记了 ✗ 之后，也不许再说「这其实印证了……」「错在方向、不在盘」「反而说明……」这类话把它往回拉。
+- 连着出现 ✗，要回头检讨判断本身：是不是格局取错、旺衰判反、调候该优先。明说改了哪条、盘上的理由是什么，再给新的推论去验证 —— 新推论从下一轮起算，旧的 ✗ 不能改成 ✓。
+  改过的判断，要有新推论对上才算数；没来得及验证就收尾的，结论里写明「这是改过的判断，还没验证」。
   不许无视对不上的反馈；也不许用户说什么就改什么 —— 改判断必须有盘上的理由。
-- 每轮 2–3 条推论。不写长篇、不许出现书名。称呼用户「你」。全程简体中文。
+- 每轮 2–3 条推论。新推论要预测用户还没说过的事：把他已经告诉你的事换个说法再问一遍，不叫验证，不能记 ✓。
+  例如他上一轮说过「今年老想着单干」，下一轮再推「你这几年心里一直想自己做主」—— 这是复述，不是推论。
+- 不写长篇、不许出现书名。称呼用户「你」。全程简体中文。
 
 【每轮末尾】
-没收的轮次，最后另起一行输出给用户点的快捷回复，贴着你刚问的推论写：
+没收的轮次，最后另起一行输出给用户点的快捷回复，贴着你刚问的推论写（每一轮都要有）：
 ⟦NEXT⟧对，确实是这样｜不太对｜记不清了
 
 【什么时候收】
-- 至少 3 条推论被用户确认，而且没有还没解释的对不上 → 收：写最终结论（格局、旺衰、喜忌、哪几条经历对上了），最后一行输出：
-  ⟦GEJU⟧一段话总结（不超过 150 字）：格局名＋一句话含义；身强／身弱；喜用；忌神；已验证过的关键年份与事。
+- 至少 3 条推论 ✓，而且 ✓ 比 ✗ 多 → 收：写最终结论（格局、旺衰、喜忌、哪几条经历对上了、哪几条没对上），最后一行输出：
+  喜用、忌神写成五行（木火土金水），后面再跟一句大白话；不许只写「能落地的东西」「约束」这类没法核对的说法。
+  ✓ 几条、✗ 几条照实列出就够了，不许评论 ✗（例如「不是巧合」「这几条 ✗ 就不冤」「恰好说明主线是对的」）。
+  ⟦GEJU⟧一段话总结（不超过 150 字）：格局名＋一句话含义；身强／身弱；喜用；忌神；「一共 N 条推论，对上 M 条」（N 是说出口的全部推论，没对上的、½ 的都算进 N；M 只数 ✓）＋对上的关键年份与事。
   收的这一轮不要 ⟦NEXT⟧。
-- 最后一轮必须收：证据不足就在 ⟦GEJU⟧ 总结里写明哪条还没验证。
+- 最后一轮必须收：如实写命中率。对上的不到一半，⟦GEJU⟧ 总结第一句写「这个判断存疑」。
 ${flowCloseRule(round, max)}`;
   }
 
@@ -2803,7 +2967,12 @@ ${flowCloseRule(round, max)}`;
     const d = /\u27E6DONE\u27E7\s*([子丑寅卯辰巳午未申酉戌亥]时)/.exec(s);
     if (d) out.done = d[1];
     const g = /\u27E6GEJU\u27E7\s*([^\n\u27E6]+)/.exec(s);
-    if (g) out.geju = g[1].trim().slice(0, 240);
+    if (g) {
+      out.geju = g[1].trim().slice(0, 240);
+      // 「一共 N 条推论，对上 M 条」：对上的不到一半就是存疑 —— 不管模型自己用了什么说法（实测写成「部分成立」）
+      const hm = /一共\s*(\d+)\s*条推论[^对]{0,8}对上\s*(\d+)\s*条/.exec(g[1]);
+      out.gejuWeak = /存疑|还没验证|证据不足|没来得及验证|验证不足/.test(g[1]) || (hm ? (+hm[2]) * 2 < (+hm[1]) : false);
+    }
     return out;
   }
 
@@ -3051,7 +3220,7 @@ ${nextSpec}`;
   /* ---------- 7.2.5 上游请求：本地代理 或 浏览器直连（静态网站模式） ---------- */
   // 各服务商 OpenAI 兼容端点（与 server.py 保持一致）
   const PROVIDER_ENDPOINTS = {
-    deepseek: ["https://api.deepseek.com/chat/completions", "deepseek-chat"],
+    deepseek: ["https://api.deepseek.com/chat/completions", "deepseek-flash"],
     qwen:     ["https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", "qwen-plus"],
     zhipu:    ["https://open.bigmodel.cn/api/paas/v4/chat/completions", "glm-4-flash"],
     moonshot: ["https://api.moonshot.cn/v1/chat/completions", "moonshot-v1-8k"],
@@ -3060,7 +3229,8 @@ ${nextSpec}`;
   };
 
   // 是否存在本地 Python 代理（首次探测后缓存；纯静态部署时自动走浏览器直连）
-  let _proxyAvailable = null;
+  let _proxyAvailable = (typeof location !== "undefined" && location &&
+                         /\.github\.io$/i.test(String(location.hostname || ""))) ? false : null;
 
   // 推理模型：会额外返回 reasoning_content（真正的思考过程），且不接受 temperature
   function isReasoningModel(model) {
@@ -3189,8 +3359,8 @@ ${nextSpec}`;
     const key = (cfg.apiKey || "").trim();
     if (!key) return { ok: false, ms: 0, host: host, model: picked.model, detail: "还没填 API Key" };
 
-    const body = { model: picked.model, messages: [{ role: "user", content: "ping" }], stream: false };
-    if (!isReasoningModel(picked.model)) body.max_tokens = 4;   // 推理模型不吃这个参数
+    const body = Object.assign({ model: picked.model, messages: [{ role: "user", content: "ping" }], stream: false }, picked.extra || {});
+    if (!isReasoningModel(picked.model) && !picked.thinking) body.max_tokens = 4;   // 推理模型不吃这个参数
 
     const t0 = Date.now();
     try {
@@ -3223,19 +3393,31 @@ ${nextSpec}`;
     let model = typed || def[1];
     // 打开「深度思考」且没手动指定模型时，自动换成该厂商的推理模型
     if (config.deepThink && !typed) {
-      if (prov === "deepseek") model = "deepseek-reasoner";
-      else if (prov === "qwen") model = "qwq-plus";
+      // DeepSeek 现在是同一个模型开关思考模式（见下面 extra.thinking），不再换模型名
+      if (prov === "qwen") model = "qwq-plus";
       else if (prov === "zhipu") model = "glm-z1-flash";
+    }
+    // DeepSeek V4 系列默认开着思考模式：不写明关掉，每个问题都要多等二三十秒、多花几倍的钱
+    let extra = null;
+    if (prov === "deepseek" && /^deepseek-(flash|v4)/i.test(model)) {
+      extra = { thinking: { type: config.deepThink ? "enabled" : "disabled" } };
+    }
+    // 朋友邀请共用一把 Key：按设备传 user_id，DeepSeek 按它做内容安全与缓存隔离
+    if (prov === "deepseek" && config.userId && /^[A-Za-z0-9_\-]{1,64}$/.test(String(config.userId))) {
+      extra = Object.assign(extra || {}, { user_id: String(config.userId) });
     }
     return {
       url: (config.apiEndpoint || "").trim() || def[0],
-      model: model
+      model: model,
+      extra: extra,
+      thinking: !!(extra && extra.thinking && extra.thinking.type === "enabled")
     };
   }
 
   async function directFetch(config, messages, attempt) {
     attempt = attempt || 0;
-    const { url, model } = buildUpstreamBody(config, messages);
+    const picked0 = buildUpstreamBody(config, messages);
+    const url = picked0.url, model = picked0.model;
     const key = (config.apiKey || "").trim();
     if (!key) throw new Error("尚未填写 API Key，请点击左下角「⚙ 设置」填入你的密钥。");
 
@@ -3247,10 +3429,11 @@ ${nextSpec}`;
           "Content-Type": "application/json",
           "Authorization": "Bearer " + key
         },
-        body: JSON.stringify(
-          isReasoningModel(model)
-            ? { model, messages, stream: true }             // 推理模型不接受 temperature
-            : { model, messages, temperature: 0.75, stream: true })
+        body: JSON.stringify(Object.assign(
+          (isReasoningModel(model) || picked0.thinking)
+            ? { model, messages, stream: true }             // 推理／思考模式不接受 temperature
+            : { model, messages, temperature: 0.75, stream: true },
+          picked0.extra || {}))
       }, NET_HEAD_TIMEOUT);
     } catch (e) {
       const nx = nextOnConnFail(config, attempt);
@@ -3290,15 +3473,19 @@ ${nextSpec}`;
 
     try {
       const picked = buildUpstreamBody(config, messages);
+      let proxyModel = picked.model;
+      if ((config.provider || "deepseek") === "deepseek" && picked.model === "deepseek-flash") {
+        proxyModel = config.deepThink ? "deepseek-reasoner" : "deepseek-chat";
+      }
       const body = {
         provider: config.provider || "deepseek",
         apiKey: config.apiKey || "",
-        model: picked.model,
+        model: proxyModel,
         endpoint: config.apiEndpoint || "",
         messages,
         stream: true
       };
-      if (!isReasoningModel(picked.model)) body.temperature = 0.75;
+      if (!isReasoningModel(proxyModel)) body.temperature = 0.75;
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -3351,10 +3538,16 @@ ${nextSpec}`;
     const messages = [{ role: "system", content: flowPrompt || buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
     // 最近 3 轮对话（6 条），保留追问上下文；定盘／格局断定要看到每一轮的问答，放宽到 12 条
     history.slice(flowPrompt ? -12 : -6).forEach(function (h) {
-      messages.push({
-        role: (h.role === "ai" || h.role === "assistant") ? "assistant" : "user",
-        content: String(h.content || "").slice(0, 2000)
-      });
+      const isAI = (h.role === "ai" || h.role === "assistant");
+      let c = String(h.content || "").slice(0, 2000);
+      // 界面上存的是去掉了 ⟦NEXT⟧／⟦RECT⟧ 那几行的正文。原样喂回去，模型会照着前几轮的样子把这几行也省掉
+      // —— 实测从第 2 轮起追问按钮就没了，定盘的概率条也没了。所以把尾巴接回去。
+      if (isAI) {
+        const tl = String(h.tail || "").trim() ||
+          (!flowPrompt && h.followups && h.followups.length ? NEXT_MARK + h.followups.slice(0, 3).join("\uff5c") : "");
+        if (tl) c += "\n\n" + tl.slice(0, 400);
+      }
+      messages.push({ role: isAI ? "assistant" : "user", content: c });
     });
     messages.push({ role: "user", content: question });
 
@@ -3431,6 +3624,20 @@ ${nextSpec}`;
   /* 同一个节气四年里有四个日期（相差 1–2 天）—— 取月份对得上、
      且离今天最近的那一个。月份对不上就说明模型把节气季节都记错了，不插手。 */
   /* 这个公历日是不是某个节的交接日 */
+  // 「2016–2018 年」「2016 到 2018 年」：off 指向结束年那四位数字。是区间就返回 [起, 止]，否则 null
+  function yearRangeBefore(str, off) {
+    const s = String(str);
+    const pre = s.slice(Math.max(0, off - 10), off);
+    const m = pre.match(/(20\d\d)\s*年?\s*[\u2013\u2014\-~\uff5e\u81f3\u5230]\s*$/);
+    if (!m) return null;
+    const a = parseInt(m[1], 10), b = parseInt(s.substr(off, 4), 10);
+    return (b > a && b - a < 30) ? [a, b] : null;
+  }
+  function gzInYearRange(gz, rg) {
+    for (let y = rg[0]; y <= rg[1]; y++) if (yearGanZhi(y) === gz) return true;
+    return false;
+  }
+
   function isTermBoundary(mo, d) {
     const tb = solarTermTable();
     for (let i = 0; i < tb.length; i++) if (tb[i].m === mo && tb[i].d === d) return true;
@@ -3476,11 +3683,25 @@ ${nextSpec}`;
     const natal = {};
     [b.yearPillar, b.monthPillar, b.dayPillar, b.hourPillar].forEach(function (x) { if (x) natal[x] = 1; });
 
+    /* ⓪ 依据句写成了「〔〕依据：……」（照抄提示词的写法）→ 收成「〔依据：……〕」 */
+    t = t.replace(/^([ \t>]*)〔[ \t]*〕[ \t]*(?:依据)?[ \t]*[:：]?[ \t]*(\S[^\n]*?)[ \t]*$/gm, function (all, lead, body) {
+      return lead + "〔依据：" + body.replace(/^依据[ \t]*[:：][ \t]*/, "") + "〕";
+    });
+
+    /* ⓪b 照抄提示词的装饰分隔线（══════）和「按规则，最后一轮必须收」这种讲规则的话 → 静默删掉。
+          手机上一整行全角「═」会折成两行，很难看；规则是给模型的，用户看了莫名其妙。 */
+    t = t.replace(/^[ \t]*[═━─＝=~～_—]{6,}[ \t]*$/gm, "");
+    t = t.replace(/^[ \t>]*(?:按|按照|根据|依照)[ \t]*规则[^\n]{0,40}$/gm, "");
+    t = t.replace(/\n{3,}/g, "\n\n");
+
     /* ① 「2027年丁酉」——公历年配错了流年干支 */
     const reYear = new RegExp("(20\\d\\d)(\\s*年[\\s、，,（(的是为流岁干支【]{0,6})(" + GZ_PAT + ")", "g");
     t = t.replace(reYear, function (all, y, mid, gz, off, str) {
       const tail = str.charAt(off + all.length);
       if (tail === "月" || tail === "日" || tail === "时" || tail === "运") return all;  // 那是月柱/日柱/大运
+      // 年份区间后面的干支是一串（丙申、丁酉、戊戌），第一个对应起始年，不是结束年。
+      // 以前按结束年去「改对」，把对的丙申改成戊戌 —— 越改越错。区间里一律不动。
+      if (yearRangeBefore(str, off)) return all;
       const real = yearGanZhi(parseInt(y, 10));
       if (!real || real === gz) return all;
       note("流年干支", y + "年" + gz, y + "年" + real);
@@ -3656,6 +3877,12 @@ ${nextSpec}`;
       const tail = t.charAt(m.index + m[0].length);
       if (tail === "月" || tail === "日" || tail === "时" || tail === "运") continue;  // 那是月柱/日柱/大运
       const y = parseInt(m[1], 10);
+      const rg = yearRangeBefore(t, m.index);
+      if (rg) {
+        // 区间里的干支只要属于区间内某一年就是对的；对不上也说不清它指哪年，只内部记一笔
+        if (!gzInYearRange(m[2], rg)) add("year", rg[0] + "–" + m[1] + "年" + m[2], "区间内没有这个干支", "", true);
+        continue;
+      }
       add("year", m[1] + "年" + m[2], m[1] + "年" + yearGanZhi(y),
           "流年干支按公历年推，" + y + " 年是 " + yearGanZhi(y));
     }
@@ -3767,6 +3994,9 @@ ${nextSpec}`;
     /* ⑨ 应期被断到「某一天」—— 命盘给不出这个精度 */
     const reDay = /(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(之前|以前|前后|左右|当天|当日|这天|那天|之后|以后)/g;
     while ((m = reDay.exec(t)) !== null) {
+      // 「明年2月4日之后」是 prompt 要求的写法（节气交接日），repairAnswer 也放行了；
+      // 这里以前没豁免，几乎每篇回答底下都挂一条「精确到某一天…别当真」—— 自己打自己的脸。
+      if (/之前|以前|之后|以后|前后|左右/.test(m[3]) && isTermBoundary(parseInt(m[1], 10), parseInt(m[2], 10))) continue;
       add("dayPrecision", "「" + m[1] + "月" + m[2] + "日" + m[3] + "」这个精度", "靠不住",
           "命盘能支撑的应期上限是「月」，有硬引动时最多到上/中/下旬。精确到某一天是模型自己加的，别当真");
     }
@@ -3833,6 +4063,13 @@ ${nextSpec}`;
     return t.replace(/\s*`{3,}\s*$/, "").replace(/\s+$/, "");
   }
 
+  // 回答末尾那几行标记原样留一份（存进消息里），下一轮喂回模型当格式示范
+  function markerTail(s) {
+    const t = String(s || "");
+    const mk = /\u27E6(?:NEXT|RECT|DONE|GEJU)\u27E7/.exec(t);
+    return mk ? t.slice(mk.index).trim().slice(0, 400) : "";
+  }
+
   function splitFollowups(s) {
     const t = String(s || "");
     const i = t.indexOf(NEXT_MARK);
@@ -3843,7 +4080,9 @@ ${nextSpec}`;
       list = raw.split(/[\n|\uFF5C]/)
         .map(function (x) {
           return String(x)
-            .replace(/^[\s\-\*\u00b7\u3001\d\.\)\uff09]+/, "")
+            .replace(/^[\s\-\*\u00b7\u3001]+/, "")
+            // 只去掉列表序号「1.」「2）」「3、」—— 以前连数字一起削，「12月那波…」变成「月那波…」
+            .replace(/^\d{1,2}\s*[\.\)\uff09\u3001:\uff1a]\s*/, "")
             .replace(/[`*\u3010\u3011]/g, "")
             .trim();
         })
@@ -3863,7 +4102,7 @@ ${nextSpec}`;
   const LATERAL = [
     [/\u94b1|\u8d22|\u6536\u5165|\u85aa/,        "\u8fd9\u4e8b\u4f1a\u5f71\u54cd\u6211\u7684\u94b1\u5417\uff1f"],
     [/\u5de5\u4f5c|\u4e8b\u4e1a|\u804c|\u516c\u53f8|\u8df3\u69fd/, "\u5de5\u4f5c\u4e0a\u63a5\u4e0b\u6765\u8981\u6ce8\u610f\u4ec0\u4e48\uff1f"],
-    [/\u5bb6|\u7236\u6bcd|\u957f\u8f88|\u5a5a/,    "\u5bb6\u91cc\u4eba\u4f1a\u727d\u626f\u8fdb\u6765\u5417\uff1f"],
+    [/\u5bb6|\u7236\u6bcd|\u957f\u8f88|\u5a5a/,    "\u5bb6\u91cc\u4eba\u4f1a\u7275\u626f\u8fdb\u6765\u5417\uff1f"],
     [/\u8eab\u4f53|\u5065\u5eb7|\u75be\u5384|\u7761/, "\u8eab\u4f53\u4e0a\u6211\u8981\u7559\u610f\u4ec0\u4e48\uff1f"],
     [/\u4eba\u9645|\u670b\u53cb|\u5408\u4f5c|\u5c0f\u4eba/, "\u8eab\u8fb9\u4eba\u91cc\u8c01\u6700\u5f71\u54cd\u6211\uff1f"]
   ];
@@ -3896,10 +4135,8 @@ ${nextSpec}`;
     const push = function (x) { if (x && out.indexOf(x) < 0 && out.length < 3) out.push(x); };
 
     // ① 往深：盯住它刚点名的那颗星／那个十神
-    if (mode === "ziwei" && stars.length) push(stars[0] + "\u7684\u5f71\u54cd\u80fd\u538b\u4e0b\u53bb\u5417\uff1f");
-    else if (mode === "bazi" && gods.length) push(gods[0] + "\u91cd\uff0c\u5230\u5e95\u662f\u597d\u662f\u574f\uff1f");
-    else if (pals.length) push(pals[0] + "\u4e3a\u4ec0\u4e48\u4f1a\u662f\u8fd9\u4e2a\u5c40\uff1f");
-    else push("\u8fd9\u4e2a\u7ed3\u8bba\u7684\u6839\u5b50\u5230\u5e95\u5728\u54ea\uff1f");
+    // 按钮是给不懂命理的人点的：以前拼成「文曲的影响能压下去吗？」，用户看不懂就不会点
+    push("\u6211\u4e3a\u4ec0\u4e48\u4f1a\u662f\u8fd9\u6837\uff1f\u80fd\u6539\u5417\uff1f");
 
     // ② 往实：扣住它给的时间窗口
     if (years.length)       push(years[0] + "\u90a3\u4e2a\u8282\u70b9\u6211\u5177\u4f53\u8be5\u505a\u4ec0\u4e48\uff1f");
@@ -3919,7 +4156,7 @@ ${nextSpec}`;
     rectifyCandidates, buildRectifyPrompt, buildGejuPrompt, parseFlow, FLOW_MAX,
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
-    followupsFor, splitFollowups, stripNextBlock,
+    followupsFor, splitFollowups, stripNextBlock, markerTail,
     auditAnswer, repairAnswer,
     collectCovered, recentClaims, lastFocusOf,   // 供测试与调试使用
     buildReasoningSteps, buildThinkingNotes, getCurrentTimeAnchor,

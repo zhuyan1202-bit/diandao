@@ -7,3 +7,6 @@ __pycache__/
 # 本地打包产物（发布走 gh-pages 分支，无需入库）
 dist/
 dist.zip
+
+# 朋友邀请的邀请码（mkinvite.py 生成）：只在本机，绝不进仓库
+.invite_code

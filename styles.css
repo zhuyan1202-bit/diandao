@@ -1637,3 +1637,32 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
   background: var(--accent); color: #fff; }
 .flow-done-sub { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
 .flow-done-ok { font-size: 13px; color: #2e9d5b; font-weight: 600; }
+/* 证据不够硬的结论：虚线框 + 一句实话，按钮文字改成「仍然存进档案」 */
+.flow-done-weak { border-style: dashed; border-color: var(--audit-border); }
+.flow-done-warn { margin: -4px 0 10px; font-size: 12.5px; line-height: 1.6; color: var(--audit-ink); }
+
+/* ============ 朋友邀请（免填 Key） ============ */
+.invite-box { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--accent-bg);
+  border: 1px solid var(--border); font-size: 13px; line-height: 1.65; color: var(--text-main); }
+.invite-title { font-weight: 600; margin-bottom: 8px; }
+.invite-row { display: flex; gap: 8px; align-items: stretch; }
+.invite-row .form-input-xs { flex: 1 1 0%; min-width: 0; width: auto; letter-spacing: .06em; text-transform: uppercase; }
+.invite-btn { flex: 0 0 auto; border: none; border-radius: 8px; padding: 0 18px; min-height: 38px; font-size: 14px;
+  font-weight: 600; cursor: pointer; color: #fff; background: linear-gradient(135deg, #d9b86c 0%, #c2567a 100%); }
+.invite-btn:disabled { opacity: .6; cursor: default; }
+.invite-sub { margin-top: 6px; font-size: 12px; color: var(--text-sub); }
+.invite-sub.bad { color: var(--rose); }
+.invite-on b { color: var(--accent); }
+.dc-quota { white-space: nowrap; }
+
+/* 轻提示：开通成功 / 链接失效。点一下就收起 */
+#dd-toast { position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 16px);
+  width: max-content; max-width: min(92vw, 440px); padding: 11px 16px; border-radius: 12px; background: var(--bg-card);
+  color: var(--text-main); border: 1px solid rgba(52, 211, 153, .55); box-shadow: var(--shadow-lg);
+  font-size: 13.5px; line-height: 1.6; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 300; }
+#dd-toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+#dd-toast.warn { border-color: var(--audit-border); }
+@media (max-width: 820px) {
+  .invite-row .form-input-xs { width: auto; }
+  .invite-btn { min-height: 44px; }
+}

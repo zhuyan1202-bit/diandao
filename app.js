@@ -121,6 +121,121 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
+  /* ---------------- AI 通道：自己填的 Key 优先，其次朋友邀请（invite.js） ---------------- */
+  // 每次现取，不在模块顶上存常量：updateEngineBadge 启动时就会被调用
+  function inv() {
+    const I = window.DiandaoInvite;
+    return (I && I.active && I.active()) ? I : null;
+  }
+  function ownKey() {
+    return Boolean(state.settings.apiKey && state.settings.apiKey.trim()) && state.settings.provider !== "builtin";
+  }
+  function aiAccess() {
+    if (ownKey()) return { mode: "own", left: Infinity, cfg: {} };
+    const I = inv();
+    if (I) {
+      return {
+        mode: "invite", left: I.quota().left,
+        // 邀请只配 DeepSeek：备用厂商、自定义地址、模型名一律清空，免得带上本机残留的旧设置
+        cfg: { provider: "deepseek", apiKey: I.key(), apiEndpoint: "", modelName: "",
+               backupProvider: "none", backupApiKey: "", userId: I.deviceId() }
+      };
+    }
+    return { mode: "", left: 0, cfg: {} };
+  }
+  // 新用户进来时档案里是示例生日（1998-08-18）。按它回答对他没有意义，得先让他填自己的
+  function isUntouchedDefault(p) {
+    if (!p) return false;
+    return ["year", "month", "day", "hour", "gender"].every(k => String(p[k]) === String(DEFAULT_PROFILE[k])) &&
+           Number(p.minute || 0) === DEFAULT_PROFILE.minute && !p.rectified;
+  }
+  function askForBirthFirst() {
+    const d = document.getElementById("chart-drawer");
+    if (d) d.classList.add("open");
+    toggleMobileSidebar(false);
+  }
+  // 邀请模式下的失败原因，只留朋友看得懂的一小句
+  function inviteWhy(em) {
+    if (/连不上|没有响应|断了|fetch|network|load failed/i.test(em)) return "网络不稳";
+    if (/429|rate|limit|busy|繁忙|频繁/i.test(em)) return "现在用的人太多";
+    if (/5\d\d|server|服务/i.test(em)) return "AI 服务那边临时出错";
+    return em.replace(/[，。,.].*$/, "").slice(0, 30) || "原因不明";
+  }
+  function toast(msg, warn) {
+    let el = document.getElementById("dd-toast");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "dd-toast";
+      el.setAttribute("role", "status");
+      el.addEventListener("click", () => { el.className = ""; });
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.className = "show" + (warn ? " warn" : "");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => { el.className = ""; }, warn ? 7000 : 4500);
+  }
+  function renderInviteBox() {
+    const box = document.getElementById("invite-box");
+    if (!box) return;
+    const I = window.DiandaoInvite;
+    if (!I || !I.hasBlob || !I.hasBlob()) { box.style.display = "none"; return; }
+    box.style.display = "block";
+    if (I.active()) {
+      const q = I.quota();
+      box.innerHTML = '<div class="invite-on">✅ 已通过朋友邀请开通 AI，不用填 Key。今天还能问 <b>' + q.left + '</b> 次（每天 ' +
+        q.limit + ' 次，零点恢复）。</div>' +
+        '<div class="invite-sub">想不限次数：在下面填你自己的 Key，会优先用你自己的。</div>';
+      return;
+    }
+    box.innerHTML = '<div class="invite-title">有朋友给的邀请码？</div>' +
+      '<div class="invite-row"><input type="text" class="form-input-xs" id="invite-code-input" placeholder="例如 ABCDE-FGHJK"' +
+      ' autocomplete="off" autocapitalize="characters" spellcheck="false">' +
+      '<button type="button" class="invite-btn" id="btn-invite-unlock">开通</button></div>' +
+      '<div class="invite-sub" id="invite-msg">填上就能直接用 AI，不用自己申请 Key。</div>';
+    const btn = document.getElementById("btn-invite-unlock");
+    if (btn) btn.onclick = () => {
+      const inp = document.getElementById("invite-code-input");
+      const msg = document.getElementById("invite-msg");
+      btn.disabled = true; btn.textContent = "验证中";
+      setTimeout(() => {           // 让「验证中」先画出来：解密要算几十毫秒
+        const ok = I.unlock(inp ? inp.value : "");
+        btn.disabled = false; btn.textContent = "开通";
+        if (ok) { refreshAIStatus(); toast("✅ AI 已开通，每天可以问 " + I.LIMIT + " 次。"); }
+        else if (msg) {
+          msg.textContent = "邀请码不对。邀请码里没有字母 O、I、L 和数字 0、1，别看混了。";
+          msg.classList.add("bad");
+        }
+      }, 30);
+    };
+  }
+  function refreshAIStatus() {
+    updateEngineBadge();
+    renderInviteBox();
+    const dq = document.getElementById("dc-quota");
+    if (dq) {
+      const a = aiAccess();
+      dq.textContent = a.mode === "invite" ? " · 今天还能问 " + a.left + " 次" : "";
+    }
+  }
+  function initInvite() {
+    const I = window.DiandaoInvite;
+    let r = { ok: false, fromUrl: false };
+    try { if (I && I.init) r = I.init(); } catch (e) {}
+    refreshAIStatus();
+    if (!r.fromUrl) return;
+    if (r.ok) {
+      const fresh = isUntouchedDefault(state.userChart && state.userChart.profile);
+      toast(ownKey()
+        ? "邀请已开通。你自己也填了 Key，会优先用你自己的。"
+        : "✅ AI 已开通（朋友送的，每天能问 " + I.LIMIT + " 次）。" +
+          (fresh ? "先填好你的出生信息，保存后直接问。" : "直接在下面问就行。"));
+      if (fresh) askForBirthFirst();
+    } else {
+      toast("这个邀请链接已经失效了（可能换过邀请码），找发给你的人要个新的。", true);
+    }
+  }
+
   /* ---------------- 持久化 ---------------- */
   function updateEngineBadge() {
     const btn = document.getElementById("btn-open-settings");
@@ -137,6 +252,9 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     if (hasKey && prov !== "builtin") {
       btn.innerHTML = `<span style="color:#34d399;">●</span> AI 已连接 (${names[prov] || prov}) ⚙`;
+      btn.style.borderColor = "rgba(52, 211, 153, 0.45)";
+    } else if (inv()) {
+      btn.innerHTML = `<span style="color:#34d399;">●</span> AI 已连接 · 今天还剩 ${inv().quota().left} 次 ⚙`;
       btn.style.borderColor = "rgba(52, 211, 153, 0.45)";
     } else {
       btn.innerHTML = `<span>⚙</span> 引擎设置 (离线)`;
@@ -873,7 +991,16 @@ document.addEventListener("DOMContentLoaded", () => {
     for (let i = 0; i < arr.length; i++) {
       if (arr[i].role === "chart-change" || (arr[i].ck && arr[i].ck !== state.chartKey)) start = i + 1;
     }
-    return arr.slice(start).filter(m => m.role === "user" || m.role === "ai");
+    // 没拿到 AI 回答的那一轮（报错 + 内置引擎兜底）不进历史：兜底那段不是模型说的，
+    // 喂回去模型会学它的口气，还会把那一问再答一遍。老对话没有 failed 标记，按开头的 ⚠️ 认。
+    const isFailed = m => !!m && m.role === "ai" &&
+      (!!m.failed || /^> ⚠️ \*\*(AI 接口调用失败|AI 这次没连上|朋友邀请的 AI 额度用完了|这个邀请已经停用了)/.test(String(m.content || "")));
+    const rest = arr.slice(start);
+    return rest.filter((m, i) => {
+      if ((m.role !== "user" && m.role !== "ai") || m.notice || isFailed(m)) return false;
+      if (m.role === "user" && isFailed(rest[i + 1])) return false;
+      return true;
+    });
   }
 
   function updateChart(p, persist = true) {
@@ -1496,11 +1623,18 @@ document.addEventListener("DOMContentLoaded", () => {
       const what = m.flowDone.kind === "rectify"
         ? "把出生时辰定为【" + escapeHtml(m.flowDone.pick) + "】"
         : "格局断定：" + escapeHtml(m.flowDone.summary);
-      flowHtml += '<div class="flow-done">' +
+      // 最后一轮被迫收的、或者对上的推论不到一半：照实标出来，让用户自己决定存不存
+      const weak = Boolean(m.flowDone.weak);
+      const weakTxt = m.flowDone.kind === "rectify"
+        ? "证据还不够硬：这个时辰只是目前更像。可以接着补充经历再定，也可以先存着用。"
+        : "对上的推论不够多，这个判断还存疑。可以接着聊，也可以先存着用。";
+      flowHtml += '<div class="flow-done' + (weak ? ' flow-done-weak' : '') + '">' +
         '<div class="flow-done-what">' + what + '</div>' +
+        (weak && !m.flowConfirmed ? '<div class="flow-done-warn">' + weakTxt + '</div>' : '') +
         (m.flowConfirmed
           ? '<div class="flow-done-ok">✅ 已存进档案</div>'
-          : '<button type="button" class="flow-done-btn" onclick="window.__flowConfirm(\'' + escapeHtml(m.fid || "") + '\')">✅ 确认，存进档案</button>' +
+          : '<button type="button" class="flow-done-btn" onclick="window.__flowConfirm(\'' + escapeHtml(m.fid || "") + '\')">' +
+              (weak ? '仍然存进档案' : '✅ 确认，存进档案') + '</button>' +
             '<div class="flow-done-sub">存了之后，每次回答都会以这个为准。觉得不对就接着跟它说。</div>') +
         '</div>';
     }
@@ -1520,7 +1654,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ${bodyHtml}
         ${flowHtml}
         ${tarot}
-        ${!m.streaming ? `<div class="message-actions">
+        ${!m.streaming && !m.notice ? `<div class="message-actions">
             <button class="msg-action-btn" onclick="window.__copy(this)">复制</button>
           </div>` : ""}
         ${follow}
@@ -1557,9 +1691,19 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------------- 对话式定盘 / 格局断定 ---------------- */
   function startFlow(kind) {
     if (!state.userChart) return;
-    if (!(state.settings.apiKey && state.settings.apiKey.trim())) {
-      alert("定盘和格局断定要跟 AI 来回聊几轮，请先在「⚙ 设置」里填好 AI 接口的 Key。");
+    const acc = aiAccess();
+    if (!acc.mode) {
+      alert("定盘和格局断定要跟 AI 来回聊几轮，请先在「⚙ 设置」里填好 AI 接口的 Key（有朋友给的邀请码也可以填在那里）。");
       window.openModal("modal-settings");
+      return;
+    }
+    if (acc.mode === "invite" && acc.left < 1) {
+      alert("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后再来。");
+      return;
+    }
+    if (isUntouchedDefault(state.userChart.profile)) {
+      alert("先在命盘档案里填好你的出生日期、时间和性别，保存后再来" + (kind === "rectify" ? "定盘" : "做格局断定") + "。");
+      askForBirthFirst();
       return;
     }
     newSession(kind === "rectify" ? "🎯 定盘" : "🧭 格局断定", true);
@@ -1600,10 +1744,12 @@ document.addEventListener("DOMContentLoaded", () => {
       saved = "出生时辰定为【" + c.name + "】，命盘已按这个时辰重排。";
     } else {
       const act = activeProfile();
-      if (act) { act.profile.gejuVerified = m.flowDone.summary; act.profile.gejuAt = t.solarDateOnly || ""; }
-      if (state.userChart) state.userChart.profile.gejuVerified = m.flowDone.summary;
+      // 存疑的也照用户的意思存，但打上「验证不足」—— 之后的回答只拿它当参考，不当铁案
+      const sum = (m.flowDone.weak && !/存疑|验证不足/.test(m.flowDone.summary) ? "（验证不足，只能参考）" : "") + m.flowDone.summary;
+      if (act) { act.profile.gejuVerified = sum; act.profile.gejuAt = t.solarDateOnly || ""; }
+      if (state.userChart) state.userChart.profile.gejuVerified = sum;
       saveProfiles();
-      saved = "格局断定：" + m.flowDone.summary;
+      saved = "格局断定：" + sum;
     }
     m.flowConfirmed = true;
     if (s.flow) s.flow.done = true;
@@ -1728,8 +1874,30 @@ document.addEventListener("DOMContentLoaded", () => {
     const s = state.sessions.find(x => x.id === state.currentSessionId);
     if (!s) return;
     const roomMsgs = getRoomMessages(s, state.kbMode);
+    const restoreInput = () => { if (raw === undefined || raw === null) input.value = text; };
+    const pushNotice = (content) => {
+      roomMsgs.push({ role: "ai", notice: true, content: content, ck: state.chartKey });
+      saveSessions();
+      renderMessages(roomMsgs);
+      scrollBottom(true);
+    };
+    // 朋友邀请：每台设备每天有上限。定盘／格局断定聊到一半不拦，让他聊完
+    const acc0 = aiAccess();
+    if (acc0.mode === "invite" && acc0.left < 1 && !(s.flow && !s.flow.done)) {
+      restoreInput();
+      pushNotice("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后恢复。\n\n" +
+                 "想不限次数，可以在「⚙ 设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）。");
+      return;
+    }
     // 这一轮看谁的盘：聊天里给了别人的生日 → 看朋友或合盘；否则沿用本会话里的合盘对象／朋友
     const turn = resolveTurnTarget(s, text);
+    if (!turn.pair && !(turn.cfg && turn.cfg.subject) && isUntouchedDefault(state.userChart && state.userChart.profile)) {
+      restoreInput();
+      pushNotice("先告诉我你的出生信息：在打开的命盘档案里填好出生日期、时间和性别，按保存。\n\n" +
+                 "现在盘上是一个示例生日，按它回答对你没有意义。填好之后，把刚才的问题再发一次就行。");
+      askForBirthFirst();
+      return;
+    }
     state.turnChart = turn.chart;
     state.turnPair = turn.pair;
 
@@ -1751,7 +1919,8 @@ document.addEventListener("DOMContentLoaded", () => {
       updateEngineBadge();
     }
     state.settings.kbMode = state.kbMode || "all";
-    const useLLM = Boolean(state.settings.apiKey && state.settings.apiKey.trim()) && state.settings.provider !== "builtin";
+    const access = aiAccess();
+    const useLLM = Boolean(access.mode);
 
     // 思考便签：只记这次推演真正用到的坐标，几条短句，默认折叠
     const thinkNotes = ChatEngine.buildThinkingNotes
@@ -1789,10 +1958,11 @@ document.addEventListener("DOMContentLoaded", () => {
       /* ---------- 大模型：边收边出字 ---------- */
       const history = historyForLLM(roomMsgs, -2); // 已剔除旧命盘时代的对话
       let lastPaint = 0;
+      if (access.mode === "invite") { inv().consume(1); refreshAIStatus(); }
       try {
         let lastReasonPaint = 0;
         const full = await ChatEngine.callLiveAPIStream(
-          text, turn.chart, history, Object.assign({}, state.settings, turn.cfg),
+          text, turn.chart, history, Object.assign({}, state.settings, access.cfg, turn.cfg),
           (delta, soFar) => {
             if (!aiMsg.content) finishThinking();      // 第一个字落地 = 思考结束
             aiMsg.content = soFar;
@@ -1823,14 +1993,30 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.repaired = rep.fixed;            // 留档，便于排查模型在哪类数据上老出错
         aiMsg.content = foNote ? ("> \u2139\ufe0f " + foNote + "\n\n" + rep.text) : rep.text;
         aiMsg.streaming = false;
+        // 标记行（⟦NEXT⟧／⟦RECT⟧…）原样存一份：下一轮随历史喂回去，模型才会接着照格式写
+        aiMsg.tail = ChatEngine.markerTail ? ChatEngine.markerTail(full) : "";
+        // 定盘／格局断定里模型漏了快捷回复时，兜底用固定的三个答法 ——
+        // 普通聊天那套「深挖追问」放在这里驴唇不对马嘴
+        const FLOW_QUICK = {
+          rectify: ["对，确实有这回事", "没有这回事", "记不清了"],
+          geju: ["对，说中了", "不太对", "记不清了"]
+        };
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
-          : ChatEngine.followupsFor(text, turn.chart, rep.text, state.kbMode);
+          : (turn.flow && FLOW_QUICK[turn.flow]
+              ? FLOW_QUICK[turn.flow].slice()
+              : ChatEngine.followupsFor(text, turn.chart, rep.text, state.kbMode));
         if (turn.flow && ChatEngine.parseFlow) {
           const fl = ChatEngine.parseFlow(full);
           if (fl.probs.length) aiMsg.flowProbs = fl.probs;
-          if (turn.flow === "rectify" && fl.done) aiMsg.flowDone = { kind: "rectify", pick: fl.done };
-          if (turn.flow === "geju" && fl.geju) aiMsg.flowDone = { kind: "geju", summary: fl.geju };
+          if (turn.flow === "rectify" && fl.done) {
+            const top = fl.probs.slice().sort((a, b) => b.p - a.p)[0];
+            aiMsg.flowDone = { kind: "rectify", pick: fl.done, weak: !top || top.p < 80 || top.name !== fl.done };
+          }
+          if (turn.flow === "geju" && fl.geju) {
+            aiMsg.flowDone = { kind: "geju", summary: fl.geju,
+              weak: fl.gejuWeak !== undefined ? fl.gejuWeak : /存疑|还没验证|证据不足/.test(fl.geju) };
+          }
           if (aiMsg.flowDone) { aiMsg.fid = "f" + Date.now(); aiMsg.followups = []; }
         }
         // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
@@ -1841,12 +2027,25 @@ document.addEventListener("DOMContentLoaded", () => {
         sound.chime();
       } catch (err) {
         finishThinking();
-        const fb = ChatEngine.composeAnswer(text, turn.chart, history, state.kbMode);
         aiMsg.streaming = false;
-        aiMsg.content =
-          `> ⚠️ **AI 接口调用失败**：${err.message || "网络或接口异常"}\n` +
-          `> 已自动切换为内置推演引擎。点左下角「⚙ 设置 → 测试连接」可以看出到底卡在哪一环。\n\n---\n\n` +
-          fb.text;
+        aiMsg.failed = true;
+        // 先把次数退回去，再做兜底回答 —— 兜底万一出错，至少次数不会白扣
+        if (access.mode === "invite") { inv() && inv().consume(-1); refreshAIStatus(); }
+        let fb;
+        try { fb = ChatEngine.composeAnswer(text, turn.chart, history, state.kbMode); }
+        catch (e2) { fb = { text: "内置引擎这次也没算出来，稍后再问一次。", followups: [] }; }
+        let why = `> ⚠️ **AI 接口调用失败**：${err.message || "网络或接口异常"}\n` +
+          `> 已自动切换为内置推演引擎。点左下角「⚙ 设置 → 测试连接」可以看出到底卡在哪一环。\n\n---\n\n`;
+        if (access.mode === "invite") {
+          // 朋友手里没有 Key，引擎那些「去设置里换厂商 / 重新填 Key」的话对他没用，这里换成他能照做的
+          const em = String(err.message || "");
+          why = /402|Insufficient|余额/i.test(em)
+            ? "> ⚠️ **朋友邀请的 AI 额度用完了**（账户余额不足）。告诉发链接给你的人充一下值；下面先用内置引擎回答。\n\n---\n\n"
+            : /401|403|invalid|Authentication|无效|过期/i.test(em)
+              ? "> ⚠️ **这个邀请已经停用了**。找发链接给你的人要个新的；下面先用内置引擎回答。\n\n---\n\n"
+              : "> ⚠️ **AI 这次没连上**（" + inviteWhy(em) + "），这次不算次数。下面先用内置引擎回答，过一会儿再问一次试试。\n\n---\n\n";
+        }
+        aiMsg.content = why + fb.text;
         aiMsg.tarotWidget = fb.tarotWidget || null;
         aiMsg.followups = (fb.followups && fb.followups.length)
           ? fb.followups
@@ -2088,6 +2287,10 @@ document.addEventListener("DOMContentLoaded", () => {
         modelName: (document.getElementById("settings-model")?.value || "").trim(),
         deepThink: Boolean(document.getElementById("settings-deep-think")?.checked)
       };
+      // 没填自己的 Key、但开通了朋友邀请：测的就是邀请那条线
+      if (!cfg.apiKey && inv()) {
+        Object.assign(cfg, { provider: "deepseek", apiKey: inv().key(), apiEndpoint: "", modelName: "", userId: inv().deviceId() });
+      }
       box.style.display = "block";
       box.textContent = "正在连…";
       if (btn) { btn.disabled = true; btn.textContent = "连接中"; }
@@ -2122,8 +2325,10 @@ document.addEventListener("DOMContentLoaded", () => {
       localStorage.setItem("diandao_settings", JSON.stringify(state.settings));
       updateEngineBadge();
       closeModal("modal-settings");
+      refreshAIStatus();
       alert("已保存。" + (state.settings.apiKey && state.settings.provider !== "builtin"
-        ? `已启用【${state.settings.provider}】大模型实时流式推演！` : "当前使用内置推演引擎。"));
+        ? `已启用【${state.settings.provider}】大模型实时流式推演！`
+        : (inv() ? "没填自己的 Key，继续用朋友邀请（今天还剩 " + inv().quota().left + " 次）。" : "当前使用内置推演引擎。")));
     });
 
     document.getElementById("btn-clear-history")?.addEventListener("click", () => {
@@ -2567,4 +2772,6 @@ document.addEventListener("DOMContentLoaded", () => {
   loadPersisted();
   initSessions();
   bindEvents();
+  // 解邀请要算几十毫秒：放到首屏画完之后
+  setTimeout(initInvite, 30);
 });

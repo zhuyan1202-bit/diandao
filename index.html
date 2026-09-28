@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260924192534">
+  <link rel="stylesheet" href="styles.css?v=20260928150540">
 </head>
 <body>
   <canvas id="space-canvas"></canvas>
@@ -166,7 +166,7 @@
             <button class="send-btn" id="btn-send-msg" title="发送">↑</button>
           </div>
           <div class="dock-disclaimer">
-            <span class="dc-full">点到 · 严格依据本人实盘干支与底层命理规则推演 · 结论清晰直白，仅供个人决策参考</span><span class="dc-mini">点到 · 依你的实盘推演，仅供个人参考</span>
+            <span class="dc-full">点到 · 严格依据本人实盘干支与底层命理规则推演 · 结论清晰直白，仅供个人决策参考</span><span class="dc-mini">点到 · 依你的实盘推演，仅供个人参考</span><span class="dc-quota" id="dc-quota"></span>
           </div>
         </div>
       </footer>
@@ -399,6 +399,7 @@
         默认使用<strong>内置推演引擎</strong>（离线可用）。若想获得更自然、更贴合你具体情况的长文分析，
         建议接入大模型 API —— 填入后所有回答将由大模型实时生成。
       </p>
+      <div id="invite-box" class="invite-box" style="display:none"></div>
       <div style="display:flex; flex-direction:column; gap:12px;">
         <div>
           <label class="form-label-xs">引擎</label>
@@ -417,8 +418,8 @@
           <input type="password" class="form-input-xs" id="settings-api-key" placeholder="sk-…" style="width:100%;" autocomplete="off">
           <div style="font-size:10.5px;color:var(--text-dim);margin-top:4px;line-height:1.5;">
             DeepSeek 申请：<b>platform.deepseek.com</b> → API keys。<br>
-            充 ¥10 约可对话 700 次（单次约 1.4 分钱）。<br>
-            密钥只存在你本机浏览器，经本地服务器转发，不会上传到任何第三方。
+            充 ¥10 大约能问 300 次（一次约 3 分钱）。<br>
+            密钥只存在你本机浏览器，直接发给你选的厂商，不经过别的服务器。
           </div>
         </div>
         <div>
@@ -426,13 +427,13 @@
             <input type="checkbox" id="settings-deep-think">
             <span>
               <b>深度思考</b>
-              <em>换成推理模型（DeepSeek-R1 等），会先想一遍再回答，能看到真实思考过程。更慢、更贵，但推演更细。</em>
+              <em>让模型先想一遍再回答，能看到真实的思考过程。每次多等二三十秒，费用大约翻倍。</em>
             </span>
           </label>
         </div>
         <div>
           <label class="form-label-xs">模型名（留空按上面的开关自动选）</label>
-          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-chat / deepseek-reasoner" style="width:100%;">
+          <input type="text" class="form-input-xs" id="settings-model" placeholder="deepseek-flash / deepseek-v4-pro" style="width:100%;">
         </div>
         <div>
           <label class="form-label-xs">Base URL（留空用默认，一般不用填）</label>
@@ -479,19 +480,20 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260924192534"></script>
-  <script src="calendar_core.js?v=20260924192534"></script>
-  <script src="ziwei_engine.js?v=20260924192534"></script>
-  <script src="bazi_analyze.js?v=20260924192534"></script>
+  <script src="vsop87.js?v=20260928150540"></script>
+  <script src="calendar_core.js?v=20260928150540"></script>
+  <script src="ziwei_engine.js?v=20260928150540"></script>
+  <script src="bazi_analyze.js?v=20260928150540"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260924192534"></script>
-  <script src="kb_retrieve.js?v=20260924192534"></script>
-  <script src="bazi_kb.js?v=20260924192534"></script>
-  <script src="bazi_retrieve.js?v=20260924192534"></script>
-  <script src="tarot_data.js?v=20260924192534"></script>
-  <script src="ziwei_bazi_core.js?v=20260924192534"></script>
-  <script src="chat_engine.js?v=20260924192534"></script>
-  <script src="wuxing_report.js?v=20260924192534"></script>
-  <script src="app.js?v=20260924192534"></script>
+  <script src="knowledge_base.js?v=20260928150540"></script>
+  <script src="kb_retrieve.js?v=20260928150540"></script>
+  <script src="bazi_kb.js?v=20260928150540"></script>
+  <script src="bazi_retrieve.js?v=20260928150540"></script>
+  <script src="tarot_data.js?v=20260928150540"></script>
+  <script src="ziwei_bazi_core.js?v=20260928150540"></script>
+  <script src="chat_engine.js?v=20260928150540"></script>
+  <script src="wuxing_report.js?v=20260928150540"></script>
+  <script src="invite.js?v=20260928150540"></script>
+  <script src="app.js?v=20260928150540"></script>
 </body>
 </html>

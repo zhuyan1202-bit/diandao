@@ -8,7 +8,8 @@ document.addEventListener("DOMContentLoaded", () => {
     chartKey: null,          // 命盘指纹：变了就说明用户改了生辰八字
     sessions: [],
     currentSessionId: null,
-    soundEnabled: true,
+    // 默认静音：公共场合冷不丁响一声很尴尬。用户打开过就记住
+    soundEnabled: (function () { try { return localStorage.getItem("diandao_sound") === "1"; } catch (e) { return false; } })(),
     theme: "light",
     kbMode: "all",
     settings: { provider: "builtin", apiKey: "", apiEndpoint: "", kbMode: "all" }
@@ -143,16 +144,16 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     return { mode: "", left: 0, cfg: {} };
   }
-  // 新用户进来时档案里是示例生日（1998-08-18）。按它回答对他没有意义，得先让他填自己的
+  // 新用户进来时档案里是示例生日（1998-08-18）。按它回答对他没有意义，得先让他填自己的。
+  // 用户亲手保存过一次就会带上 confirmed —— 真在这一天出生的人不会被一直拦着
   function isUntouchedDefault(p) {
-    if (!p) return false;
+    if (!p || p.confirmed) return false;
     return ["year", "month", "day", "hour", "gender"].every(k => String(p[k]) === String(DEFAULT_PROFILE[k])) &&
            Number(p.minute || 0) === DEFAULT_PROFILE.minute && !p.rectified;
   }
   function askForBirthFirst() {
-    const d = document.getElementById("chart-drawer");
-    if (d) d.classList.add("open");
     toggleMobileSidebar(false);
+    openOnboard(false);
   }
   // 邀请模式下的失败原因，只留朋友看得懂的一小句
   function inviteWhy(em) {
@@ -175,17 +176,72 @@ document.addEventListener("DOMContentLoaded", () => {
     clearTimeout(toast._t);
     toast._t = setTimeout(() => { el.className = ""; }, warn ? 7000 : 4500);
   }
+
+  /* ---------- 应用内对话框：替代浏览器原生 alert / confirm / prompt ----------
+   * 原生弹窗会卡住整页、在「添加到主屏幕」的 PWA 里样式很丑，部分浏览器还会直接屏蔽。
+   * 三个方法都返回 Promise：alert → undefined；confirm → true/false；prompt → 字符串或 null。 */
+  const ui = (function () {
+    let done = null, kind = "alert";
+    const $ = id => document.getElementById(id);
+    function finish(ok) {
+      const cb = done; done = null;
+      $("modal-dialog")?.classList.remove("show");
+      if (!cb) return;
+      if (kind === "prompt") cb(ok ? ($("dlg-input").value || "").trim() : null);
+      else if (kind === "confirm") cb(Boolean(ok));
+      else cb();
+    }
+    function open(k, msg, opt) {
+      opt = opt || {};
+      if (done) finish(false);                 // 上一个还没关就被新的顶掉：按取消处理
+      kind = k;
+      const box = $("modal-dialog");
+      if (!box) return Promise.resolve(k === "confirm" ? window.confirm(msg) : undefined);
+      $("dlg-msg").textContent = msg;
+      const inp = $("dlg-input");
+      inp.hidden = k !== "prompt";
+      inp.value = opt.value || "";
+      inp.placeholder = opt.placeholder || "";
+      const ok = $("dlg-ok"), cancel = $("dlg-cancel");
+      ok.textContent = opt.okText || (k === "alert" ? "知道了" : "确定");
+      ok.classList.toggle("danger", Boolean(opt.danger));
+      cancel.hidden = k === "alert";
+      cancel.textContent = opt.cancelText || "取消";
+      box.classList.add("show");
+      setTimeout(() => { try { (k === "prompt" ? inp : ok).focus(); } catch (e) {} }, 30);
+      return new Promise(r => { done = r; });
+    }
+    // 整个文件本来就跑在 DOMContentLoaded 里，节点都在，直接绑
+    $("dlg-ok")?.addEventListener("click", () => finish(true));
+    $("dlg-cancel")?.addEventListener("click", () => finish(false));
+    $("modal-dialog")?.addEventListener("click", e => { if (e.target.id === "modal-dialog") finish(false); });
+    $("dlg-input")?.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); finish(true); } });
+    document.addEventListener("keydown", e => {
+      if (!done) return;
+      if (e.key === "Escape") finish(false);
+      else if (e.key === "Enter" && kind !== "prompt") { e.preventDefault(); finish(true); }
+    });
+    return {
+      alert: (msg, opt) => open("alert", msg, opt),
+      confirm: (msg, opt) => open("confirm", msg, opt),
+      prompt: (msg, value, opt) => open("prompt", msg, Object.assign({ value }, opt || {}))
+    };
+  })();
   function renderInviteBox() {
     const box = document.getElementById("invite-box");
     if (!box) return;
     const I = window.DiandaoInvite;
-    if (!I || !I.hasBlob || !I.hasBlob()) { box.style.display = "none"; return; }
+    const adv = document.getElementById("settings-advanced");
+    const hasInvite = Boolean(I && I.hasBlob && I.hasBlob());
+    // 朋友只需要看到邀请那一块；自己填过 Key、或这份网页没带邀请的，才把高级设置直接展开
+    if (adv) adv.open = ownKey() || !hasInvite;
+    if (!hasInvite) { box.style.display = "none"; return; }
     box.style.display = "block";
     if (I.active()) {
       const q = I.quota();
       box.innerHTML = '<div class="invite-on">✅ 已通过朋友邀请开通 AI，不用填 Key。今天还能问 <b>' + q.left + '</b> 次（每天 ' +
         q.limit + ' 次，零点恢复）。</div>' +
-        '<div class="invite-sub">想不限次数：在下面填你自己的 Key，会优先用你自己的。</div>';
+        '<div class="invite-sub">想不限次数：在下面「高级设置」里填你自己的 Key，会优先用你自己的。</div>';
       return;
     }
     box.innerHTML = '<div class="invite-title">有朋友给的邀请码？</div>' +
@@ -254,10 +310,12 @@ document.addEventListener("DOMContentLoaded", () => {
       btn.innerHTML = `<span style="color:#34d399;">●</span> AI 已连接 (${names[prov] || prov}) ⚙`;
       btn.style.borderColor = "rgba(52, 211, 153, 0.45)";
     } else if (inv()) {
-      btn.innerHTML = `<span style="color:#34d399;">●</span> AI 已连接 · 今天还剩 ${inv().quota().left} 次 ⚙`;
+      // 侧栏底部一行要挤 6 个按钮，文案压短；完整说明在「开通 AI」弹窗里
+      btn.innerHTML = `<span style="color:#34d399;">●</span> AI · 今天剩 ${inv().quota().left} 次`;
+      btn.title = "朋友邀请开通的 AI，每天 " + inv().LIMIT + " 次，零点恢复";
       btn.style.borderColor = "rgba(52, 211, 153, 0.45)";
     } else {
-      btn.innerHTML = `<span>⚙</span> 引擎设置 (离线)`;
+      btn.innerHTML = `<span>✦</span> 开通 AI`;
       btn.style.borderColor = "";
     }
   }
@@ -391,13 +449,12 @@ document.addEventListener("DOMContentLoaded", () => {
     sound.chime();
   }
 
-  function createProfile() {
-    const name = (prompt("这是谁的盘？给个名字：", "新档案") || "").trim();
-    if (!name) return;
+  // 真正建档：由引导表单（openOnboard(true)）填完后调用，调用方紧接着写入生辰并保存
+  function createProfile(name) {
     closeProfileMenu();
     saveSessions();
     const id = "p" + Date.now();
-    state.profiles.push({ id, name, profile: Object.assign({}, DEFAULT_PROFILE) });
+    state.profiles.push({ id, name: name || "新档案", profile: Object.assign({}, DEFAULT_PROFILE) });
     state.activeProfileId = id;
     saveProfiles();
     state.chartKey = "";
@@ -405,28 +462,221 @@ document.addEventListener("DOMContentLoaded", () => {
     state.sessions = [];
     initSessions();
     renderProfileBar();
-    markSaveDirty();                // 默认生辰肯定要改，直接提示他存
-    document.getElementById("chart-drawer")?.classList.add("open");
-    toggleMobileSidebar(false);
   }
 
+  /* ================= 出生信息引导（首次进入 / 新建档案） =================
+   * 以前新用户一进来看到的是示例生日排出来的盘，欢迎语却写着「已按你的出生时刻排定」。
+   * 现在：没亲手保存过生辰 → 先弹这张表。填完直接复用抽屉里「保存并重新排盘」那一套逻辑，
+   * 不另写一份排盘代码，免得两边口径分叉。 */
+  const OB = { forNew: false, gender: "", tmode: "exact" };
+  function obSeg(groupId, v) {
+    document.querySelectorAll("#" + groupId + " button").forEach(b => {
+      const on = b.dataset.v === v;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", on ? "true" : "false");
+    });
+  }
+  function obSetTmode(v) {
+    OB.tmode = v;
+    obSeg("ob-tmode", v);
+    const ex = document.getElementById("ob-exact-row");
+    const iv = document.getElementById("ob-interval-row");
+    const hint = document.getElementById("ob-time-hint");
+    if (ex) ex.hidden = v !== "exact";
+    if (iv) iv.hidden = v !== "interval";
+    if (hint) hint.textContent = v === "exact"
+      ? "出生证明上一般有。差一个时辰（两小时），盘就完全不同。"
+      : v === "interval"
+      ? "比如「早上 8 点到 10 点之间」。跨了两个时辰也没关系，之后可以用过往经历校准。"
+      : "也能排：年、月、日三柱和五行报告照样准；和时辰有关的部分会先标「待定」，建议问问家里人再来补。";
+  }
+  function openOnboard(forNew) {
+    const box = document.getElementById("modal-onboard");
+    if (!box) return;
+    if (box.classList.contains("show") && OB.forNew === forNew) return;   // 已经开着就别重置用户填到一半的内容
+    OB.forNew = Boolean(forNew);
+    OB.gender = "";
+    obSeg("ob-gender", "");
+    obSetTmode("exact");
+    const $ = id => document.getElementById(id);
+    // 城市列表直接抄抽屉里那份，只维护一处
+    const cityDst = $("ob-city"), citySrc = $("drawer-city");
+    if (cityDst && citySrc && !cityDst.options.length) cityDst.innerHTML = citySrc.innerHTML;
+    if (cityDst) cityDst.selectedIndex = 0;
+    ["ob-date", "ob-time", "ob-rs", "ob-re", "ob-name"].forEach(id => { if ($(id)) $(id).value = ""; });
+    if ($("ob-err")) $("ob-err").textContent = "";
+    $("ob-name-wrap").hidden = !OB.forNew;
+    $("ob-title").textContent = OB.forNew ? "新建一个人的档案" : "先认识一下你";
+    $("ob-sub").textContent = OB.forNew
+      ? "填上 TA 的出生信息。每个档案的对话各自独立，合盘时可以直接选。"
+      : "点到的每一句回答，都按你的出生时刻排盘推演。这些信息只存在你自己的手机里。";
+    $("ob-submit").textContent = OB.forNew ? "排好 TA 的盘" : "排好我的盘";
+    $("ob-later").textContent = OB.forNew ? "取消" : "先随便看看";
+    toggleMobileSidebar(false);
+    closeProfileMenu();
+    box.classList.add("show");
+  }
+  function submitOnboard() {
+    const $ = id => document.getElementById(id);
+    const err = msg => { $("ob-err").textContent = msg; };
+    const name = ($("ob-name")?.value || "").trim();
+    const date = $("ob-date")?.value || "";
+    if (OB.forNew && !name) return err("给这个档案起个名字，比如「小林」「我妈」。");
+    if (!OB.gender) return err("请选一下性别 —— 男女排大运的方向相反，不能省。");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err("请填出生日期。");
+    const y = Number(date.slice(0, 4));
+    if (y < 1920 || y > new Date().getFullYear()) return err("出生年份看起来不对，再检查一下。");
+    let tmode = OB.tmode, bt = "", rs = "", re = "";
+    if (tmode === "exact") {
+      bt = $("ob-time")?.value || "";
+      if (!bt) return err("请填出生时间；记不准的话选「只知道大概」。");
+    } else if (tmode === "interval") {
+      rs = $("ob-rs")?.value || ""; re = $("ob-re")?.value || "";
+      if (!rs || !re) return err("请填最早和最晚可能的时间。");
+    } else {
+      // 完全不知道：按一整天当区间排，候选时辰全部保留，界面上会标「时辰待定」
+      tmode = "interval"; rs = "00:00"; re = "23:59";
+    }
+
+    if (OB.forNew) createProfile(name);
+    // 写进抽屉表单，然后走抽屉原本的保存逻辑
+    const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+    set("drawer-profile-name", OB.forNew ? name : (activeProfile()?.name || "本人"));
+    set("drawer-gender", OB.gender);
+    set("drawer-birthdate", date);
+    set("drawer-time-mode", tmode);
+    if (bt) set("drawer-birthtime", bt);
+    if (rs) set("drawer-range-start", rs);
+    if (re) set("drawer-range-end", re);
+    set("drawer-city", $("ob-city")?.value || "默认 (东经120°标准时)");
+    $("btn-save-chart")?.click();
+    $("modal-onboard")?.classList.remove("show");
+
+    const pr = state.userChart && state.userChart.profile;
+    const pending = pr && Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1;
+    const who = OB.forNew ? name + " 的" : "你的";
+    if (!OB.forNew && maybeA2HSTip("✅ " + who + "盘排好了。")) return;
+    toast("✅ " + who + "盘排好了。" +
+      (pending ? "时辰还没定，左边可以「校准一下」。" : "") +
+      (aiAccess().mode ? "" : "要开始问问题，先用朋友发的邀请链接打开，或在「开通 AI」里填邀请码。"),
+      !aiAccess().mode);
+  }
+  /* ================= 备份 / 恢复 =================
+   * 所有数据都在 localStorage：换手机、清浏览器数据、iOS 长时间不打开都可能丢。
+   * 备份只带档案、对话和界面偏好；API Key、邀请码、设备 ID、今日次数一律不带。 */
+  const BACKUP_KEYS = [PROFILES_KEY, SESSIONS_KEY, "diandao_theme", "diandao_sound"];
+  function buildBackup() {
+    saveSessions();
+    saveProfiles();
+    const data = {};
+    BACKUP_KEYS.forEach(k => { const v = localStorage.getItem(k); if (v !== null) data[k] = v; });
+    return JSON.stringify({ app: "diandao", v: 1, at: new Date().toISOString(), data });
+  }
+  function backupFileName() {
+    const d = new Date(), pad = n => String(n).padStart(2, "0");
+    return `点到备份_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.json`;
+  }
+  async function restoreBackup(text) {
+    let obj = null;
+    try { obj = JSON.parse(String(text || "").trim()); } catch (e) {}
+    const data = obj && obj.app === "diandao" && obj.data;
+    let profiles = null;
+    try { profiles = data && JSON.parse(data[PROFILES_KEY] || "null"); } catch (e) {}
+    if (!profiles || !Array.isArray(profiles.list) || !profiles.list.length) {
+      ui.alert("这不是一份有效的点到备份。确认一下复制完整了没有（开头应该是 {\"app\":\"diandao\"）。");
+      return;
+    }
+    const names = profiles.list.map(x => x.name).filter(Boolean).slice(0, 5).join("、");
+    const when = obj.at ? new Date(obj.at).toLocaleString("zh-CN", { hour12: false }) : "未知时间";
+    const ok = await ui.confirm(`这份备份做于 ${when}，里面有 ${profiles.list.length} 个档案（${names}）。\n\n恢复会覆盖这台设备上现有的档案和对话，确定吗？`,
+                                { okText: "覆盖并恢复", danger: true });
+    if (!ok) return;
+    try {
+      BACKUP_KEYS.forEach(k => { if (data[k] !== undefined) localStorage.setItem(k, data[k]); else localStorage.removeItem(k); });
+      // 老版本兼容键会在启动时被迁移回去，先清掉，免得把旧数据又带回来
+      localStorage.removeItem(LEGACY_PROFILE_KEY);
+      localStorage.removeItem(LEGACY_SESSIONS_KEY);
+    } catch (e) {
+      ui.alert("写入失败（可能是无痕模式或存储空间满了）：" + (e && e.message || e));
+      return;
+    }
+    location.reload();
+  }
+  function bindBackup() {
+    const $ = id => document.getElementById(id);
+    $("btn-open-backup")?.addEventListener("click", () => { toggleMobileSidebar(false); openModal("modal-backup"); });
+    $("btn-backup-download")?.addEventListener("click", () => {
+      const blob = new Blob([buildBackup()], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = backupFileName();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      try { localStorage.setItem("diandao_last_backup", String(Date.now())); } catch (e) {}
+      toast("备份文件已生成。手机上可以存到「文件」，或者发到微信文件传输助手。");
+    });
+    $("btn-backup-copy")?.addEventListener("click", () => {
+      const text = buildBackup();
+      const done = () => {
+        try { localStorage.setItem("diandao_last_backup", String(Date.now())); } catch (e) {}
+        toast("已复制。粘贴到微信文件传输助手或备忘录里存好。");
+      };
+      const legacy = () => {
+        const ta = $("backup-paste");
+        ta.value = text; ta.select();
+        let ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) {}
+        if (ok) done(); else toast("没能自动复制：备份文字已经放进下面的框里，长按全选复制。", true);
+      };
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, legacy);
+      else legacy();
+    });
+    $("backup-file")?.addEventListener("change", e => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onload = () => restoreBackup(r.result);
+      r.readAsText(f);
+      e.target.value = "";
+    });
+    $("btn-backup-restore-paste")?.addEventListener("click", () => restoreBackup($("backup-paste").value));
+  }
+
+  // 首次排好盘后提示一次「添加到主屏幕」：iOS 上添加到主屏幕的网页，本地数据不会因为久不打开被清掉
+  function maybeA2HSTip(doneMsg) {
+    const standalone = window.matchMedia && window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+    let shown = false;
+    try { shown = localStorage.getItem("diandao_a2hs_tip") === "1"; } catch (e) {}
+    const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (standalone || shown || !mobile) return false;
+    try { localStorage.setItem("diandao_a2hs_tip", "1"); } catch (e) {}
+    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    ui.alert(doneMsg + "\n\n小建议：把点到「添加到主屏幕」，以后像 App 一样打开，你的档案和对话也不容易丢。\n\n" +
+      (ios ? "Safari 底部点「分享」→「添加到主屏幕」。" : "浏览器右上角菜单 →「添加到主屏幕」或「安装应用」。"));
+    return true;
+  }
+
+  window.__openOnboard = openOnboard;
+
   window.__switchProfile = switchProfile;
-  window.__renameProfile = (e, id) => {
+  window.__renameProfile = async (e, id) => {
     e.stopPropagation();
     const p = state.profiles.find(x => x.id === id);
     if (!p) return;
-    const name = (prompt("改个名字：", p.name) || "").trim();
+    const name = ((await ui.prompt("改个名字：", p.name)) || "").trim();
     if (!name) return;
     p.name = name;
     saveProfiles();
     renderProfileBar();
+    if (state.userChart) renderDynamicPrompts(state.userChart);   // 底部「正在看：xx」跟着改名
   };
-  window.__deleteProfile = (e, id) => {
+  window.__deleteProfile = async (e, id) => {
     e.stopPropagation();
-    if (state.profiles.length <= 1) { alert("至少要留一个档案。"); return; }
+    if (state.profiles.length <= 1) { ui.alert("至少要留一个档案。"); return; }
     const p = state.profiles.find(x => x.id === id);
     if (!p) return;
-    if (!confirm(`删除档案「${p.name}」？\n这个人名下的全部对话记录也会一起删掉，无法恢复。`)) return;
+    if (!(await ui.confirm(`删除档案「${p.name}」？\n这个人名下的全部对话记录也会一起删掉，无法恢复。`,
+                           { okText: "删除", danger: true }))) return;
     state.profiles = state.profiles.filter(x => x.id !== id);
     try {
       const all = allSessionStore();
@@ -626,6 +876,7 @@ document.addEventListener("DOMContentLoaded", () => {
       rangeEnd: document.getElementById("drawer-range-end")?.value || "",
       rectified: true,
       rectifiedShichen: shichenName || "",
+      confirmed: true,
       city: city,
       gender: document.getElementById("drawer-gender")?.value || "female",
       status: document.getElementById("drawer-status")?.value || ""
@@ -932,8 +1183,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const shichen = String(b.hourPillar || "").slice(-1);
     const isInterval = pr.timeMode === "interval";
     const pending = isInterval && Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1;
+    // 「校准时辰」只在时辰真的没定时出现；知道准确时间的人用不上，常驻只会添乱
+    const rb = document.getElementById("btn-open-rectify");
+    if (rb) rb.hidden = !pending || isUntouchedDefault(pr);
+    if (isUntouchedDefault(pr)) {
+      mini.innerHTML = '<div class="mini-line strong">还没填出生信息</div>' +
+        '<div class="mini-line">点这里填写，半分钟就好</div>';
+      return;
+    }
+    const allDay = pr.rangeStart === "00:00" && pr.rangeEnd === "23:59";
     const timeTxt = pending
-      ? pr.rangeStart + "\u2013" + pr.rangeEnd + " \u4e4b\u95f4"
+      ? (allDay ? "\u65f6\u8fb0\u4e0d\u8be6" : pr.rangeStart + "\u2013" + pr.rangeEnd + " \u4e4b\u95f4")
       : pad(pr.hour) + ":" + pad(pr.minute || 0) + " \u00b7 " + shichen + "\u65f6";
     const flag = pending
       ? '<span class="mini-flag warn">\u65f6\u8fb0\u5f85\u5b9a</span>'
@@ -1020,6 +1280,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (p.rangeEnd)   chart.profile.rangeEnd   = p.rangeEnd;
     chart.profile.intervalCandidates = p.intervalCandidates || null;
     chart.profile.rectified = Boolean(p.rectified);
+    chart.profile.confirmed = Boolean(p.confirmed);
     chart.profile.rectifiedShichen = p.rectifiedShichen || "";
     chart.profile.rectifyNote = p.rectifyNote || "";
     chart.profile.gejuVerified = p.gejuVerified || "";
@@ -1159,12 +1420,17 @@ document.addEventListener("DOMContentLoaded", () => {
     renderMiniProfile(chart);
 
     const tag = document.getElementById("chart-context-tag");
+    const untouched = isUntouchedDefault(chart.profile);
     if (tag) {
-      tag.textContent = mode === "all"
-        ? `✦ 你的盘：${g} · 命宫【${mingStar}】 · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】 · 日元【${dmLabel}】`
-        : mode === "ziwei"
-        ? `🔮 你的紫微盘：${g} · 命宫【${mingStar}】 · 夫妻宫【${sp.primaryStar}(${sp.sihua || "无四化"})】 · 福德宫【${fudeStar}】`
-        : `📜 你的八字盘：${g} · 四柱【${b.yearPillar} ${b.monthPillar} ${b.dayPillar} ${b.hourPillar}】 · 日元【${dmLabel}】 · 婚姻宫【${marriageBranch}】`;
+      const act = activeProfile();
+      const pr = chart.profile;
+      const pad = n => String(n).padStart(2, "0");
+      const pending = Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1;
+      tag.textContent = untouched
+        ? "✦ 还没填出生信息"
+        : `✦ 正在看：${act ? act.name : "本人"} · ${pr.year}-${pad(pr.month)}-${pad(pr.day)} ` +
+          (pending ? "时辰待定" : `${pad(pr.hour)}:${pad(pr.minute || 0)}`) +
+          ` · ${pr.gender === "female" ? "女" : "男"}`;
     }
 
     // 获取当前真实天文历法与四柱干支时间基准
@@ -1325,15 +1591,29 @@ document.addEventListener("DOMContentLoaded", () => {
       ];
     }
 
+    // 还没填生辰：上面按示例盘写出来的「你的夫妻宫…」全都不是他的，整块换成一个入口
+    if (untouched) {
+      if (greetIcon) greetIcon.textContent = "✦";
+      if (greetTitle) greetTitle.textContent = "点到 · 更懂你自己";
+      if (greetDesc) greetDesc.innerHTML = `<div>点到按你的出生时刻排出紫微和八字两张盘，再由 AI 现场推演回答你的问题。</div>` +
+        `<div style="margin-top:4px;">先花半分钟填一下出生信息，之后问什么都按你的盘来答。</div>`;
+      cards = [{ icon: "🗓", title: "填我的出生信息", sub: "出生日期、大概几点、在哪个城市 —— 不知道具体时间也能先排",
+                 onboard: true }];
+    }
+
     const gridEl = document.querySelector(".starter-prompts-grid");
     if (gridEl) {
-      gridEl.innerHTML = cards.map(c => `
-        <div class="prompt-card${c.fill ? " is-ask" : ""}"${c.fill ? ' data-fill="1"' : ` data-prompt="${escapeHtml(c.prompt)}"`}>
+      gridEl.innerHTML = cards.map(c => {
+        const attr = c.onboard ? ' data-onboard="1"'
+          : c.fill ? ' data-fill="1"'
+          : ` data-prompt="${escapeHtml(c.prompt)}"`;
+        return `
+        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}"${attr} role="button" tabindex="0">
           <div class="prompt-card-icon">${c.icon}</div>
           <div class="prompt-card-title">${escapeHtml(c.title)}</div>
           <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
-        </div>
-      `).join("");
+        </div>`;
+      }).join("");
     }
   }
 
@@ -1462,8 +1742,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   window.__switchSession = switchSession;
-  window.__delSession = (e, id) => {
+  window.__delSession = async (e, id) => {
     e.stopPropagation();
+    const target = state.sessions.find(s => s.id === id);
+    const hasMsgs = target && ((target.ziweiMessages || []).length || (target.baziMessages || []).length);
+    if (hasMsgs && !(await ui.confirm(`删除「${target.title}」这段对话？删了找不回来。`, { okText: "删除", danger: true }))) return;
     state.sessions = state.sessions.filter(s => s.id !== id);
     saveSessions();
     if (!state.sessions.length) newSession("新的推演", true);
@@ -1481,7 +1764,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const greet = document.getElementById("greeting-card");
     if (!list) return;
     if (!msgs.length) { greet.style.display = "block"; list.innerHTML = ""; }
-    else { greet.style.display = "none"; list.innerHTML = msgs.map(msgHtml).join(""); }
+    else {
+      greet.style.display = "none";
+      // 「重新回答」只挂在最后一条、且前一条是用户提问的正常回答上
+      const n = msgs.length, last = msgs[n - 1], prev = msgs[n - 2];
+      const cur = state.sessions.find(x => x.id === state.currentSessionId);
+      const canRegen = Boolean(last && last.role === "ai" && !last.streaming && !last.notice && !last.flowDone &&
+        prev && prev.role === "user" && !(cur && cur.flow && !cur.flow.done));
+      list.innerHTML = msgs.map((m, i) => msgHtml(m, canRegen && i === n - 1, i)).join("");
+    }
     scrollBottom();
   }
 
@@ -1583,7 +1874,7 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom(false);
   }
 
-  function msgHtml(m) {
+  function msgHtml(m, canRegen, idx) {
     if (m.role === "chart-change") {
       return `<div class="chart-change-divider"><span>\u{1F504} ${escapeHtml(m.content)}</span></div>`;
     }
@@ -1659,8 +1950,15 @@ document.addEventListener("DOMContentLoaded", () => {
         ${bodyHtml}
         ${flowHtml}
         ${tarot}
-        ${!m.streaming && !m.notice ? `<div class="message-actions">
+        ${!m.streaming && !m.notice && m.failed ? `<div class="message-actions">
+            ${canRegen && m.retryable !== false ? `<button class="msg-action-btn is-primary" onclick="window.__regen()">↻ 重试</button>` : ""}
+          </div>` : ""}
+        ${!m.streaming && !m.notice && !m.failed ? `<div class="message-actions">
             <button class="msg-action-btn" onclick="window.__copy(this)">复制</button>
+            ${canRegen ? `<button class="msg-action-btn" onclick="window.__regen()" title="同一个问题再问一次（算一次次数）">↻ 重新回答</button>` : ""}
+            ${m.fb === "down"
+              ? `<span class="msg-action-note">已记下，谢谢</span>`
+              : `<button class="msg-action-btn" onclick="window.__feedback(${Number(idx) || 0})" title="复制问题和回答摘要，发给把链接给你的人">👎 说得不准</button>`}
           </div>` : ""}
         ${follow}
       </div></div>`;
@@ -1698,16 +1996,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!state.userChart) return;
     const acc = aiAccess();
     if (!acc.mode) {
-      alert("定盘和格局断定要跟 AI 来回聊几轮，请先在「⚙ 设置」里填好 AI 接口的 Key（有朋友给的邀请码也可以填在那里）。");
-      window.openModal("modal-settings");
+      ui.alert("这个要跟 AI 来回聊几轮，得先开通 AI：用朋友发的邀请链接打开，或者填邀请码。", { okText: "去开通" })
+        .then(() => window.openModal("modal-settings"));
       return;
     }
     if (acc.mode === "invite" && acc.left < 1) {
-      alert("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后再来。");
+      ui.alert("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后再来。");
       return;
     }
     if (isUntouchedDefault(state.userChart.profile)) {
-      alert("先在命盘档案里填好你的出生日期、时间和性别，保存后再来" + (kind === "rectify" ? "定盘" : "做格局断定") + "。");
       askForBirthFirst();
       return;
     }
@@ -1738,7 +2035,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let saved = "";
     if (m.flowDone.kind === "rectify") {
       const c = ((s.flow && s.flow.cands) || []).find(x => x.name === m.flowDone.pick);
-      if (!c) { alert("没找到这个候选时辰，请重新定盘。"); return; }
+      if (!c) { ui.alert("没找到这个候选时辰，请重新校准一次。"); return; }
       window.__lockCandidateShichen(c.clockH, c.clockM, c.name);
       const act = activeProfile();
       const note = "出生时辰确认为【" + c.name + "】（按钟表 " + pad(c.clockH) + ":" + pad(c.clockM) + " 排盘），" +
@@ -1868,7 +2165,93 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   window.__openPairModal = openPairModal;
 
+  /* ---------- 危机兜底 ----------
+   * 「想死你了」是想念，排除掉；其余宁可多拦几次，也不能拿命理去回应这类话。 */
+  const CRISIS_RE = /自杀|自殺|轻生|輕生|不想活|活不下去|活着没(有)?意思|活着有什么意义|活着还有什么意义|想死(?!你)|结束(自己的)?生命|了结自己|割腕|跳楼|跳河|烧炭|吞药|安眠药|离开这个世界|撑不下去了/;
+  const CRISIS_REPLY =
+    "先不看盘了。\n\n" +
+    "你刚才说的话让我有点担心。如果你现在真的有伤害自己的念头，请先做一件事：**马上联系一个你信任的人**，或者拨打下面的电话，都是有人接的：\n\n" +
+    "- 全国心理援助热线：**12356**\n" +
+    "- 希望24热线：**400-161-9995**（24 小时）\n" +
+    "- 北京心理危机研究与干预中心：**010-82951332**（24 小时）\n" +
+    "- 情况紧急：**110 / 120**\n\n" +
+    "命盘讲的是节奏和倾向，没有哪一张盘写着「过不去」。难受的时候，先让自己被人接住，比任何推演都重要。\n\n" +
+    "如果只是心情很差、随口一说，也可以跟我说说最近发生了什么。";
+
+  // 上一问还在回答时再发一条，两段流式输出会串在同一个列表里，邀请额度也会白扣 —— 这里拦住
   async function send(raw) {
+    if (state.busy) {
+      toast("上一个问题还在回答，等它说完再问。");
+      return;
+    }
+    state.busy = true;
+    const btn = document.getElementById("btn-send-msg");
+    if (btn) btn.classList.add("is-busy");
+    try { await sendInner(raw); }
+    finally {
+      state.busy = false;
+      if (btn) btn.classList.remove("is-busy");
+    }
+  }
+
+  // 重新回答：只对最后一条正常回答开放。把这一问一答拿掉，原话再问一次
+  window.__regen = function () {
+    if (state.busy) return;
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s || (s.flow && !s.flow.done)) return;
+    const msgs = getRoomMessages(s, state.kbMode);
+    const last = msgs[msgs.length - 1], prev = msgs[msgs.length - 2];
+    if (!last || last.role !== "ai" || last.streaming || !prev || prev.role !== "user") return;
+    msgs.splice(msgs.length - 2, 2);
+    saveSessions();
+    send(prev.content);
+  };
+
+  // 「说得不准」：没有后端，所以把问题＋盘面摘要＋回答开头拼成一段文字复制下来，
+  // 让朋友直接微信发给站长。站长拿到的是可以复现的真实反馈，用来改 prompt。
+  window.__feedback = function (idx) {
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s) return;
+    const msgs = getRoomMessages(s, state.kbMode);
+    const m = msgs[idx];
+    if (!m || m.role !== "ai") return;
+    let q = "";
+    for (let i = idx - 1; i >= 0; i--) { if (msgs[i].role === "user") { q = msgs[i].content; break; } }
+    const pr = state.userChart && state.userChart.profile;
+    const pad = n => String(n).padStart(2, "0");
+    const chartLine = pr
+      ? `${pr.year}-${pad(pr.month)}-${pad(pr.day)} ` +
+        (pr.timeMode === "interval" && Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1
+          ? `${pr.rangeStart}–${pr.rangeEnd}（时辰待定）` : `${pad(pr.hour)}:${pad(pr.minute || 0)}`) +
+        ` · ${pr.gender === "female" ? "女" : "男"} · ${pr.city || ""}`
+      : "（无）";
+    const ans = String(m.content || "").replace(/\s+/g, " ").slice(0, 160);
+    const text = "【点到 · 说得不准】\n" +
+      "问题：" + q + "\n" +
+      "盘：" + chartLine + "\n" +
+      "回答开头：" + ans + "…\n" +
+      "哪里不准：（在这里补一句）";
+    const done = () => {
+      m.fb = "down";
+      saveSessions();
+      renderMessages(msgs);
+      ui.alert("已复制到剪贴板。\n\n发给把链接给你的人（微信里直接粘贴），最后补一句哪里不准 —— 这是改进准确度最有用的信息。");
+    };
+    const legacy = () => {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) {}
+      ta.remove();
+      if (ok) done();
+      else ui.alert("没能自动复制，长按下面这段手动复制：\n\n" + text);
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done, legacy);
+    else legacy();
+  };
+
+  async function sendInner(raw) {
     const input = document.getElementById("chat-input");
     const text = (raw !== undefined && raw !== null ? raw : input.value).trim();
     if (!text) return;
@@ -1886,21 +2269,27 @@ document.addEventListener("DOMContentLoaded", () => {
       renderMessages(roomMsgs);
       scrollBottom(true);
     };
+    // 有伤害自己的念头时：不排盘、不调 AI、不扣次数，也不受次数用完的影响 ——
+    // 先把人接住。放在所有拦截之前，确保任何状态下都能看到这段话。
+    if (CRISIS_RE.test(text)) {
+      roomMsgs.push({ role: "user", content: text, ck: state.chartKey });
+      pushNotice(CRISIS_REPLY);
+      return;
+    }
     // 朋友邀请：每台设备每天有上限。定盘／格局断定聊到一半不拦，让他聊完
     const acc0 = aiAccess();
     if (acc0.mode === "invite" && acc0.left < 1 && !(s.flow && !s.flow.done)) {
       restoreInput();
       pushNotice("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后恢复。\n\n" +
-                 "想不限次数，可以在「⚙ 设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）。");
+                 "想不限次数，可以在左下角「开通 AI → 高级设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）。");
       return;
     }
     // 这一轮看谁的盘：聊天里给了别人的生日 → 看朋友或合盘；否则沿用本会话里的合盘对象／朋友
     const turn = resolveTurnTarget(s, text);
     if (!turn.pair && !(turn.cfg && turn.cfg.subject) && isUntouchedDefault(state.userChart && state.userChart.profile)) {
-      restoreInput();
-      pushNotice("先告诉我你的出生信息：在打开的命盘档案里填好出生日期、时间和性别，按保存。\n\n" +
-                 "现在盘上是一个示例生日，按它回答对你没有意义。填好之后，把刚才的问题再发一次就行。");
+      restoreInput();                 // 问题留在输入框里，填完出生信息直接再按发送
       askForBirthFirst();
+      toast("先填一下出生信息，填好后你的问题还在输入框里，直接发送就行。");
       return;
     }
     // 没开通 AI（没填自己的 Key，也不是用邀请链接打开的）：不再拿内置模板凑一段「直断」——
@@ -1909,7 +2298,7 @@ document.addEventListener("DOMContentLoaded", () => {
       restoreInput();
       pushNotice("点到的回答要靠 AI 按你的盘现场推演，这台设备还没开通。\n\n" +
                  "· 朋友发给你的链接：请用他发的那个完整链接（网址后面带 #i= 的）重新打开一次\n" +
-                 "· 或者在「⚙ 设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）\n\n" +
+                 "· 或者点左下角「✦ 开通 AI」填邀请码，或在「高级设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）\n\n" +
                  "命盘、五行报告和今日穿搭不用 AI，命盘档案里随时能看。");
       return;
     }
@@ -2044,27 +2433,28 @@ document.addEventListener("DOMContentLoaded", () => {
         finishThinking();
         aiMsg.streaming = false;
         aiMsg.failed = true;
-        // 先把次数退回去，再做兜底回答 —— 兜底万一出错，至少次数不会白扣
+        aiMsg.retryText = text;              // 「重试」按钮用：原话再问一次
         if (access.mode === "invite") { inv() && inv().consume(-1); refreshAIStatus(); }
-        let fb;
-        try { fb = ChatEngine.composeAnswer(text, turn.chart, history, state.kbMode); }
-        catch (e2) { fb = { text: "内置引擎这次也没算出来，稍后再问一次。", followups: [] }; }
-        let why = `> ⚠️ **AI 接口调用失败**：${err.message || "网络或接口异常"}\n` +
-          `> 已自动切换为内置推演引擎。点左下角「⚙ 设置 → 测试连接」可以看出到底卡在哪一环。\n\n---\n\n`;
+        // 不再拿内置模板凑一段「答案」接在报错后面 —— 那段不是从这张盘算出来的，
+        // 朋友会当真。只说清楚为什么没答上、下一步怎么办，然后给一个「重试」按钮。
+        const em = String(err.message || "");
+        let why = `> ⚠️ **AI 接口调用失败**：${em || "网络或接口异常"}\n` +
+          `> 这次没有回答。点下面「重试」再问一次；一直不行的话，点左下角 AI 按钮 →「高级设置 → 测试连接」看卡在哪一环。`;
+        let retryable = true;
         if (access.mode === "invite") {
           // 朋友手里没有 Key，引擎那些「去设置里换厂商 / 重新填 Key」的话对他没用，这里换成他能照做的
-          const em = String(err.message || "");
-          why = /402|Insufficient|余额/i.test(em)
-            ? "> ⚠️ **朋友邀请的 AI 额度用完了**（账户余额不足）。告诉发链接给你的人充一下值；下面先用内置引擎回答。\n\n---\n\n"
-            : /401|403|invalid|Authentication|无效|过期/i.test(em)
-              ? "> ⚠️ **这个邀请已经停用了**。找发链接给你的人要个新的；下面先用内置引擎回答。\n\n---\n\n"
-              : "> ⚠️ **AI 这次没连上**（" + inviteWhy(em) + "），这次不算次数。下面先用内置引擎回答，过一会儿再问一次试试。\n\n---\n\n";
+          if (/402|Insufficient|余额/i.test(em)) {
+            why = "> ⚠️ **朋友邀请的 AI 额度用完了**（账户余额不足）。\n> 告诉发链接给你的人充一下值，充好后点「重试」。这次不算次数。";
+          } else if (/401|403|invalid|Authentication|无效|过期/i.test(em)) {
+            why = "> ⚠️ **这个邀请已经停用了**。\n> 找发链接给你的人要个新的链接。";
+            retryable = false;
+          } else {
+            why = "> ⚠️ **AI 这次没连上**（" + inviteWhy(em) + "），这次不算次数。\n> 等几秒点「重试」就行。";
+          }
         }
-        aiMsg.content = why + fb.text;
-        aiMsg.tarotWidget = fb.tarotWidget || null;
-        aiMsg.followups = (fb.followups && fb.followups.length)
-          ? fb.followups
-          : ChatEngine.followupsFor(text, turn.chart, fb.text, state.kbMode);
+        aiMsg.content = why;
+        aiMsg.retryable = retryable;
+        aiMsg.followups = [];
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);
@@ -2117,8 +2507,34 @@ document.addEventListener("DOMContentLoaded", () => {
     document.querySelector(".starter-prompts-grid")?.addEventListener("click", e => {
       const card = e.target.closest(".prompt-card");
       if (!card) return;
+      if (card.dataset.onboard) { openOnboard(false); return; }
       if (card.dataset.fill) { focusAsk(); return; }
       if (card.dataset.prompt) send(card.dataset.prompt);
+    });
+    // 问题卡原来是 div：补上键盘可达（Tab 选中、回车/空格触发）
+    document.querySelector(".starter-prompts-grid")?.addEventListener("keydown", e => {
+      if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("prompt-card")) {
+        e.preventDefault();
+        e.target.click();
+      }
+    });
+
+    /* ---- 出生信息引导 ---- */
+    document.getElementById("ob-gender")?.addEventListener("click", e => {
+      const b = e.target.closest("button[data-v]");
+      if (!b) return;
+      OB.gender = b.dataset.v;
+      obSeg("ob-gender", OB.gender);
+    });
+    document.getElementById("ob-tmode")?.addEventListener("click", e => {
+      const b = e.target.closest("button[data-v]");
+      if (b) obSetTmode(b.dataset.v);
+    });
+    document.getElementById("ob-submit")?.addEventListener("click", submitOnboard);
+    document.getElementById("ob-later")?.addEventListener("click", () =>
+      document.getElementById("modal-onboard")?.classList.remove("show"));
+    document.getElementById("modal-onboard")?.addEventListener("keydown", e => {
+      if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); submitOnboard(); }
     });
     document.querySelector(".quick-tools-row")?.addEventListener("click", e => {
       const chip = e.target.closest(".tool-chip");
@@ -2128,9 +2544,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const drawer = document.getElementById("chart-drawer");
     // 打开命盘抽屉时，顺手收起手机端的侧边抽屉，避免两层叠在一起
     const open = () => { drawer?.classList.add("open"); toggleMobileSidebar(false); };
-    const close = () => {
+    const close = async () => {
       if (document.getElementById("drawer-save-bar")?.classList.contains("is-dirty")) {
-        if (!confirm("生辰改了还没保存，直接关掉就白改了。\n确定要丢弃这次改动吗？")) return;
+        const drop = await ui.confirm("生辰改了还没保存，直接关掉就白改了。\n确定要丢弃这次改动吗？",
+                                      { okText: "丢弃改动", cancelText: "回去保存", danger: true });
+        if (!drop) return;
         const act = activeProfile();
         if (act) updateChart(act.profile, false);   // 还原成已保存的那份
         renderProfileBar();
@@ -2146,7 +2564,12 @@ document.addEventListener("DOMContentLoaded", () => {
       toggleMobileSidebar(false);
       startFlow("geju");
     });
-    document.getElementById("btn-mini-chart-card")?.addEventListener("click", open);
+    // 还没填过生辰的，给引导表单；填过的才进完整的命盘抽屉
+    const openOrOnboard = () => {
+      if (isUntouchedDefault(state.userChart && state.userChart.profile)) openOnboard(false);
+      else open();
+    };
+    document.getElementById("btn-mini-chart-card")?.addEventListener("click", openOrOnboard);
     document.getElementById("btn-open-pair")?.addEventListener("click", () => openPairModal());
     document.getElementById("pair-modal-body")?.addEventListener("click", e => {
       const b = e.target.closest(".pair-pick");
@@ -2167,11 +2590,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     document.getElementById("btn-profile-new")?.addEventListener("click", e => {
       e.stopPropagation();
-      createProfile();
+      openOnboard(true);
     });
     document.getElementById("profile-menu")?.addEventListener("click", e => e.stopPropagation());
     document.addEventListener("click", closeProfileMenu);
-    document.getElementById("btn-modify-chart-trigger")?.addEventListener("click", open);
+    document.getElementById("btn-modify-chart-trigger")?.addEventListener("click", openOrOnboard);
     document.getElementById("btn-close-drawer")?.addEventListener("click", close);
 
     const triggerLiveTst = () => {
@@ -2210,7 +2633,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("btn-save-chart")?.addEventListener("click", () => {
       const d = document.getElementById("drawer-birthdate").value;
-      if (!d) { alert("请选择出生日期"); return; }
+      if (!d) { ui.alert("请选择出生日期"); return; }
       const [y, m, dd] = d.split("-").map(Number);
       const tMode = document.getElementById("drawer-time-mode")?.value || "interval";
       const city = document.getElementById("drawer-city")?.value || "默认 (东经120°标准时)";
@@ -2240,6 +2663,7 @@ document.addEventListener("DOMContentLoaded", () => {
           rangeStart: rStart,
           rangeEnd: rEnd,
           rectified: false,
+          confirmed: true,
           intervalCandidates: res.candidates.map(c => ({
             shichenName: c.shichenName, prob: c.prob, hourPillar: c.hourPillar,
             mingStars: c.mingStars, spouseStars: c.spouseStars, traitText: c.traitText
@@ -2256,6 +2680,7 @@ document.addEventListener("DOMContentLoaded", () => {
           timeMode: "exact",
           intervalCandidates: null,
           rectified: false,
+          confirmed: true,
           city, gender, status
         }, true);
       }
@@ -2278,16 +2703,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     document.getElementById("btn-sound-toggle")?.addEventListener("click", () => {
       state.soundEnabled = !state.soundEnabled;
+      try { localStorage.setItem("diandao_sound", state.soundEnabled ? "1" : "0"); } catch (e) {}
       document.getElementById("sound-icon").textContent = state.soundEnabled ? "🔔" : "🔕";
+      toast(state.soundEnabled ? "🔔 音效已打开" : "🔕 音效已关闭");
       if (state.soundEnabled) sound.chime();
     });
 
     document.getElementById("btn-open-settings")?.addEventListener("click", () => openModal("modal-settings"));
     document.getElementById("btn-mobile-access")?.addEventListener("click", () => openMobileAccessModal());
-    if (!/^(localhost|127\.|172\.|192\.168\.|10\.)/.test(location.hostname)) {
-      const mb = document.getElementById("btn-mobile-access");
-      if (mb) mb.style.display = "none";
-    }
     document.getElementById("settings-api-key")?.addEventListener("input", e => {
       const provEl = document.getElementById("settings-provider");
       if (e.target.value.trim() && provEl && provEl.value === "builtin") {
@@ -2345,14 +2768,16 @@ document.addEventListener("DOMContentLoaded", () => {
       updateEngineBadge();
       closeModal("modal-settings");
       refreshAIStatus();
-      alert("已保存。" + (state.settings.apiKey && state.settings.provider !== "builtin"
-        ? `已启用【${state.settings.provider}】大模型实时流式推演！`
-        : (inv() ? "没填自己的 Key，继续用朋友邀请（今天还剩 " + inv().quota().left + " 次）。" : "当前使用内置推演引擎。")));
+      toast("已保存。" + (state.settings.apiKey && state.settings.provider !== "builtin"
+        ? `用你自己的 ${state.settings.provider} Key 回答。`
+        : (inv() ? "没填自己的 Key，继续用朋友邀请（今天还剩 " + inv().quota().left + " 次）。" : "还没开通 AI，暂时只能看命盘和五行报告。")),
+        !(state.settings.apiKey && state.settings.provider !== "builtin") && !inv());
     });
 
-    document.getElementById("btn-clear-history")?.addEventListener("click", () => {
+    document.getElementById("btn-clear-history")?.addEventListener("click", async () => {
       const who = activeProfile();
-      if (confirm(`确定清空「${who ? who.name : "当前档案"}」的全部会话记录？\n（其他档案不受影响）`)) {
+      if (await ui.confirm(`确定清空「${who ? who.name : "当前档案"}」的全部会话记录？\n（其他档案不受影响，删了找不回来）`,
+                           { okText: "全部清空", danger: true })) {
         state.sessions = [];
         saveSessions();
         newSession("新的推演", true);
@@ -2371,11 +2796,22 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------------- 复制 / 长图 ---------------- */
   window.__copy = btn => {
     const b = btn.closest(".message-bubble");
-    const t = b ? b.innerText.replace(/复制/g, "").trim() : "";
-    navigator.clipboard.writeText(t).then(() => {
+    // 只复制正文：以前 innerText 整块拿，会把思考便签和追问按钮一起带走
+    const ans = b && b.querySelector(".ai-final-answer");
+    const t = ((ans || b) ? (ans || b).innerText : "").replace(/复制|↻ 重新回答/g, "").trim();
+    const ok = () => {
       btn.textContent = "已复制";
       setTimeout(() => btn.textContent = "复制", 1400);
-    });
+    };
+    const legacy = () => {        // 局域网 http 打开时没有 navigator.clipboard
+      const ta = document.createElement("textarea");
+      ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); ok(); } catch (e) { toast("复制失败，长按文字手动复制吧。", true); }
+      ta.remove();
+    };
+    if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(ok, legacy);
+    else legacy();
   };
 
   /* ---------------- 导出命盘图 ---------------- */
@@ -2387,7 +2823,7 @@ document.addEventListener("DOMContentLoaded", () => {
   function exportPoster() {
     const chart = state.userChart;
     if (!chart || !chart.ziwei || !chart.ziwei.palaces) {
-      alert("还没有排盘。请先在左侧「命盘设置」里填写出生时间。");
+      ui.alert("还没有排盘。先填好出生信息。");
       return;
     }
     drawChartImage(chart);
@@ -2714,7 +3150,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   function renderWuxingReport(data, name) {
     if (!data || !data.report) {
-      return '<div class="wx-empty">先在「🪢 命盘设置」里填好出生信息，才能生成五行报告。</div>';
+      return '<div class="wx-empty">先填好出生信息（左边「命盘档案」），才能生成五行报告。</div>';
     }
     const r = data.report, d = data.today;
     const WXN = { 木: "木", 火: "火", 土: "土", 金: "金", 水: "水" };
@@ -2788,9 +3224,27 @@ document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initStarCanvas();
   sound = initSound();
+  { const si = document.getElementById("sound-icon"); if (si) si.textContent = state.soundEnabled ? "🔔" : "🔕"; }
   loadPersisted();
   initSessions();
   bindEvents();
+  bindBackup();
+  // 「手机扫码」只在本机 server.py 起的局域网服务里有用；部署到公网（GitHub Pages）后是坏的，干脆不显示
+  (function () {
+    const h = location.hostname;
+    const lan = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h) || h.endsWith(".local");
+    const b = document.getElementById("btn-mobile-access");
+    if (b) b.hidden = !lan;
+  })();
+  // 第一次来（档案还是示例生日）：先填出生信息，别让他对着别人的盘看半天
+  if (isUntouchedDefault(state.userChart && state.userChart.profile)) openOnboard(false);
+  // 首屏已经画好：撤掉启动画面
+  (function () {
+    const el = document.getElementById("boot-splash");
+    if (!el) return;
+    el.style.opacity = "0";
+    setTimeout(() => el.remove(), 380);
+  })();
   // 解邀请要算几十毫秒：放到首屏画完之后
   setTimeout(initInvite, 30);
 });

@@ -1666,3 +1666,108 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
   .invite-row .form-input-xs { width: auto; }
   .invite-btn { min-height: 44px; }
 }
+
+/* =====================================================================
+ * 交互改版（小范围朋友版）：引导填生辰 / 应用内对话框 / 侧栏瘦身
+ * ===================================================================== */
+
+/* hidden 属性要压过各组件自己写的 display:flex / grid */
+[hidden] { display: none !important; }
+
+/* 顶部「知识库锁定」横幅：跟欢迎语、底部盘面条重复，而且满屏干支，先整体收起 */
+.room-kb-lock-banner { display: none !important; }
+
+/* 侧栏功能按钮：宽按钮占满一行 */
+.profile-action-btn.is-wide { grid-column: span 2; }
+
+/* 键盘可达：问题卡、按钮获得焦点时看得见 */
+.prompt-card:focus-visible,
+.ob-seg button:focus-visible,
+.dlg-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prompt-card.is-onboard { border-color: var(--accent); background: var(--accent-bg); }
+
+/* 回答中：发送键变灰，提示现在不能再发 */
+.send-btn.is-busy { opacity: .45; cursor: progress; }
+
+/* ---------- 设置：高级区折叠 ---------- */
+.settings-advanced { margin-top: 14px; border-top: 1px dashed var(--border-strong); padding-top: 12px; }
+.settings-advanced > summary {
+  cursor: pointer; font-size: 13px; color: var(--text-muted); list-style: none; user-select: none;
+}
+.settings-advanced > summary::-webkit-details-marker { display: none; }
+.settings-advanced > summary::before { content: "▸ "; }
+.settings-advanced[open] > summary::before { content: "▾ "; }
+
+/* ---------- 出生信息引导 ---------- */
+@media (min-width: 821px) { .ob-box { max-width: 440px; } }
+.ob-head { text-align: center; margin-bottom: 18px; }
+.ob-logo {
+  width: 44px; height: 44px; margin: 0 auto 10px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  background: var(--accent-bg); color: var(--accent);
+}
+.ob-head h3 { font-size: 19px; margin-bottom: 6px; }
+.ob-head p { font-size: 13px; color: var(--text-sub); line-height: 1.6; }
+.ob-field { display: flex; flex-direction: column; gap: 7px; margin-bottom: 15px; }
+.ob-label { font-size: 13px; font-weight: 600; color: var(--text-main); }
+.ob-opt { font-weight: 400; color: var(--text-muted); font-size: 12px; margin-left: 4px; }
+.ob-input { width: 100%; font-size: 15px; padding: 11px 12px; }
+.ob-hint { font-size: 12px; color: var(--text-muted); line-height: 1.55; }
+.ob-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ob-seg.ob-seg-3 { grid-template-columns: 1fr 1fr 1fr; }
+.ob-seg button {
+  padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg-card-soft); color: var(--text-sub); font-size: 14px; cursor: pointer;
+  font-family: inherit; transition: all .15s;
+}
+.ob-seg button.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.ob-sub-row { display: flex; align-items: center; gap: 8px; }
+.ob-sub-row span { color: var(--text-muted); font-size: 13px; flex: 0 0 auto; }
+.ob-err { min-height: 18px; font-size: 13px; color: var(--rose); margin: -4px 0 8px; }
+.ob-go { min-height: 46px; font-size: 15px; }
+.ob-later {
+  display: block; width: 100%; margin-top: 8px; padding: 10px; border: none; background: none;
+  color: var(--text-muted); font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.ob-later:hover { color: var(--text-main); }
+
+/* ---------- 应用内对话框 ---------- */
+.dlg-box { max-width: 360px; padding: 22px 20px 16px; }
+.dlg-msg { font-size: 14.5px; line-height: 1.65; color: var(--text-main); white-space: pre-line; margin-bottom: 16px; }
+.dlg-input { width: 100%; font-size: 15px; padding: 10px 12px; margin: -4px 0 16px; }
+.dlg-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.dlg-btn {
+  min-width: 84px; padding: 10px 14px; border-radius: 10px; font-size: 14px; cursor: pointer; font-family: inherit;
+  border: 1px solid var(--border-strong); background: transparent; color: var(--text-main);
+}
+.dlg-btn.dlg-ok { border-color: transparent; background: var(--accent); color: #fff; font-weight: 600; }
+[data-theme="dark"] .dlg-btn.dlg-ok { color: #1f1b2a; }
+.dlg-btn.dlg-ok.danger { background: #c0453f; color: #fff; }
+@media (max-width: 820px) {
+  .dlg-btn { flex: 1; min-height: 44px; }
+  .ob-seg button { min-height: 44px; }
+}
+
+/* ---------- 回答操作：重试 / 不准 ---------- */
+.msg-action-btn.is-primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.msg-action-note { font-size: 12px; color: var(--text-muted); align-self: center; }
+
+/* ---------- 备份 / 恢复 ---------- */
+.bk-note { font-size: 13px; line-height: 1.65; color: var(--text-sub); margin-bottom: 8px; }
+.bk-muted { color: var(--text-muted); font-size: 12px; }
+.bk-actions { display: flex; gap: 8px; margin: 10px 0 6px; flex-wrap: wrap; }
+.bk-actions .save-chart-btn { flex: 1; margin-top: 0; width: auto; }
+.bk-ghost {
+  flex: 1; display: inline-flex; align-items: center; justify-content: center; min-height: 42px;
+  padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--border-strong); background: transparent;
+  color: var(--text-main); font-size: 13.5px; cursor: pointer; font-family: inherit;
+}
+.bk-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.bk-file { width: 100%; }
+.bk-sep {
+  margin: 18px 0 6px; padding-top: 14px; border-top: 1px dashed var(--border-strong);
+  font-size: 13px; font-weight: 600; color: var(--text-main);
+}
+.bk-paste { width: 100%; margin: 6px 0 8px; font-size: 12px; resize: vertical; font-family: ui-monospace, Menlo, monospace; }
+/* 侧栏底部按钮多了一个：放不下时允许换行，不要把最右边的挤出去 */
+.sidebar-footer { flex-wrap: wrap; row-gap: 2px; }

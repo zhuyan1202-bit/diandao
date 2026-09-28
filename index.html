@@ -12,9 +12,29 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260928161603">
+  <link rel="stylesheet" href="styles.css?v=20260928174150">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <style>
+    /* 启动画面：脚本约 1.2MB，弱网下要加载好几秒，别让人对着白屏 */
+    #boot-splash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px; background: #f7f5f0; transition: opacity .35s; }
+    #boot-splash .bs-logo { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center;
+      justify-content: center; font-size: 26px; color: #fff; background: linear-gradient(135deg, #d9b86c, #c2567a);
+      animation: bs-pulse 1.4s ease-in-out infinite; }
+    #boot-splash .bs-text { font-size: 14px; color: #8c847a; font-family: -apple-system, "PingFang SC", sans-serif; }
+    @keyframes bs-pulse { 50% { transform: scale(.92); opacity: .75; } }
+    @media (prefers-color-scheme: dark) { #boot-splash { background: #16171f; } #boot-splash .bs-text { color: #8a867e; } }
+  </style>
 </head>
 <body>
+  <div id="boot-splash" role="status" aria-live="polite">
+    <div class="bs-logo">✦</div>
+    <div class="bs-text">点到 · 正在准备你的命盘…</div>
+  </div>
+  <script>
+    // 兜底：万一脚本出错没能走到启动结尾，15 秒后也把启动画面撤掉，别永远卡住
+    setTimeout(function () { var el = document.getElementById("boot-splash"); if (el) el.remove(); }, 15000);
+  </script>
   <canvas id="space-canvas"></canvas>
 
   <div class="app-layout">
@@ -55,11 +75,10 @@
       </div>
 
       <div class="profile-actions">
-        <button class="profile-action-btn" id="btn-open-drawer">🪢 命盘设置</button>
-        <button class="profile-action-btn is-accent" id="btn-open-rectify">🎯 定盘 · 校准时辰</button>
-        <button class="profile-action-btn is-geju" id="btn-open-geju">🧭 格局断定</button>
-        <button class="profile-action-btn is-pair" id="btn-open-pair">💞 合盘</button>
-        <button class="profile-action-btn is-wx" id="btn-open-wuxing">🌿 今日运势 · 五行报告</button>
+        <button class="profile-action-btn is-accent is-wide" id="btn-open-rectify" hidden>⏱ 出生时辰还没定，校准一下</button>
+        <button class="profile-action-btn is-geju" id="btn-open-geju" title="AI 先下判断，再拿你过去的经历来验证">🧭 看看我的格局</button>
+        <button class="profile-action-btn is-pair" id="btn-open-pair">💞 和 TA 合不合</button>
+        <button class="profile-action-btn is-wx is-wide" id="btn-open-wuxing">🌿 今日运势 · 五行报告</button>
       </div>
 
       <div class="sidebar-sessions" id="sessions-container">
@@ -77,8 +96,11 @@
         <button class="tool-icon-btn" id="btn-sound-toggle" title="音效开关">
           <span id="sound-icon">🔔</span>
         </button>
-        <button class="tool-icon-btn" id="btn-mobile-access" title="用手机扫码访问">
+        <button class="tool-icon-btn" id="btn-mobile-access" title="用手机扫码访问" hidden>
           <span>📱</span>
+        </button>
+        <button class="tool-icon-btn" id="btn-open-backup" title="备份 / 恢复档案和对话">
+          <span>💾</span>
         </button>
         <button class="tool-icon-btn" id="btn-clear-history" title="清空全部记录">
           <span>🗑</span>
@@ -392,15 +414,16 @@
   <div class="modal-overlay" id="modal-settings">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 style="font-size:17px;">⚙ AI 引擎设置</h3>
+        <h3 style="font-size:17px;">✦ 开通 AI</h3>
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-settings')">×</button>
       </div>
-      <p style="font-size:13px; color:var(--text-sub); margin-bottom:16px;">
-        默认使用<strong>内置推演引擎</strong>（离线可用）。若想获得更自然、更贴合你具体情况的长文分析，
-        建议接入大模型 API —— 填入后所有回答将由大模型实时生成。
+      <p style="font-size:13px; color:var(--text-sub); margin-bottom:16px;" id="settings-intro">
+        点到的回答要靠 AI 按你的盘现场推演。朋友发给你的邀请链接打开就能用；也可以填邀请码。
       </p>
       <div id="invite-box" class="invite-box" style="display:none"></div>
-      <div style="display:flex; flex-direction:column; gap:12px;">
+      <details class="settings-advanced" id="settings-advanced">
+      <summary>我有自己的 API Key（高级设置）</summary>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:12px;">
         <div>
           <label class="form-label-xs">引擎</label>
           <select class="form-select-xs" id="settings-provider" style="width:100%;">
@@ -465,6 +488,102 @@
         <div id="settings-test-result" style="display:none; font-size:12px; line-height:1.65;
              padding:9px 11px; border-radius:9px; background:var(--bg-soft); color:var(--text-sub);"></div>
       </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- ========== 首次填写出生信息 / 新建档案 ========== -->
+  <div class="modal-overlay" id="modal-onboard">
+    <div class="modal-box ob-box">
+      <div class="ob-head">
+        <div class="ob-logo">✦</div>
+        <h3 id="ob-title">先认识一下你</h3>
+        <p id="ob-sub">点到的每一句回答，都按你的出生时刻排盘推演。这些信息只存在你自己的手机里。</p>
+      </div>
+
+      <div class="ob-field" id="ob-name-wrap" hidden>
+        <label class="ob-label" for="ob-name">这是谁的盘</label>
+        <input type="text" class="form-input-xs ob-input" id="ob-name" placeholder="比如：小林 / 我妈 / 他" maxlength="12">
+      </div>
+
+      <div class="ob-field">
+        <span class="ob-label">性别</span>
+        <div class="ob-seg" id="ob-gender" role="radiogroup">
+          <button type="button" data-v="female">女</button>
+          <button type="button" data-v="male">男</button>
+        </div>
+      </div>
+
+      <div class="ob-field">
+        <label class="ob-label" for="ob-date">出生日期（公历）</label>
+        <input type="date" class="form-input-xs ob-input" id="ob-date" min="1920-01-01" max="2030-12-31">
+        <div class="ob-hint">只记得农历？先查一下对应的公历日期再填。</div>
+      </div>
+
+      <div class="ob-field">
+        <span class="ob-label">出生时间</span>
+        <div class="ob-seg ob-seg-3" id="ob-tmode" role="radiogroup">
+          <button type="button" data-v="exact" class="on">知道几点几分</button>
+          <button type="button" data-v="interval">只知道大概</button>
+          <button type="button" data-v="unknown">完全不知道</button>
+        </div>
+        <div class="ob-sub-row" id="ob-exact-row">
+          <input type="time" class="form-input-xs ob-input" id="ob-time">
+        </div>
+        <div class="ob-sub-row" id="ob-interval-row" hidden>
+          <input type="time" class="form-input-xs ob-input" id="ob-rs">
+          <span>到</span>
+          <input type="time" class="form-input-xs ob-input" id="ob-re">
+        </div>
+        <div class="ob-hint" id="ob-time-hint">出生证明上一般有。差一个时辰（两小时），盘就完全不同。</div>
+      </div>
+
+      <div class="ob-field">
+        <label class="ob-label" for="ob-city">出生城市 <span class="ob-opt">选了更准，不在列表里就选最近的</span></label>
+        <select class="form-select-xs ob-input" id="ob-city"></select>
+      </div>
+
+      <div class="ob-err" id="ob-err" role="alert"></div>
+      <button type="button" class="save-chart-btn ob-go" id="ob-submit">排好我的盘</button>
+      <button type="button" class="ob-later" id="ob-later">先随便看看</button>
+    </div>
+  </div>
+
+  <!-- ========== 备份 / 恢复 ========== -->
+  <div class="modal-overlay" id="modal-backup">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <h3 style="font-size:17px;">💾 备份 / 恢复</h3>
+        <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-backup')" aria-label="关闭">×</button>
+      </div>
+      <p class="bk-note">
+        档案、对话、定盘结论都只存在<strong>这台设备的这个浏览器</strong>里。换手机、换浏览器、清理浏览器数据都会丢。
+        隔一阵子备份一次，放到微信「文件传输助手」或备忘录里就行。
+      </p>
+      <p class="bk-note bk-muted">备份里不含 API Key 和邀请码。</p>
+      <div class="bk-actions">
+        <button type="button" class="save-chart-btn" id="btn-backup-download">下载备份文件</button>
+        <button type="button" class="bk-ghost" id="btn-backup-copy">复制备份文字</button>
+      </div>
+      <div class="bk-sep">恢复</div>
+      <p class="bk-note bk-muted">会<strong>覆盖</strong>这台设备上现有的档案和对话。</p>
+      <div class="bk-actions">
+        <label class="bk-ghost bk-file">选择备份文件<input type="file" id="backup-file" accept=".json,application/json,text/plain" hidden></label>
+      </div>
+      <textarea id="backup-paste" class="form-input-xs bk-paste" rows="3" placeholder="或者把备份文字粘贴到这里"></textarea>
+      <button type="button" class="bk-ghost" id="btn-backup-restore-paste" style="width:100%;">用粘贴的文字恢复</button>
+    </div>
+  </div>
+
+  <!-- ========== 通用对话框（替代浏览器原生 alert / confirm / prompt） ========== -->
+  <div class="modal-overlay" id="modal-dialog" style="z-index:400">
+    <div class="modal-box dlg-box" role="dialog" aria-modal="true">
+      <div class="dlg-msg" id="dlg-msg"></div>
+      <input type="text" class="form-input-xs dlg-input" id="dlg-input" maxlength="20" hidden>
+      <div class="dlg-btns">
+        <button type="button" class="dlg-btn" id="dlg-cancel">取消</button>
+        <button type="button" class="dlg-btn dlg-ok" id="dlg-ok">好的</button>
+      </div>
     </div>
   </div>
 
@@ -480,20 +599,20 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260928161603"></script>
-  <script src="calendar_core.js?v=20260928161603"></script>
-  <script src="ziwei_engine.js?v=20260928161603"></script>
-  <script src="bazi_analyze.js?v=20260928161603"></script>
+  <script src="vsop87.js?v=20260928174150"></script>
+  <script src="calendar_core.js?v=20260928174150"></script>
+  <script src="ziwei_engine.js?v=20260928174150"></script>
+  <script src="bazi_analyze.js?v=20260928174150"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260928161603"></script>
-  <script src="kb_retrieve.js?v=20260928161603"></script>
-  <script src="bazi_kb.js?v=20260928161603"></script>
-  <script src="bazi_retrieve.js?v=20260928161603"></script>
-  <script src="tarot_data.js?v=20260928161603"></script>
-  <script src="ziwei_bazi_core.js?v=20260928161603"></script>
-  <script src="chat_engine.js?v=20260928161603"></script>
-  <script src="wuxing_report.js?v=20260928161603"></script>
-  <script src="invite.js?v=20260928161603"></script>
-  <script src="app.js?v=20260928161603"></script>
+  <script src="knowledge_base.js?v=20260928174150"></script>
+  <script src="kb_retrieve.js?v=20260928174150"></script>
+  <script src="bazi_kb.js?v=20260928174150"></script>
+  <script src="bazi_retrieve.js?v=20260928174150"></script>
+  <script src="tarot_data.js?v=20260928174150"></script>
+  <script src="ziwei_bazi_core.js?v=20260928174150"></script>
+  <script src="chat_engine.js?v=20260928174150"></script>
+  <script src="wuxing_report.js?v=20260928174150"></script>
+  <script src="invite.js?v=20260928174150"></script>
+  <script src="app.js?v=20260928174150"></script>
 </body>
 </html>

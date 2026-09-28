@@ -1450,9 +1450,14 @@
     const male = p.gender !== "female";
     const forward = (yangYear === male);            // 阳男阴女顺行，阴男阳女逆行
 
-    const jdBirth = CC.gregorianToJD(p.year, p.month, p.day + (p.hour + (p.minute || 0) / 60) / 24);
+    // 出生的绝对时刻：夏令时先扣掉（节气时刻是北京标准时）
+    const AC = global.AstrologyCore;
+    const s = (AC && AC.toStandardTime)
+      ? AC.toStandardTime(p.year, p.month, p.day, p.hour || 0, p.minute || 0)
+      : { year: p.year, month: p.month, day: p.day, hour: p.hour || 0, minute: p.minute || 0 };
+    const jdBirth = CC.gregorianToJD(s.year, s.month, s.day + (s.hour + (s.minute || 0) / 60) / 24);
     let prevJD = null, nextJD = null;
-    for (let yy = p.year - 1; yy <= p.year + 1; yy++) {
+    for (let yy = s.year - 1; yy <= s.year + 1; yy++) {
       for (let k = 0; k < 24; k += 2) {             // 偶数 k 为「节」
         const j = CC.solarTermJD(yy, k);
         if (j <= jdBirth && (prevJD === null || j > prevJD)) prevJD = j;
@@ -1466,19 +1471,45 @@
     let startM = Math.round((ageF - startY) * 12);
     if (startM >= 12) { startY += 1; startM = 0; }          // 免得出现「7岁12个月」
 
+    // 交运的具体日子：3 天＝1 年、1 天（12 个时辰）＝4 个月、1 个时辰＝10 天，从出生那一刻往后推
+    // （与通行排盘软件一致）。以前直接拿「出生年＋起运岁数」当交运年 ——
+    // 出生月份加上零头的月数一跨年（约四成的人），每一步大运的年份都整整差一年。
+    let mins = Math.round(days * 1440);
+    const addY = Math.floor(mins / 4320); mins -= addY * 4320;
+    const addM = Math.floor(mins / 360);  mins -= addM * 360;
+    const addD = Math.floor(mins / 12);   mins -= addD * 12;
+    const addH = mins * 2;
+    const t0 = new Date(Date.UTC(s.year, s.month - 1, s.day, s.hour, s.minute || 0));
+    t0.setUTCFullYear(t0.getUTCFullYear() + addY);
+    t0.setUTCMonth(t0.getUTCMonth() + addM);
+    t0.setTime(t0.getTime() + (addD * 24 + addH) * 3600000);
+    const jy = { y: t0.getUTCFullYear(), m: t0.getUTCMonth() + 1, d: t0.getUTCDate() };
+
     const m60 = idx60(b.monthPillar);
     const list = [];
     for (let s2 = 1; s2 <= 9; s2++) {
-      const from = startY + (s2 - 1) * 10;
+      const fy = jy.y + (s2 - 1) * 10;
       list.push({
         gz: gzOf60(m60 + (forward ? s2 : -s2)),
-        fromAge: from, toAge: from + 9,
-        fromYear: p.year + from, toYear: p.year + from + 9
+        fromYear: fy, toYear: fy + 9, fromMonth: jy.m,
+        fromAge: fy - p.year + 1, toAge: fy - p.year + 10        // 虚岁，和紫微大限同一套算法
       });
     }
-    const val = { forward: forward, startY: startY, startM: startM, list: list };
+    const val = { forward: forward, startY: startY, startM: startM, startDate: jy, list: list };
     _dayunCache = { key: key, val: val };
     return val;
+  }
+
+  // 当前走哪步大运：交运落在某年某月，只拿岁数或年份去比，交运那年会判错
+  function dayunAt(dy, Y, M) {
+    let cur = null;
+    ((dy && dy.list) || []).forEach(function (d) {
+      if (d.fromYear < Y || (d.fromYear === Y && (d.fromMonth || 1) <= (M || 12))) cur = d;
+    });
+    return cur;
+  }
+  function dayunYearNo(d, Y, M) {
+    return (Y - d.fromYear) - ((M || 12) < (d.fromMonth || 1) ? 1 : 0) + 1;
   }
 
 
@@ -1510,13 +1541,51 @@
     "水":"贸易外销、物流运输、旅游、咨询顾问、自媒体、外语涉外、流动性强的"
   };
 
-  // 各柱权重：月令最重，其次日支（日元坐下），再是年时支与天干
-  const SLOT_W = { moZhi: 3.0, dayZhi: 1.5, yearZhi: 1.0, hourZhi: 1.0,
+  // 各位权重：月令最重（「令」2.0 + 月支作根 1.0，合计约占三成），其次日支（日元坐下），再是年时支与天干
+  const SLOT_W = { ling: 2.0, moZhi: 1.0, dayZhi: 1.5, yearZhi: 1.0, hourZhi: 1.0,
                    yearGan: 0.8, moGan: 1.0, hourGan: 0.8 };
   // 藏干权重：本气 / 中气 / 余气
   const HID_W = [0.6, 0.25, 0.15];
   // 某五行对日元的帮扶度，范围 [-1, +1]
   const HELP = { "比": 1.0, "生": 0.8, "泄": -0.6, "耗": -0.8, "克": -1.0 };
+
+  /* 月令当令的五行（旺相休囚死）：寅卯木、巳午火、申酉金、亥子水、辰戌丑未土 —— 就是月支本气那一行。
+     辰戌丑未里上一季的余气（乙丁辛癸）不改变当令的五行，只在 ② 里作为根计入。
+     人元司令、土旺用事这类按出生日子细分的算法，各家天数不一，而且会在分界那天把整张盘翻一档，
+     只作为一条信息摆在卷宗里，不拿来改分。 */
+  const KU_PREV = { "辰": "春木", "未": "夏火", "戌": "秋金", "丑": "冬水" };
+  function lingOf(chart, moZhi) {
+    const ben = (HIDDEN_GAN[moZhi] || [])[0];
+    return { wx: ben ? GANWX[ben] : "",
+             note: "本气" + ben + "，" + (KU_PREV[moZhi] ? "四季月土旺（" + KU_PREV[moZhi] + "的余气只算作根），" : "") };
+  }
+
+  /* 原局地支成局（旺衰打分用）：[{wx, w, note}]，同一行只算一次。
+     三合、三会三支齐全 → 1.0；三合缺一但含旺神（子午卯酉）、两支相邻、没被旁边的支冲开 → 0.5。
+     半会（只见两支同方）各家说法不一，六合多半合而不化，都不计分。 */
+  function juSlots(Z) {
+    const POS = ["年", "月", "日", "时"], out = {};
+    function put(wx, w, note) { if (!out[wx] || out[wx].w < w) out[wx] = { wx: wx, w: w, note: note }; }
+    SANHE_GROUPS.concat(SANHUI_GROUPS).forEach(function (g, gi) {
+      const hui = gi >= SANHE_GROUPS.length;
+      if ([0, 1, 2].every(function (k) { return Z.indexOf(g[k]) >= 0; })) {
+        put(g[3], 1.0, g[0] + g[1] + g[2] + (hui ? "三会" + g[3] + "方" : "三合" + g[3] + "局") + "（三支齐全）");
+        return;
+      }
+      if (hui) return;
+      [[0, 1], [1, 2], [2, 3]].forEach(function (pr) {
+        const a = Z[pr[0]], c = Z[pr[1]];
+        if (a === c || g.slice(0, 3).indexOf(a) < 0 || g.slice(0, 3).indexOf(c) < 0) return;
+        if (a !== g[1] && c !== g[1]) return;            // 缺旺神只是「拱」，不算
+        const broken = pr.some(function (i) {
+          return [i - 1, i + 1].some(function (j) { return j >= 0 && j <= 3 && pr.indexOf(j) < 0 && LIUCHONG[Z[i]] === Z[j]; });
+        });
+        if (broken) return;
+        put(g[3], 0.5, POS[pr[0]] + "支" + a + "、" + POS[pr[1]] + "支" + c + "半合" + g[3] + "局");
+      });
+    });
+    return Object.keys(out).map(function (k) { return out[k]; });
+  }
 
   function baziStrength(chart) {
     const b = chart.bazi;
@@ -1540,16 +1609,22 @@
     }
     function add(slotW, help) { num += slotW * help; den += slotW; }
 
-    // ① 月令（得令与否，权重最大）
-    const moBen = (HIDDEN_GAN[moZhi] || [])[0];
-    const moRel = moBen ? WXREL[dmWx][GANWX[moBen]] : "";
-    add(SLOT_W.moZhi, zhiHelp(moZhi));
+    // ① 月令 =「令」+「根」，分开算。
+    //   令：这个季节哪一行当旺（旺相休囚死），辰戌丑未按出生时刻分土旺用事前后，见 lingOf。
+    //   以前把月支藏干按比例混着算：寅申巳亥、午月里的中气余气会把建禄、阳刃月冲淡一半以上，
+    //   丙火生午月（阳刃当令）都能被算成中和 —— 这不符合任何一派的旺相休囚死。
+    //   根：月支藏干跟其他三个地支一样，在 ② 里按本气/中气/余气再算一次通根。
+    const ling = lingOf(chart, moZhi);
+    const lingWx = ling.wx;
+    const moRel = lingWx ? WXREL[dmWx][lingWx] : "";
     if (moRel) {
-      why.push("月令【" + moZhi + "】本气" + moBen + GANWX[moBen] + "，对日元" + dm + dmWx +
-               "为「" + moRel + "」→ " + (HELP[moRel] > 0 ? "得令（这一项占三成权重）" : "失令（这一项占三成权重）"));
+      add(SLOT_W.ling, HELP[moRel]);
+      why.push("月令【" + moZhi + "】" + ling.note + "当令的是" + lingWx + "，对日元" + dm + dmWx +
+               "为「" + moRel + "」→ " + (HELP[moRel] > 0 ? "得令" : "失令") + "（得令与否是单项里分量最重的）");
     }
 
-    // ② 其余三支：日支＝坐下，最贴身
+    // ② 四个地支的根：月支也算一次；日支＝坐下，最贴身
+    add(SLOT_W.moZhi,   zhiHelp(moZhi));
     add(SLOT_W.yearZhi, zhiHelp(P4[0].charAt(1)));
     add(SLOT_W.dayZhi,  zhiHelp(P4[2].charAt(1)));
     add(SLOT_W.hourZhi, zhiHelp(P4[3].charAt(1)));
@@ -1580,16 +1655,24 @@
     if (helps.length)  why.push("天干帮扶：" + helps.join("、"));
     if (drains.length) why.push("天干耗身：" + drains.join("、"));
 
+    // ③b 地支成局：那一行的力量真的变大，按一个额外的位计入
+    juSlots([P4[0].charAt(1), moZhi, P4[2].charAt(1), P4[3].charAt(1)]).forEach(function (j) {
+      const r = WXREL[dmWx][j.wx];
+      add(j.w, HELP[r]);
+      why.push("地支成局：" + j.note + " → " + j.wx + "的力量加重，对日元为「" + r + "」");
+    });
+
     // 归一化到 [-1, 1]。注意五行里只有「比」「生」帮身，天然偏负，
-    // 所以判定线不是 0，而是下面这组按真实命盘分布校准出来的分界值。
+    // 所以判定线不是 0，而是下面这组按真实命盘分布校准出来的分界值
+    // （月令改成「令＋根」、加上地支成局之后，按 3000 张随机盘重新校准，各档占比与改前一致）。
     const raw = den ? num / den : 0;
     const score = Math.round(raw * 1000) / 1000;
 
     let verdict;
-    if (score >= 0.10) verdict = "身强";
-    else if (score >= -0.06) verdict = "偏强";
-    else if (score >= -0.24) verdict = "中和";
-    else if (score >= -0.40) verdict = "偏弱";
+    if (score >= 0.15) verdict = "身强";
+    else if (score >= -0.045) verdict = "偏强";
+    else if (score >= -0.275) verdict = "中和";
+    else if (score >= -0.44) verdict = "偏弱";
     else verdict = "身弱";
 
     const strong = (verdict === "身强" || verdict === "偏强");
@@ -1611,6 +1694,40 @@
       rule = "日元中和，扶抑两可 —— 以调候、通关为主，哪头偏了补哪头";
     }
 
+    // ④ 特殊格局候选：从格 / 专旺。扶抑法在这两种盘上会整个判反，必须单独摆出来。
+    //   条件卡得很硬（宁可漏报，不可乱报）：
+    //   · 从（弃命从势）：四个地支的藏干里一点比劫、印星都没有（连余气都没有），三个天干也没有帮身的
+    //   · 专旺（一行得气）：得令、帮扶度很高，而且天干和地支本气、中气里一个官杀都没有
+    let special = null;
+    const cnt0 = (chart.bazi.detail && chart.bazi.detail.wuxingCount) || {};
+    const relOf = function (g) { return WXREL[dmWx][GANWX[g]]; };
+    if (!roots.length && !helps.length) {
+      const side = [["泄", "从儿格"], ["耗", "从财格"], ["克", "从杀格"]].map(function (x) {
+        const w = wxOf(x[0])[0];
+        return { rel: x[0], name: x[1], wx: w, n: +cnt0[w] || 0 };
+      }).sort(function (a, b) { return b.n - a.n; });
+      // 从什么，先看月令：月令当令的是食伤／财／官杀，就从月令那一股（提纲最有力）；否则才比五行多少
+      const top = side.filter(function (x) { return x.rel === moRel; })[0] || side[0];
+      const F = { "泄": ["泄", "耗"], "耗": ["耗", "泄", "克"], "克": ["克", "耗"] }[top.rel];
+      const A = { "泄": ["生", "克"], "耗": ["比", "生"], "克": ["泄", "比", "生"] }[top.rel];
+      special = {
+        kind: "从", name: top.name,
+        favor: [].concat.apply([], F.map(wxOf)), avoid: [].concat.apply([], A.map(wxOf)),
+        why: "日元" + dm + dmWx + "在四个地支里一点根都没有（藏干里没有比劫、印星），三个天干也没有帮身的 —— " +
+             "这是「弃命从势」的样子，局中最旺的一股是" + top.wx
+      };
+    } else if (HELP[moRel] > 0 && score >= 0.31 &&
+               ![P4[0], P4[1], P4[3]].some(function (x) { return relOf(x.charAt(0)) === "克"; }) &&
+               !P4.some(function (x) { return (HIDDEN_GAN[x.charAt(1)] || []).slice(0, 2).some(function (g) { return relOf(g) === "克"; }); })) {
+      const ZW_NAME = { "木": "曲直格", "火": "炎上格", "土": "稼穑格", "金": "从革格", "水": "润下格" };
+      special = {
+        kind: "专旺", name: ZW_NAME[dmWx],
+        favor: wxOf("比").concat(wxOf("生"), wxOf("泄")), avoid: wxOf("克"),
+        why: "日元" + dm + dmWx + "得令、帮扶极重，天干和地支主气、中气里一个官杀都没有 —— 这是「专旺（一行得气）」的样子；" +
+             "财（" + wxOf("耗").join("") + "）有食伤通关就不算忌"
+      };
+    }
+
     const wxCount = (chart.bazi.detail && chart.bazi.detail.wuxingCount) || {};
     let tiaohou = "";
     if (["亥", "子", "丑"].indexOf(moZhi) >= 0 && (wxCount["火"] || 0) < 1.2) {
@@ -1622,7 +1739,7 @@
     }
 
     return { dm: dm, dmWx: dmWx, score: score, verdict: verdict, why: why,
-             favor: favor, avoid: avoid, rule: rule, tiaohou: tiaohou };
+             favor: favor, avoid: avoid, rule: rule, tiaohou: tiaohou, special: special };
   }
 
   /* ============================================================
@@ -2038,6 +2155,12 @@
       }
       if (st.avoid.length) L.push("  ▸ 忌神五行：【" + st.avoid.join("、") + "】（这几类环境、行业、人少碰）");
       if (st.tiaohou) L.push("  ▸ ⚠️ 调候：" + st.tiaohou);
+      if (st.special) {
+        L.push("  ▸ ⚠️ 特殊格局候选【" + st.special.name + "，待验证】：" + st.special.why + "。");
+        L.push("     · 如果真是" + st.special.name + "：喜【" + st.special.favor.join("、") + "】，忌【" +
+               st.special.avoid.join("、") + "】—— 和上面扶抑法的喜忌基本相反");
+        L.push("     · 真从还是假从，看岁运：走帮身的运反而出事、走顺势的运反而顺，才是真的。拿经历去验证，别直接下结论");
+      }
       const hZhi = String(b.hourPillar).charAt(1);
       L.push("  ▸ 日元【" + dg + "】的十二长生（这根支上日元有没有气，一眼可判）：" +
              "年支" + yrZhi + "＝" + changSheng(dg, yrZhi) + "　月令" + moZhi + "＝" + changSheng(dg, moZhi) +
@@ -2102,7 +2225,7 @@
 
     L.push("【怎么读下面的刑冲会合 —— 用错了比不用更糟】");
     L.push("  · 冲＝正面撞击，主变动、分离、提速；刑＝内部消耗、纠缠反复、是非口舌；害＝暗处受损、被拖累、关系里的隐性伤");
-    L.push("  · 六合＝被绊住（不一定是好事，也可能是想走走不掉）；半合／半会＝真成局，那个五行力量明显变强");
+    L.push("  · 六合＝被绊住（不一定是好事，也可能是想走走不掉）；半合（含旺神）＝真成局，那个五行力量明显变强；半会只见两支、三支齐了才算成方，力量次之");
     L.push("  · 拱＝缺旺神的虚局，力弱，只能作辅助线索，不许当成合局下结论");
     L.push("  · 天干合而不化＝两边互相牵制，那个十神的作用打折，人事上表现为被人拉扯、决断变慢");
     L.push("  · 天干真化＝性质真的转成化神那一行，要按新五行重新看喜忌");
@@ -2110,15 +2233,40 @@
     L.push("  · ⚠️ 一个字上同时挂多个关系时（例如既冲又刑），必须说清楚哪个主导，不许两个都罗列了事");
     L.push("");
 
+    // 大运／流年／流月的喜忌：直接按上面扶抑（含调候）的结论标出来，
+    // 不让模型每轮自己拿「合了什么局」去猜吉凶 —— 实测同一个月会这轮说黄金窗口、下轮说判断力最差。
+    // 特殊格局候选（从格／专旺）的喜忌和扶抑相反，没验证之前不标。
+    const XJ_TH = (st && st.tiaohou && (st.tiaohou.match(/急需【(.)】/) || [])[1]) || "";
+    function xjOf(wx) {
+      if (!st || st.special || !wx) return "";
+      if (wx === XJ_TH) return "喜";
+      if ((st.favor || []).indexOf(wx) >= 0) return "喜";
+      if ((st.avoid || []).indexOf(wx) >= 0) return "忌";
+      return "";
+    }
+    function xjTag(g2, z2, natal) {
+      const gw = GANWX[g2], zw = GANWX[(HIDDEN_GAN[z2] || [])[0]];
+      const a1 = xjOf(gw), a2 = xjOf(zw);
+      if (!a1 && !a2) return "";
+      let out = "｜喜忌：" + g2 + gw + (a1 ? "〔" + a1 + "〕" : "") + " " + z2 + zw + (a2 ? "〔" + a2 + "〕" : "");
+      (natal || []).forEach(function (x) {
+        const j = (z2 !== x[1]) ? juOf(SANHE_GROUPS, z2, x[1]) : null;
+        if (j && j.full && j.wx !== zw) {
+          const a3 = xjOf(j.wx);
+          out += "；" + z2 + "与" + x[0] + x[1] + "半合" + j.wx + (a3 ? "〔" + a3 + "〕" : "");
+        }
+      });
+      return out;
+    }
+    const XJ_NATAL = [["日支", dayZhi], ["月令", moZhi], ["年支", yrZhi]];
+
     const dy = computeDayun(chart);
     let curDy = null;
     if (dy) {
-      const realAge = t.Y - p.year;
-      L.push("【大运】" + (dy.forward ? "顺行" : "逆行") + "，起运 " + dy.startY + " 岁 " + dy.startM +
-             " 个月（约公历 " + (p.year + dy.startY) + " 年上运），每十年一换");
-      dy.list.forEach(function (d) {
-        if (realAge >= d.fromAge && realAge <= d.toAge) curDy = d;
-      });
+      curDy = dayunAt(dy, t.Y, t.M);
+      L.push("【大运】" + (dy.forward ? "顺行" : "逆行") + "，出生后 " + dy.startY + " 年 " + dy.startM + " 个月起运，" +
+             dy.startDate.y + " 年 " + dy.startDate.m + " 月交运，此后每十年换一步（都在 " + dy.startDate.m +
+             " 月前后换）。下面的岁数一律是虚岁");
       dy.list.slice(0, 9).forEach(function (d) {
         if (d.toYear < t.Y - 10 || d.fromYear > t.Y + 20) return;
         const mark = (d === curDy) ? "★当前" : "  ";
@@ -2131,15 +2279,17 @@
         const q1 = stemRel(g2, dg, moZhi);    if (q1) gRels.push("与日元" + dg + q1);
         const q2 = stemRel(g2, moGan, moZhi, true); if (q2) gRels.push("与月干" + moGan + q2);
         const q3 = stemRel(g2, yrGan, moZhi, true); if (q3) gRels.push("与年干" + yrGan + q3);
-        L.push("  " + mark + " " + d.gz + "运（" + d.fromYear + "–" + d.toYear + "，" + d.fromAge + "–" + d.toAge +
-               "岁）｜运干" + g2 + "＝【" + god(g2) + "】" +
+        L.push("  " + mark + " " + d.gz + "运（" + d.fromYear + "年" + d.fromMonth + "月–" + (d.fromYear + 10) + "年" + d.fromMonth +
+               "月，虚岁" + d.fromAge + "–" + d.toAge +
+               "）｜运干" + g2 + "＝【" + god(g2) + "】" +
                (gRels.length ? "｜天干：" + gRels.join("，") : "") + "｜运支" + z2 +
                "（日元在此＝" + changSheng(dg, z2) + "）" +
-               (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+               (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合") + xjTag(g2, z2, XJ_NATAL));
       });
       if (curDy) {
-        L.push("  ▸ 本人目前走在【" + curDy.gz + "运】第 " + (t.Y - curDy.fromYear + 1) + " 年（共10年），" +
-               (t.Y - curDy.fromYear + 1 >= 6 ? "已进入后五年（运支主事）" : "尚在前五年（运干主事）"));
+        const nth = dayunYearNo(curDy, t.Y, t.M);
+        L.push("  ▸ 本人目前走在【" + curDy.gz + "运】第 " + nth + " 年（共10年，" + curDy.fromYear + " 年 " +
+               curDy.fromMonth + " 月交入），" + (nth >= 6 ? "已进入后五年（运支主事）" : "尚在前五年（运干主事）"));
       }
       L.push("");
     }
@@ -2150,6 +2300,10 @@
       try { const d = CC.solarTermDate(yy, 2); return d.m + "/" + d.d; } catch (e) { return ""; }
     };
     L.push("【流年推演 · " + t.Y + "–" + (t.Y + 2) + "（命理年以立春切，不是 1 月 1 日）】");
+    if (st && !st.special && (st.favor.length || st.avoid.length || XJ_TH)) {
+      L.push("  （每行末尾的〔喜〕〔忌〕按本盘扶抑＋调候的喜用标出：干支都喜＝顺，都忌＝难，一喜一忌就说清哪头占上风；" +
+             "同一年、同一个月的吉凶，每一轮都必须说成一样的）");
+    }
     for (let yy = t.Y; yy <= t.Y + 2; yy++) {
       const gz = yearGanZhi(yy), g2 = gz.charAt(0), z2 = gz.charAt(1);
       const lc0 = CC ? lichunOf(yy) : "", lc1 = CC ? lichunOf(yy + 1) : "";
@@ -2172,7 +2326,7 @@
       L.push("  ◆ " + yy + "年 " + gz + span + "（虚岁" + (yy - p.year + 1) + "）｜年干" + g2 + "＝【" + god(g2) +
              "】" + (gRels.length ? "｜天干：" + gRels.join("，") : "") +
              "｜年支" + z2 + "（日元在此＝" + changSheng(dg, z2) + "）" +
-             (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合"));
+             (rels.length ? "：" + rels.join("，") : "：与原局无刑冲会合") + xjTag(g2, z2, XJ_NATAL));
     }
     L.push("");
 
@@ -2213,7 +2367,8 @@
           rows.push("  · " + g2 + z2 + "月（" + cu.name + " " + cu.m + "/" + cu.d + " – " + nx.name + " " + nx.m + "/" + nx.d +
                     "）｜月干" + g2 + "＝【" + god(g2) + "】" +
                     (far ? "" : ((mq ? "（与日元" + dg + mq + "）" : "") +
-                                 (rels.length ? "｜" + rels.join("，") : ""))));
+                                 (rels.length ? "｜" + rels.join("，") : ""))) +
+                    xjTag(g2, z2, far ? [] : XJ_NATAL));
         }
         if (rows.length) {
           L.push("【未来 " + rows.length + " 个节气月（公历起讫已由天文算法算出，" +
@@ -2337,12 +2492,10 @@
         out.push("日元" + b.dayMaster + b.wuxing + "生" + String(b.monthPillar).charAt(1) + "月，看" + dom.baziAspect);
         const dy = computeDayun(chart);
         if (dy) {
-          const realAge = t.Y - p.year;
-          let cur = null;
-          dy.list.forEach(function (d) { if (realAge >= d.fromAge && realAge <= d.toAge) cur = d; });
+          const cur = dayunAt(dy, t.Y, t.M);
           if (cur) {
-            out.push("大运 " + cur.gz + "（" + cur.fromYear + "–" + cur.toYear + "），走到第 " +
-                     (t.Y - cur.fromYear + 1) + " 年");
+            out.push("大运 " + cur.gz + "（" + cur.fromYear + "年" + cur.fromMonth + "月–" + (cur.fromYear + 10) + "年" +
+                     cur.fromMonth + "月），走到第 " + dayunYearNo(cur, t.Y, t.M) + " 年");
           }
         }
         const yg = yearGanZhi(t.Y);
@@ -2889,9 +3042,13 @@ ${flowCloseRule(round, max)}`;
       (st.why || []).forEach(function (x) { desk.push("  · " + x); });
       desk.push("  喜：" + ((st.favor || []).join("、") || "扶抑两可") + "　忌：" + ((st.avoid || []).join("、") || "—") + "　" + (st.rule || ""));
       if (st.tiaohou) desk.push("  调候：" + st.tiaohou);
+      if (st.special) desk.push("  ⚠️ 特殊格局候选【" + st.special.name + "】：" + st.special.why + "。若成立，喜" +
+                                st.special.favor.join("、") + "、忌" + st.special.avoid.join("、") +
+                                "，和扶抑相反 —— 必须拿过去的经历（尤其走帮身的运那几年）验证是真从还是假从");
     }
+    const dyNow = dy ? dayunAt(dy, t.Y, t.M) : null;
     const dyLines = (dy && dy.list ? dy.list : []).filter(function (d) { return d.fromYear <= t.Y + 10; }).map(function (d) {
-      return "  · " + d.gz + "运 " + d.fromYear + "–" + d.toYear + "（" + d.fromAge + "–" + d.toAge + "岁，运干为" + god(d.gz.charAt(0)) + "）" + (d.fromYear <= t.Y && t.Y <= d.toYear ? " ← 现在" : "");
+      return "  · " + d.gz + "运 " + d.fromYear + "年" + d.fromMonth + "月–" + (d.fromYear + 10) + "年" + d.fromMonth + "月（虚岁" + d.fromAge + "–" + d.toAge + "，运干为" + god(d.gz.charAt(0)) + "）" + (d === dyNow ? " ← 现在" : "");
     });
     const yrs = [];
     for (let y = Math.max(p.year + 12, t.Y - 16); y <= t.Y; y++) {
@@ -3195,6 +3352,8 @@ ${sectionSpec}
    不许因为“这个格局通常会有”就把它写进来，哪怕只是顺带提一句。
    旺衰（身强／身弱）以推演台的扶抑判定为准，不许讲反；你如果不同意，
    就按推演台的结论写，不要在回答里和它抬杠。
+   打比方时月是月、时是时：月令说的是季节（午月＝盛夏），时柱才是一天里的钟点 ——
+   别把「生于午月」说成「生在正午」，那等于替他改了出生时间。
 6. 神煞、十二长生、拱局、流派分歧、知识库出处 —— 默认一个字都不写。
    只有当它真的改变了结论、或改变了用户该做的动作时才提。
 7. 【最硬的一条】提到时间，就必须是具体的公历区间，两头日期从流月表里抄。
@@ -3949,7 +4108,7 @@ ${nextSpec}`;
           if (a1 !== d.fromAge || a2 !== d.toAge) {
             add("dayunAge", m[1] + "运 " + a1 + "-" + a2 + "岁",
                 m[1] + "运 " + d.fromAge + "-" + d.toAge + "岁",
-                "起运 " + dy.startY + " 岁 " + dy.startM + " 个月，每十年一换");
+                dy.startDate.y + " 年 " + dy.startDate.m + " 月交运，每十年一换（岁数是虚岁）");
           }
         }
       }
@@ -4001,10 +4160,10 @@ ${nextSpec}`;
           "命盘能支撑的应期上限是「月」，有硬引动时最多到上/中/下旬。精确到某一天是模型自己加的，别当真");
     }
 
-    /* ⑩ 八字：旺衰讲反了（与扶抑打分矛盾） */
+    /* ⑩ 八字：旺衰讲反了（与扶抑打分矛盾）。从格 / 专旺候选盘不查：那种盘「极弱」「极强」都可能是对的 */
     if ((mode === "bazi" || mode === "all")) {
       const st = baziStrength(chart);
-      if (st && st.verdict) {
+      if (st && st.verdict && !st.special) {
         const strongSide = (st.verdict === "身强" || st.verdict === "偏强");
         const weakSide   = (st.verdict === "身弱" || st.verdict === "偏弱");
         if (strongSide && /日元(?:偏)?(?:身)?弱|身弱|日主(?:偏)?弱/.test(t)) {
@@ -4164,6 +4323,7 @@ ${nextSpec}`;
     consumeFailoverNote,                        // 这次有没有偷偷切到备用厂商
     backupConfig, nextOnConnFail, NET_BACKOFF,  // 供测试断言重试与切换决策
     buildUpstreamBody, isReasoningModel, parseSseLine,   // 供测试断言选模型与流式解析
-    derivePattern, baziStrength                 // 供入口卡片写「这是你的盘」副标题
+    derivePattern, baziStrength,                // 供入口卡片写「这是你的盘」副标题
+    computeDayun, dayunAt                       // 供测试：交运年月
   };
 })(typeof window !== "undefined" ? window : global);

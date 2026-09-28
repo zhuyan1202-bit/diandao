@@ -580,8 +580,13 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // 精确时间模式
-    const tst = window.AstrologyCore.computeTrueSolarTime(p.year, p.month, p.day, p.hour, p.minute || 0, lon, city);
-    const rawBz = window.AstrologyCore.computeBazi(p.year, p.month, p.day, p.hour, p.minute || 0);
+    // 先扣夏令时（1986–1991），和正式排盘同一套口径，免得预览说「辰时」、盘却是卯时
+    const AC0 = window.AstrologyCore;
+    const std0 = AC0.toStandardTime ? AC0.toStandardTime(p.year, p.month, p.day, p.hour, p.minute || 0)
+                                    : { year: p.year, month: p.month, day: p.day, hour: p.hour, minute: p.minute || 0 };
+    const tst = AC0.computeTrueSolarTime(std0.year, std0.month, std0.day, std0.hour, std0.minute, lon, city);
+    if (std0.dstApplied) tst.clockTimeStr = String(p.hour).padStart(2, "0") + ":" + String(p.minute || 0).padStart(2, "0") + "（夏令时，已扣 1 小时）";
+    const rawBz = AC0.computeBazi(std0.year, std0.month, std0.day, std0.hour, std0.minute);
     const calBz = window.AstrologyCore.computeBazi(tst.year, tst.month, tst.day, tst.hour, tst.minute);
     const DZ = window.AstrologyCore.DIZHI;
 
@@ -1896,6 +1901,16 @@ document.addEventListener("DOMContentLoaded", () => {
       pushNotice("先告诉我你的出生信息：在打开的命盘档案里填好出生日期、时间和性别，按保存。\n\n" +
                  "现在盘上是一个示例生日，按它回答对你没有意义。填好之后，把刚才的问题再发一次就行。");
       askForBirthFirst();
+      return;
+    }
+    // 没开通 AI（没填自己的 Key，也不是用邀请链接打开的）：不再拿内置模板凑一段「直断」——
+    // 那套模板里的定论和「黄金发力月」大半不是从这张盘算出来的，命理上站不住，等于假精确。
+    if (!aiAccess().mode) {
+      restoreInput();
+      pushNotice("点到的回答要靠 AI 按你的盘现场推演，这台设备还没开通。\n\n" +
+                 "· 朋友发给你的链接：请用他发的那个完整链接（网址后面带 #i= 的）重新打开一次\n" +
+                 "· 或者在「⚙ 设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）\n\n" +
+                 "命盘、五行报告和今日穿搭不用 AI，命盘档案里随时能看。");
       return;
     }
     state.turnChart = turn.chart;

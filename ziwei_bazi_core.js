@@ -176,8 +176,9 @@
     return CAL.dayNumber(y, m, d) + (hour + (minute || 0) / 60) / 24;
   }
   function termMoment(year, k) {
-    const t = CAL.solarTermDate(year, k);
-    return t.dayNum + (t.hour + t.minute / 60) / 24;
+    // 直接用节气的精确儒略日。以前拿四舍五入到分钟的「时:分」去拼：
+    // 23:59:30 以后的节气会被舍成「当天 0:00」（早整整 24 小时），交节那一分钟里出生的也会判反。
+    return CAL.solarTermJD(year, k) + 0.5;
   }
 
   /**
@@ -391,8 +392,9 @@
     // 1. 经度时差：每度4分钟（东经120度为北京时间基准）
     const lonDeltaMin = (lon - 120.0) * 4.0;
     // 2. 均时差（Equation of Time）
-    const startOfYear = new Date(year, 0, 1);
-    const curDate = new Date(year, month - 1, day);
+    // 日期算术一律走 UTC：用浏览器本地时区的话，在有夏令时的地区打开，换时那天会差一小时
+    const startOfYear = Date.UTC(year, 0, 1);
+    const curDate = Date.UTC(year, month - 1, day);
     const dayOfYear = Math.floor((curDate - startOfYear) / 86400000) + 1;
     const B = (2 * Math.PI * (dayOfYear - 81)) / 365.2422;
     const eotMin = 9.87 * Math.sin(2 * B) - 7.53 * Math.cos(B) - 1.5 * Math.sin(B);
@@ -401,14 +403,14 @@
     const isDefaultClock = (city.indexOf("默认") >= 0 && Math.abs(lon - 120.0) < 0.01);
     const totalDeltaMin = isDefaultClock ? 0 : Math.round(lonDeltaMin + eotMin);
 
-    const baseMs = new Date(year, month - 1, day, hour, minute, 0).getTime();
+    const baseMs = Date.UTC(year, month - 1, day, hour, minute, 0);
     const trueDate = new Date(baseMs + totalDeltaMin * 60000);
 
-    const ty = trueDate.getFullYear();
-    const tm = trueDate.getMonth() + 1;
-    const td = trueDate.getDate();
-    const th = trueDate.getHours();
-    const tmin = trueDate.getMinutes();
+    const ty = trueDate.getUTCFullYear();
+    const tm = trueDate.getUTCMonth() + 1;
+    const td = trueDate.getUTCDate();
+    const th = trueDate.getUTCHours();
+    const tmin = trueDate.getUTCMinutes();
 
     const pad = n => String(n).padStart(2, "0");
     return {
@@ -830,8 +832,13 @@
     } = params;
 
     const lon = CITY_LONGITUDES[city] !== undefined ? CITY_LONGITUDES[city] : 120.0;
-    const tstStart = computeTrueSolarTime(year, month, day, startHour, startMinute, lon, city);
-    const tstEnd   = computeTrueSolarTime(year, month, day, endHour, endMinute, lon, city);
+    // 夏令时（1986–1991）：用户填的是当年的钟表时间，先扣掉 1 小时再做真太阳时，反推钟表时间时再加回来。
+    // 以前这里不扣，候选时辰整体偏一位，候选名字和它背后的盘还会对不上。
+    const dstMin = inChinaDST(year, month, day, startHour, startMinute) ? 60 : 0;
+    const s0 = toStandardTime(year, month, day, startHour, startMinute);
+    const e0 = toStandardTime(year, month, day, endHour, endMinute);
+    const tstStart = computeTrueSolarTime(s0.year, s0.month, s0.day, s0.hour, s0.minute, lon, city);
+    const tstEnd   = computeTrueSolarTime(e0.year, e0.month, e0.day, e0.hour, e0.minute, lon, city);
 
     // 将起止时间转为从当日 00:00 算起的分钟数（处理跨日）
     const startTotalMin = tstStart.hour * 60 + tstStart.minute;
@@ -859,8 +866,9 @@
       const zhiIdx = parseInt(idxStr, 10);
       const sample = shichenSampleTime[zhiIdx];
       // 反推对应的钟表时间用于保存
-      const clockH = Math.floor(((sample.hour * 60 + sample.minute - tstStart.totalDeltaMin + 1440) % 1440) / 60);
-      const clockM = ((sample.hour * 60 + sample.minute - tstStart.totalDeltaMin + 1440) % 60);
+      const clockTot = (((sample.hour * 60 + sample.minute - tstStart.totalDeltaMin + dstMin) % 1440) + 1440) % 1440;
+      const clockH = Math.floor(clockTot / 60);
+      const clockM = clockTot % 60;
       const chart = analyzeFullNatalChart({
         year, month, day,
         hour: clockH, minute: clockM,
@@ -963,8 +971,15 @@
     const std = toStandardTime(year, month, day, hour, minute);
     const tst = computeTrueSolarTime(std.year, std.month, std.day, std.hour, std.minute, lon, city);
 
-    // 使用校准后的当地真太阳时进行四柱八字与紫微排盘
-    const bz = computeBazi(tst.year, tst.month, tst.day, tst.hour, tst.minute);
+    // 日柱、时柱（含 23 点换日）用当地真太阳时；
+    // 年柱、月柱看的是「交节」这个绝对时刻 —— 节气时刻本身是北京时，所以要拿北京标准时去比。
+    // 以前四柱全用真太阳时去比北京时的节气：西部出生、又刚好在交节前后一两个小时的，月柱甚至年柱会错。
+    const bzT = computeBazi(tst.year, tst.month, tst.day, tst.hour, tst.minute);
+    const bzS = computeBazi(std.year, std.month, std.day, std.hour, std.minute);
+    const bz = Object.assign({}, bzT, {
+      yGanIdx: bzS.yGanIdx, yZhiIdx: bzS.yZhiIdx, mGanIdx: bzS.mGanIdx, mZhiIdx: bzS.mZhiIdx,
+      ganzhiYear: bzS.ganzhiYear, solarTermName: bzS.solarTermName, nearestTermGapHours: bzS.nearestTermGapHours
+    });
     const rawClockBz = computeBazi(year, month, day, hour, minute);
 
     const yearPillar  = TIANGAN[bz.yGanIdx] + DIZHI[bz.yZhiIdx];

@@ -468,7 +468,7 @@ document.addEventListener("DOMContentLoaded", () => {
    * 以前新用户一进来看到的是示例生日排出来的盘，欢迎语却写着「已按你的出生时刻排定」。
    * 现在：没亲手保存过生辰 → 先弹这张表。填完直接复用抽屉里「保存并重新排盘」那一套逻辑，
    * 不另写一份排盘代码，免得两边口径分叉。 */
-  const OB = { forNew: false, gender: "", tmode: "exact" };
+  const OB = { forNew: false, gender: "", tmode: "exact", status: "" };
   function obSeg(groupId, v) {
     document.querySelectorAll("#" + groupId + " button").forEach(b => {
       const on = b.dataset.v === v;
@@ -497,6 +497,8 @@ document.addEventListener("DOMContentLoaded", () => {
     OB.forNew = Boolean(forNew);
     OB.gender = "";
     obSeg("ob-gender", "");
+    OB.status = "";
+    obSeg("ob-status", "");
     obSetTmode("exact");
     const $ = id => document.getElementById(id);
     // 城市列表直接抄抽屉里那份，只维护一处
@@ -549,6 +551,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (rs) set("drawer-range-start", rs);
     if (re) set("drawer-range-end", re);
     set("drawer-city", $("ob-city")?.value || "默认 (东经120°标准时)");
+    set("drawer-status", OB.status || "");
     $("btn-save-chart")?.click();
     $("modal-onboard")?.classList.remove("show");
 
@@ -1493,6 +1496,39 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
+    // 感情题按「感情状态」出：单身的人不该看到「还能不能走下去」，已婚的人不该看到「什么时候脱单」。
+    // 副标题只写「点了能得到什么」，盘上的依据收进 basis 小字，不让术语挡在前面。
+    const relStatus = chart.profile.status || "";
+    function loveCardFor(basis) {
+      const L = {
+        single:  { icon: "🌸", title: "我的下一段感情什么时候来？",
+                   sub: "接下来一两年哪段时间最容易遇到人，来的大概是什么样的人",
+                   prompt: "我现在单身。我的下一段感情大概什么时候来？会是什么样的人？" },
+        dating:  { icon: "💞", title: "现在这个人，是不是对的人？",
+                   sub: "你们合拍在哪、最容易在哪吵起来，值不值得往下走",
+                   prompt: "我现在在恋爱。现在这个人是不是对的人？我们合拍在哪、最容易在哪出问题？" },
+        broken:  { icon: "💔", title: "这段关系还有没有回头的可能？",
+                   sub: "为什么会走到这一步、该不该主动、什么时候最适合再联系",
+                   prompt: "我们现在断联/冷战中。这段关系还有没有回头的可能？我该不该主动，什么时候合适？" },
+        married: { icon: "🏡", title: "这几年婚姻里要留意什么？",
+                   sub: "哪一年最容易起摩擦、问题多半出在哪、怎么提前化解",
+                   prompt: "我已婚。这几年婚姻里要留意什么？哪一年容易起摩擦，怎么化解？" }
+      }[relStatus];
+      if (L) return Object.assign({ basis }, L);
+      return { icon: "💞", title: "我在感情里总卡在哪一步？",
+               sub: "你会被哪种人吸引、最容易在哪一步出问题",
+               basis: basis + " · 在命盘档案里填上感情状态，这题会更对口",
+               prompt: "我在感情里总卡在哪一步？我会被哪种人吸引、最容易在哪出问题？" };
+    }
+
+    // 每天都不一样的一张：给人回来的理由
+    const dailyCard = {
+      icon: "☀️", title: "今天适合做什么、该避开什么？",
+      sub: "按今天的干支对上你的盘，给几件宜做、几件别碰的事",
+      basis: `今日 ${t.dPillar}日 · ${t.lunarStr}`,
+      prompt: "今天适合做什么、该避开什么？按今天的干支对上我的盘，具体说几件事。"
+    };
+
     let cards = [];
     if (mode === "all") {
       if (greetIcon) greetIcon.textContent = "🔮";
@@ -1506,19 +1542,40 @@ document.addEventListener("DOMContentLoaded", () => {
         : `夫妻宫【${spouseStar}】${spHua.length ? "带" + spHua.join("、") : ""}`;
       const favorTag = (st && st.favor && st.favor.length) ? ` · 喜${st.favor.join("")}` : "";
 
+      // 第一张：还没验证过 → 先让 AI 说中过去，建立信任；验证过了 → 换成往前看的题
+      const firstCard = chart.profile.gejuVerified
+        ? { icon: "📅", title: "接下来一年，我的重点该放在哪？",
+            sub: "哪段时间该发力、哪段时间该收着",
+            basis: `流年 ${t.yPillar} · 命宫【${mingStar}】`,
+            prompt: "接下来一年，我的重点该放在哪？哪段时间该发力、哪段时间该收着？" }
+        : { icon: "🧭", title: "先验一验：我过去哪几年最难？",
+            sub: "AI 先说出你经历过的坎和转折年，你来对答案 —— 说中了，后面的话才值得听",
+            basis: `日元 ${dmLabel}${st ? " · " + st.verdict : ""} · 按大运推`,
+            flow: "geju" };
+
+      // 第三张：盘上哪块有「结」就先问哪块，没有明显的结再问擅长什么
+      const moneyJi = huaOf("财帛宫").indexOf("化忌") >= 0;
+      const workJi  = huaOf("官禄宫").indexOf("化忌") >= 0;
+      const focusCard = moneyJi
+        ? { icon: "💰", title: "我为什么总存不住钱？",
+            sub: "钱是从哪漏掉的、哪种赚钱方式适合你、今年该守还是该攻",
+            basis: "你的财帛宫带化忌",
+            prompt: "我为什么总存不住钱？钱是从哪漏掉的？哪种赚钱方式适合我？今年该守还是该攻？" }
+        : workJi
+        ? { icon: "🧱", title: "工作上老是不顺，问题出在哪？",
+            sub: "是方向不对、环境不对还是时机不对，接下来怎么调",
+            basis: `你的官禄宫【${careerStar}】带化忌`,
+            prompt: "我工作上老是不顺，问题出在哪？是方向、环境还是时机不对？接下来怎么调？" }
+        : { icon: "💼", title: "我真正擅长什么、适合做什么？",
+            sub: "直接给出具体的职业和岗位",
+            basis: `官禄宫【${careerStar}】${favorTag}`,
+            prompt: "我真正擅长什么、适合做什么？请列出具体的职业或岗位。" };
+
       cards = [
-        { icon: "🙂", title: "我到底是个什么样的人？",
-          sub: `遇事的第一反应、别人眼里的你、你最常卡在哪〔命宫【${mingStar}】· 日元${dmLabel}${st ? st.verdict : ""}〕`,
-          prompt: "我到底是个什么样的人？" },
-        { icon: "💞", title: "我在感情里其实是什么样的人？",
-          sub: `你会被哪种人吸引、在关系里最容易犯哪种错〔${loveTag}〕`,
-          prompt: "我在感情里其实是什么样的人？" },
-        { icon: "💼", title: "我真正擅长什么、适合做什么？",
-          sub: `直接给出具体的职业和岗位，不说空话〔官禄宫【${careerStar}】${favorTag}〕`,
-          prompt: "我真正擅长什么、适合做什么？请列出具体的职业或岗位。" },
-        { icon: "📅", title: "接下来一年，我的重点该放在哪？",
-          sub: `哪几个月该发力、哪几个月该收着，都给到具体日期〔流年${t.yPillar}〕`,
-          prompt: "接下来一年，我的重点该放在哪？" },
+        firstCard,
+        loveCardFor(loveTag),
+        focusCard,
+        dailyCard,
         askCardFor("all")
       ];
     } else if (mode === "ziwei") {
@@ -1558,8 +1615,7 @@ document.addEventListener("DOMContentLoaded", () => {
         : `从本命宫【${mingStar}】起，顺着飞化找出真正在牵制你的那一宫`;
 
       cards = [
-        { icon: "💔", title: "我和现在这个人，还能不能走下去？", sub: subLove,
-          prompt: "我和现在这个人，还能不能走下去？" },
+        loveCardFor(subLove),
         { icon: "🧩", title: "我最近卡住的这件事，到底卡在谁身上？", sub: subStuck,
           prompt: "我最近卡住的这件事，到底卡在谁身上？" },
         askCardFor("ziwei")
@@ -1606,12 +1662,14 @@ document.addEventListener("DOMContentLoaded", () => {
       gridEl.innerHTML = cards.map(c => {
         const attr = c.onboard ? ' data-onboard="1"'
           : c.fill ? ' data-fill="1"'
+          : c.flow ? ` data-flow="${escapeHtml(c.flow)}"`
           : ` data-prompt="${escapeHtml(c.prompt)}"`;
         return `
-        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}"${attr} role="button" tabindex="0">
+        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}${c.flow ? " is-verify" : ""}"${attr} role="button" tabindex="0">
           <div class="prompt-card-icon">${c.icon}</div>
           <div class="prompt-card-title">${escapeHtml(c.title)}</div>
           <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
+          ${c.basis ? `<div class="prompt-card-basis">依据：${escapeHtml(c.basis)}</div>` : ""}
         </div>`;
       }).join("");
     }
@@ -2509,6 +2567,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!card) return;
       if (card.dataset.onboard) { openOnboard(false); return; }
       if (card.dataset.fill) { focusAsk(); return; }
+      if (card.dataset.flow) { startFlow(card.dataset.flow); return; }
       if (card.dataset.prompt) send(card.dataset.prompt);
     });
     // 问题卡原来是 div：补上键盘可达（Tab 选中、回车/空格触发）
@@ -2525,6 +2584,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!b) return;
       OB.gender = b.dataset.v;
       obSeg("ob-gender", OB.gender);
+    });
+    document.getElementById("ob-status")?.addEventListener("click", e => {
+      const b = e.target.closest("button[data-v]");
+      if (!b) return;
+      // 可选项：再点一次就取消
+      OB.status = OB.status === b.dataset.v ? "" : b.dataset.v;
+      obSeg("ob-status", OB.status);
     });
     document.getElementById("ob-tmode")?.addEventListener("click", e => {
       const b = e.target.closest("button[data-v]");

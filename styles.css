@@ -240,6 +240,15 @@ body {
 .prompt-card.is-ask { border-style: dashed; }
 .prompt-card.is-ask .prompt-card-title { color: var(--accent); }
 
+/* 盘上依据：退到最后一行小字，给懂行的人看，不挡新手的眼 */
+.prompt-card-basis {
+  margin-top: 8px; padding-top: 7px; border-top: 1px dashed var(--border);
+  font-size: 11px; color: var(--text-dim, var(--text-muted)); line-height: 1.45; opacity: .85;
+}
+/* 「先验一验」：首次进来最该点的那张 */
+.prompt-card.is-verify { border-color: var(--accent); background: var(--accent-bg); }
+.prompt-card.is-verify .prompt-card-title { color: var(--accent); }
+
 /* 点了引导卡之后，输入框呼吸两下，避免在手机上「好像什么都没发生」 */
 .input-box-container.ask-hint { animation: askPulse 1.15s ease-out 2; }
 @keyframes askPulse {
@@ -1715,6 +1724,9 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
 .ob-hint { font-size: 12px; color: var(--text-muted); line-height: 1.55; }
 .ob-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ob-seg.ob-seg-3 { grid-template-columns: 1fr 1fr 1fr; }
+.ob-seg.ob-seg-4 { grid-template-columns: repeat(4, 1fr); }
+.ob-seg.ob-seg-4 button { font-size: 13px; padding: 11px 2px; }
+@media (max-width: 380px) { .ob-seg.ob-seg-4 { grid-template-columns: 1fr 1fr; } }
 .ob-seg button {
   padding: 11px 6px; border-radius: 10px; border: 1px solid var(--border);
   background: var(--bg-card-soft); color: var(--text-sub); font-size: 14px; cursor: pointer;

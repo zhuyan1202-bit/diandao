@@ -223,7 +223,7 @@ body {
 .greeting-desc strong { color: var(--accent); }
 
 .starter-prompts-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px; max-width: 700px; margin: 0 auto;
 }
 .prompt-card {

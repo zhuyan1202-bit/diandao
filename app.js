@@ -1521,14 +1521,6 @@ document.addEventListener("DOMContentLoaded", () => {
                prompt: "我在感情里总卡在哪一步？我会被哪种人吸引、最容易在哪出问题？" };
     }
 
-    // 每天都不一样的一张：给人回来的理由
-    const dailyCard = {
-      icon: "☀️", title: "今天适合做什么、该避开什么？",
-      sub: "按今天的干支对上你的盘，给几件宜做、几件别碰的事",
-      basis: `今日 ${t.dPillar}日 · ${t.lunarStr}`,
-      prompt: "今天适合做什么、该避开什么？按今天的干支对上我的盘，具体说几件事。"
-    };
-
     let cards = [];
     if (mode === "all") {
       if (greetIcon) greetIcon.textContent = "🔮";
@@ -1571,11 +1563,11 @@ document.addEventListener("DOMContentLoaded", () => {
             basis: `官禄宫【${careerStar}】${favorTag}`,
             prompt: "我真正擅长什么、适合做什么？请列出具体的职业或岗位。" };
 
+      // 只留三张：「今天宜忌」侧边栏已有「今日运势」入口，不在这里重复
       cards = [
         firstCard,
         loveCardFor(loveTag),
         focusCard,
-        dailyCard,
         askCardFor("all")
       ];
     } else if (mode === "ziwei") {
@@ -1666,7 +1658,6 @@ document.addEventListener("DOMContentLoaded", () => {
           : ` data-prompt="${escapeHtml(c.prompt)}"`;
         return `
         <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}${c.flow ? " is-verify" : ""}"${attr} role="button" tabindex="0">
-          <div class="prompt-card-icon">${c.icon}</div>
           <div class="prompt-card-title">${escapeHtml(c.title)}</div>
           <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
           ${c.basis ? `<div class="prompt-card-basis">依据：${escapeHtml(c.basis)}</div>` : ""}

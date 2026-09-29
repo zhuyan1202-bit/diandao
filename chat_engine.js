@@ -3114,20 +3114,12 @@ ${yrs.join("　")}
 ${flowCloseRule(round, max)}`;
   }
 
-  // 六爻解卦：卦是主体，本命盘只当背景（这步大运顺不顺，影响力度，不影响成败方向）
+  // 六爻解卦：只看卦，不掺八字 —— 应期由卦里的月建、日辰定，本命盘的大运流年给不出更细的时间点，掺进去只会添乱
   function buildGuaPrompt(chart, gua) {
     const t = getCurrentTimeAnchor();
     const L = global.Liuyao;
     const g = gua.chart;
     const p = (chart && chart.profile) || {};
-    let bg = "";
-    try {
-      const st = baziStrength(chart);
-      const dy = computeDayun(chart);
-      const now = dy ? dayunAt(dy, t.Y, t.M) : null;
-      bg = "日元" + st.dm + st.dmWx + "【" + st.verdict + "】，喜" + ((st.favor || []).join("、") || "—") + "、忌" + ((st.avoid || []).join("、") || "—") +
-           (now ? "；现行 " + now.gz + " 大运（" + now.fromYear + "–" + (now.fromYear + 10) + "）" : "");
-    } catch (e) { bg = "（命盘背景取不到，只看卦）"; }
     const tl = gua.timeline || { months: [], days: [] };
     const CAT = { job: "工作 / offer / 面试", single: "感情：什么时候脱单", marry: "感情：这个人能不能成、能不能结婚",
                   reconcile: "复合", money: "钱 / 投资 / 回款", exam: "考试 / 升学" };
@@ -3150,8 +3142,6 @@ ${tl.months.map(function (m) { return "  · " + m.pillar + "月 " + m.from; }).j
 【往后 15 天的日辰】
 ${tl.days.join("　")}
 
-【问卦人命盘背景（只作参考，不能压过卦）】
-${bg}
 ══════════════════════════════
 
 【怎么断】
@@ -3162,7 +3152,7 @@ ${bg}
 5. 应期：从用神及相关爻推，常见取法 —— 用神旬空待出空、月破待填实或出月、被合待冲开、静而有力待逢值逢冲、动而受制待制神受克。
    应期必须落到上面给出的真实月建切换日期或具体日辰对应的公历日期，写成「大约 11 月上旬（立冬后）」「10 月 6 日前后」这样；
    只准用上面列出的日期，不许自己推算干支日期。应期给出一到两个，说明是哪一爻、为什么。
-6. 命盘背景只用来调整力度（大运顺时成事阻力小一些），不许因为命盘推翻卦的结论。
+6. 只按这一卦断。不要提八字、紫微、大运、流年、日元喜忌，也不要拿命盘来解释或修正卦的结论。
 
 【怎么写 —— 读的人不懂六爻】
 - 第一段只写一句结论，用粗体：**能成 / 难成 / 有机会但有条件 / 眼下看不清**，再加一句把握度（高 / 中 / 低）。

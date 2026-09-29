@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260929120834">
+  <link rel="stylesheet" href="styles.css?v=20260929121308">
   <link rel="apple-touch-icon" href="icon-180.png">
   <style>
     /* 启动画面：脚本约 1.2MB，弱网下要加载好几秒，别让人对着白屏 */
@@ -75,7 +75,6 @@
       </div>
 
       <div class="profile-actions">
-        <button class="profile-action-btn is-accent is-wide" id="btn-open-rectify" hidden>⏱ 出生时辰还没定，校准一下</button>
         <button class="profile-action-btn is-pair" id="btn-open-pair">💞 和 TA 合不合</button>
         <button class="profile-action-btn is-gua is-wide" id="btn-open-gua" title="问一件具体的事：offer、感情、复合、回款、考试">☯ 问一件事 · 起卦</button>
         <button class="profile-action-btn is-wx is-wide" id="btn-open-wuxing">🌿 今日运势 · 五行报告</button>
@@ -372,23 +371,6 @@
     </div>
   </div>
 
-  <!-- ========== 精准定盘弹窗 ========== -->
-  <div class="modal-overlay" id="modal-rectify">
-    <div class="modal-box rectify-modal-box">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h3 style="font-size:17px; display:flex; align-items:center; gap:7px;">🧭 <span>精准定盘</span></h3>
-        <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-rectify')">×</button>
-      </div>
-      <p style="font-size:12.5px; color:var(--text-sub); margin-bottom:14px; line-height:1.55;">
-        只知道大致区间，或真太阳时修正后跨了两个时辰时，命盘就不唯一，得先定下来。<br>
-        这里<strong>不让你判断“哪段描述更像你”</strong>，只请你填几件人生大事的<strong>年份</strong>。你填的时候看不到这个年份会算到哪个盘，所以不存在被带节奏。<br>
-        没发生过、记不清的直接留空或点「没有过」—— 填几件算几件；证据不够时系统会直说不够，不会硬给结论。
-      </p>
-      <div id="rectify-quiz-container" class="rectify-quiz-container"></div>
-      <div id="rectify-verdict-box" class="rectify-verdict-box" style="display:none;"></div>
-    </div>
-  </div>
-
   <!-- ========== 五行报告 + 今日建议 ========== -->
   <div class="modal-overlay" id="modal-pair">
     <div class="modal-box wx-modal-box">
@@ -577,7 +559,7 @@
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-backup')" aria-label="关闭">×</button>
       </div>
       <p class="bk-note">
-        档案、对话、定盘结论都只存在<strong>这台设备的这个浏览器</strong>里。换手机、换浏览器、清理浏览器数据都会丢。
+        档案和对话都只存在<strong>这台设备的这个浏览器</strong>里。换手机、换浏览器、清理浏览器数据都会丢。
         隔一阵子备份一次，放到微信「文件传输助手」或备忘录里就行。
       </p>
       <p class="bk-note bk-muted">备份里不含 API Key 和邀请码。</p>
@@ -619,21 +601,21 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260929120834"></script>
-  <script src="calendar_core.js?v=20260929120834"></script>
-  <script src="ziwei_engine.js?v=20260929120834"></script>
-  <script src="bazi_analyze.js?v=20260929120834"></script>
+  <script src="vsop87.js?v=20260929121308"></script>
+  <script src="calendar_core.js?v=20260929121308"></script>
+  <script src="ziwei_engine.js?v=20260929121308"></script>
+  <script src="bazi_analyze.js?v=20260929121308"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260929120834"></script>
-  <script src="kb_retrieve.js?v=20260929120834"></script>
-  <script src="bazi_kb.js?v=20260929120834"></script>
-  <script src="bazi_retrieve.js?v=20260929120834"></script>
-  <script src="tarot_data.js?v=20260929120834"></script>
-  <script src="ziwei_bazi_core.js?v=20260929120834"></script>
-  <script src="liuyao.js?v=20260929120834"></script>
-  <script src="chat_engine.js?v=20260929120834"></script>
-  <script src="wuxing_report.js?v=20260929120834"></script>
-  <script src="invite.js?v=20260929120834"></script>
-  <script src="app.js?v=20260929120834"></script>
+  <script src="knowledge_base.js?v=20260929121308"></script>
+  <script src="kb_retrieve.js?v=20260929121308"></script>
+  <script src="bazi_kb.js?v=20260929121308"></script>
+  <script src="bazi_retrieve.js?v=20260929121308"></script>
+  <script src="tarot_data.js?v=20260929121308"></script>
+  <script src="ziwei_bazi_core.js?v=20260929121308"></script>
+  <script src="liuyao.js?v=20260929121308"></script>
+  <script src="chat_engine.js?v=20260929121308"></script>
+  <script src="wuxing_report.js?v=20260929121308"></script>
+  <script src="invite.js?v=20260929121308"></script>
+  <script src="app.js?v=20260929121308"></script>
 </body>
 </html>

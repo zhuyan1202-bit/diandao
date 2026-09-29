@@ -487,7 +487,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (hint) hint.textContent = v === "exact"
       ? "出生证明上一般有。差一个时辰（两小时），盘就完全不同。"
       : v === "interval"
-      ? "比如「早上 8 点到 10 点之间」。跨了两个时辰也没关系，之后可以用过往经历校准。"
+      ? "比如「早上 8 点到 10 点之间」。跨了两个时辰也能先排，会按最可能的那个时辰来。"
       : "也能排：年、月、日三柱和五行报告照样准；和时辰有关的部分会先标「待定」，建议问问家里人再来补。";
   }
   function openOnboard(forNew) {
@@ -556,11 +556,9 @@ document.addEventListener("DOMContentLoaded", () => {
     $("modal-onboard")?.classList.remove("show");
 
     const pr = state.userChart && state.userChart.profile;
-    const pending = pr && Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1;
     const who = OB.forNew ? name + " 的" : "你的";
     if (!OB.forNew && maybeA2HSTip("✅ " + who + "盘排好了。")) return;
     toast("✅ " + who + "盘排好了。" +
-      (pending ? "时辰还没定，左边可以「校准一下」。" : "") +
       (aiAccess().mode ? "" : "要开始问问题，先用朋友发的邀请链接打开，或在「开通 AI」里填邀请码。"),
       !aiAccess().mode);
   }
@@ -826,8 +824,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const names = res.candidates.map(c => `【${c.shichenName}】`).join(" 或 ");
         el.innerHTML = `⚠️ <strong>这个区间跨了 ${res.candidates.length} 个时辰，命盘还不唯一</strong><br>`
           + `你填的区间（${rStart}–${rEnd}）经【${city}】真太阳时校准后是 <strong>${res.tstStart.trueTimeStr}–${res.tstEnd.trueTimeStr}</strong>，可能落在 ${names}。`
-          + `<span class="tst-note">时辰不同，命宫主星与八字时柱完全不同，结论会差很远。用几道客观题就能定到唯一一盘。</span>`
-          + `<button type="button" class="drawer-open-rectify-btn" onclick="window.__startFlow('rectify')">🎯 开始定盘</button>`;
+          + `<span class="tst-note">先按最可能的【${res.candidates[0].shichenName}】排盘。时辰不同，命宫主星与八字时柱完全不同 —— 能问家里人把时间缩到两小时以内，会准得多。</span>`;
       }
       return;
     }
@@ -856,323 +853,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  window.__lockCandidateShichen = function(clockH, clockM, shichenName) {
-    const modeSel = document.getElementById("drawer-time-mode");
-    const exactWrap = document.getElementById("drawer-exact-wrap");
-    const intervalWrap = document.getElementById("drawer-interval-wrap");
-    const bt = document.getElementById("drawer-birthtime");
-    if (modeSel) modeSel.value = "exact";
-    if (exactWrap) exactWrap.style.display = "block";
-    if (intervalWrap) intervalWrap.style.display = "none";
-    const pad = n => String(n).padStart(2, "0");
-    if (bt) bt.value = `${pad(clockH)}:${pad(clockM)}`;
-
-    const d = document.getElementById("drawer-birthdate")?.value || "1998-08-18";
-    const [y, m, dd] = d.split("-").map(Number);
-    const city = document.getElementById("drawer-city")?.value || "默认 (东经120°标准时)";
-    updateChart({
-      year: y, month: m, day: dd,
-      hour: clockH, minute: clockM,
-      timeMode: "exact",
-      // 原始区间留着，以后想重新定盘还能接着用
-      rangeStart: document.getElementById("drawer-range-start")?.value || "",
-      rangeEnd: document.getElementById("drawer-range-end")?.value || "",
-      rectified: true,
-      rectifiedShichen: shichenName || "",
-      confirmed: true,
-      city: city,
-      gender: document.getElementById("drawer-gender")?.value || "female",
-      status: document.getElementById("drawer-status")?.value || ""
-    }, true);
-    if (sound && sound.chime) sound.chime();
-
-    // 不再静默关掉——直接把命盘档案开给用户看，并把刚改动的地方高亮
-    const drawer = document.getElementById("chart-drawer");
-    if (drawer) {
-      drawer.classList.add("open");
-      if (window.__toggleMobileSidebar) window.__toggleMobileSidebar(false);
-      const prev = document.getElementById("drawer-tst-preview");
-      if (prev) {
-        prev.classList.add("flash-ok");
-        setTimeout(() => prev.classList.remove("flash-ok"), 2400);
-        setTimeout(() => { try { prev.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {} }, 60);
-      }
-    }
-  };
-
-  /* ================= 精准定盘 v2 =================
-     主证据：你填人生大事的年份（填的时候看不到会算到哪个盘，没法被引导）
-     辅助：几句单盘描述，四档作答，不做二选一
-     没发生过 / 记不清 一律可以跳过，不存在“答不出还得硬选”
-  ================================================= */
-  let currentRectifyQuiz = null;
-  let rectifyAnswers = { events: {}, traits: {} };
-  let rectifyCtx = null;   // 这次定盘是从哪个区间推出来的，渲染时要如实告诉用户
-
-  window.__openRectifyModal = function() {
-    if (!window.AstrologyCore || !window.AstrologyCore.buildRectifyQuiz) return;
-    const d = document.getElementById("drawer-birthdate")?.value || "1998-08-18";
-    const [y, m, dd] = d.split("-").map(Number);
-    const city = document.getElementById("drawer-city")?.value || "默认 (东经120°标准时)";
-    const gender = document.getElementById("drawer-gender")?.value || "female";
-    const status = document.getElementById("drawer-status")?.value || "";
-    // 精确时间模式下界面上根本没有区间可读。
-    // 直接去拿 drawer-range-start/end 会读到默认的 09:00–12:00，
-    // 那跟他的实际生辰毫无关系 —— 定盘会拿一组错的候选去问他。
-    // 正确做法：以他填的时间为中心前后各放宽半小时。
-    // 时辰本身有两小时宽，半小时的容差意味着「只有真的贴着交界才需要定盘」——
-    // 放宽一小时的话，连时辰正中的时间都会被拖出两个候选，那就成了骚扰。
-    const tMode = document.getElementById("drawer-time-mode")?.value || "interval";
-    let rStart = "", rEnd = "", exactBase = "";
-    if (tMode === "exact") {
-      const bt = document.getElementById("drawer-birthtime")?.value || "";
-      const bp = bt.split(":").map(Number);
-      if (bp.length >= 1 && !isNaN(bp[0])) {
-        const mins = bp[0] * 60 + (isNaN(bp[1]) ? 0 : bp[1]);
-        const pad2 = function (n) { return (n < 10 ? "0" : "") + n; };
-        const fmt = function (n) {
-          const k = Math.min(23 * 60 + 59, Math.max(0, n));
-          return pad2(Math.floor(k / 60)) + ":" + pad2(k % 60);
-        };
-        exactBase = fmt(mins);
-        rStart = fmt(mins - 30);
-        rEnd   = fmt(mins + 30);
-      }
-    }
-    if (!rStart) {
-      rStart = document.getElementById("drawer-range-start")?.value || "09:00";
-      rEnd   = document.getElementById("drawer-range-end")?.value || "12:00";
-    }
-    const [sh, sm] = rStart.split(":").map(Number);
-    const [eh, em] = rEnd.split(":").map(Number);
-
-    const ivRes = window.AstrologyCore.analyzeTimeInterval({
-      year: y, month: m, day: dd,
-      startHour: isNaN(sh) ? 9 : sh, startMinute: isNaN(sm) ? 0 : sm,
-      endHour: isNaN(eh) ? 12 : eh, endMinute: isNaN(em) ? 0 : em,
-      city, gender, status
-    });
-
-    // buildRectifyQuiz 在只有一个候选时会主动拉「前一时辰」来做对照 ——
-    // 那是为「区间模式」设计的（用户自己说了不确定）。
-    // 精确时间模式下他已经给了具体时刻，放宽半小时还落在同一个时辰，
-    // 就不该无中生有编一个前一时辰让他选，直接告诉他不用定盘。
-    const singleInExact = (tMode === "exact" && (ivRes.candidates || []).length === 1);
-    currentRectifyQuiz = singleInExact
-      ? null
-      : window.AstrologyCore.buildRectifyQuiz(ivRes.candidates);
-    rectifyAnswers = { events: {}, traits: {} };
-    rectifyCtx = {
-      mode: tMode, start: rStart, end: rEnd, base: exactBase,
-      shichen: (ivRes.candidates || []).map(function (c) { return c.shichenName; })
-    };
-
-    const verdictBox = document.getElementById("rectify-verdict-box");
-    if (verdictBox) verdictBox.style.display = "none";
-    renderRectifyQuiz();
-    openModal("modal-rectify");
-  };
-
-  // 只在打开时渲染一次 —— 中途重绘会把年份输入框的光标顶掉
-  function renderRectifyQuiz() {
-    const container = document.getElementById("rectify-quiz-container");
-    const q = currentRectifyQuiz;
-    if (!container) return;
-    if (!q) {
-      const only = (rectifyCtx && rectifyCtx.shichen && rectifyCtx.shichen[0]) ? rectifyCtx.shichen[0] : "";
-      container.innerHTML = (rectifyCtx && rectifyCtx.mode === "exact")
-        ? "<div class=\"rx-head\">你填的是 " + escapeHtml(rectifyCtx.base || "") +
-          "，前后各放宽半小时（" + escapeHtml(rectifyCtx.start) + "–" + escapeHtml(rectifyCtx.end) +
-          "）之后仍然落在同一个时辰" + (only ? "【" + escapeHtml(only) + "】" : "") +
-          "里。<br>也就是说就算记错半小时，这张盘也不会变 —— 不用定盘。" +
-          "<br><br>如果你怀疑自己记错的<b>不止半小时</b>，把上面的时间模式切成「时间区间」，" +
-          "填一个你有把握的范围，再回来定盘。</div>"
-        : "<div class=\"rx-head\">当前区间（" + escapeHtml(rectifyCtx ? rectifyCtx.start : "") + "–" +
-          escapeHtml(rectifyCtx ? rectifyCtx.end : "") + "）只对应一个时辰，不需要定盘。</div>";
-      return;
-    }
-
-    const candLine = q.candidates.map(c => `<b>${escapeHtml(c.shichenName)}</b>`).join(" 还是 ");
-    const srcNote = (rectifyCtx && rectifyCtx.mode === "exact")
-      ? `<div class="rx-srcnote">你填的是 <b>${escapeHtml(rectifyCtx.base || "")}</b>，正好靠近时辰交界。
-         这里按 ${escapeHtml(rectifyCtx.start)}–${escapeHtml(rectifyCtx.end)} 取候选，用下面的问题定一下究竟是哪个时辰。</div>`
-      : "";
-
-    const evHtml = q.events.map(ev => `
-      <div class="rx-ev" data-ev="${ev.id}">
-        <div class="rx-ev-text">
-          <div class="rx-ev-label">${escapeHtml(ev.label)}</div>
-          ${ev.hint ? `<div class="rx-ev-hint">${escapeHtml(ev.hint)}</div>` : ""}
-        </div>
-        <div class="rx-ev-ctrl">
-          <input type="number" inputmode="numeric" class="rx-year" placeholder="年份"
-                 min="${q.minYear}" max="${q.maxYear}"
-                 oninput="window.__setRectifyYear('${ev.id}', this.value)">
-          <button type="button" class="rx-skip" onclick="window.__skipRectifyEvent('${ev.id}', this)">没有过</button>
-        </div>
-      </div>`).join("");
-
-    const trHtml = !q.traits.length ? "" : `
-      <div class="rx-sec">
-        <div class="rx-sec-h">② 再对几句话 <span>对不上就直说「不符合」，不用勉强</span></div>
-        ${q.traits.map(t => `
-          <div class="rx-tr" data-tr="${t.id}">
-            <div class="rx-tr-dim">${escapeHtml(t.dimension)}</div>
-            <div class="rx-tr-text">${escapeHtml(t.statement)}</div>
-            <div class="rx-tr-opts">
-              ${[["yes", "很符合"], ["kinda", "有点像"], ["no", "不符合"], ["unsure", "说不准"]]
-                .map(o => `<button type="button" class="rx-tr-btn" onclick="window.__setRectifyTrait('${t.id}','${o[0]}',this)">${o[1]}</button>`).join("")}
-            </div>
-          </div>`).join("")}
-      </div>`;
-
-    container.innerHTML = `
-      <div class="rx-head">现在要分的是：${candLine}</div>
-      ${srcNote}
-      <div class="rx-sec">
-        <div class="rx-sec-h">① 你的人生时间点 <span>记得几件填几件，不用全填；只填年份即可</span></div>
-        <div class="rx-ev-list">${evHtml}</div>
-      </div>
-      ${trHtml}`;
-  }
-
-  window.__setRectifyYear = function(evId, val) {
-    const q = currentRectifyQuiz;
-    if (!q) return;
-    const row = document.querySelector(`.rx-ev[data-ev="${evId}"]`);
-    const y = parseInt(val, 10);
-    if (!String(val).trim()) {
-      delete rectifyAnswers.events[evId];
-      row && row.classList.remove("rx-bad");
-    } else if (isNaN(y) || y < q.minYear || y > q.maxYear) {
-      delete rectifyAnswers.events[evId];
-      row && row.classList.add("rx-bad");
-    } else {
-      rectifyAnswers.events[evId] = y;
-      if (row) {
-        row.classList.remove("rx-bad");
-        const sk = row.querySelector(".rx-skip");
-        if (sk) sk.classList.remove("on");
-      }
-    }
-    evaluateRectifyQuiz();
-  };
-
-  window.__skipRectifyEvent = function(evId, btn) {
-    const row = document.querySelector(`.rx-ev[data-ev="${evId}"]`);
-    const on = btn.classList.toggle("on");
-    if (on && row) {
-      const inp = row.querySelector(".rx-year");
-      if (inp) inp.value = "";
-      row.classList.remove("rx-bad");
-      delete rectifyAnswers.events[evId];
-    }
-    evaluateRectifyQuiz();
-  };
-
-  window.__setRectifyTrait = function(tId, val, btn) {
-    const wrap = btn.closest(".rx-tr-opts");
-    if (wrap) wrap.querySelectorAll(".rx-tr-btn").forEach(b => b.classList.remove("selected"));
-    btn.classList.add("selected");
-    rectifyAnswers.traits[tId] = val;
-    evaluateRectifyQuiz();
-  };
-
-  function evaluateRectifyQuiz() {
-    const box = document.getElementById("rectify-verdict-box");
-    const q = currentRectifyQuiz;
-    if (!box || !q || !window.AstrologyCore.scoreRectify) return;
-
-    const nEv = Object.keys(rectifyAnswers.events).length;
-    const nTr = Object.keys(rectifyAnswers.traits).length;
-    if (!nEv && !nTr) { box.style.display = "none"; return; }
-
-    const r = window.AstrologyCore.scoreRectify(q, rectifyAnswers);
-
-    const detailHtml = r.evLines.concat(r.trLines)
-      .map(l => `<div class="rx-line ${l.ok ? "ok" : "no"}">${l.ok ? "✔" : "—"} ${escapeHtml(l.text)}</div>`).join("");
-
-    const bars = r.ranked.map(x => {
-      const pct = r.weight > 0 ? Math.round(x.s / r.weight * 100) : 0;
-      return `<div class="rx-bar-row"><span class="rx-bar-name">${escapeHtml(x.c.shichenName)}</span>`
-           + `<span class="rx-bar"><i style="width:${pct}%"></i></span><span class="rx-bar-pct">${pct}%</span></div>`;
-    }).join("");
-
-    let tone, headline, detail;
-    if (r.status === "insufficient") {
-      tone = "warn";
-      headline = "证据还不够，先不下结论";
-      detail = `目前有效证据 ${r.weight} 分，判定线是 ${r.minWeight} 分。`
-             + (r.noSignal ? `你填的年份里有 ${r.noSignal} 条在几个盘上都说得通，分不出来。` : "")
-             + `再多填几个年份会准得多。`;
-    } else if (r.status === "tie") {
-      tone = "warn";
-      headline = "两个盘咬得太近，现在还分不开";
-      detail = `领先幅度只有 ${Math.round(r.leadRatio * 100)}%，没到 ${Math.round(r.minLead * 100)}% 的判定线。`
-             + `这种时候硬定一个，后面所有分析都会跟着错。`;
-    } else {
-      tone = "ok";
-      headline = `【${r.top.c.shichenName}】明显对得上`;
-      detail = `在 ${r.weight} 分有效证据里领先 ${Math.round(r.leadRatio * 100)}%，超过了 ${Math.round(r.minLead * 100)}% 的判定线。`;
-    }
-    if (r.unsure) detail += `（${r.unsure} 项你选了“说不准”，没计分）`;
-
-    // 按钮一律走 CSS 类，不再写死颜色 —— 之前的 rgba(255,255,255,.08) 在浅色主题下是白底白字
-    const btns = [];
-    if (r.status === "confident") {
-      btns.push(`<button type="button" class="rx-btn rx-btn-primary" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">✨ 采纳：锁定【${r.top.c.shichenName}】并更新全盘</button>`);
-    } else {
-      btns.push(`<button type="button" class="rx-btn rx-btn-ghost" onclick="window.__applyRectifiedChart(${r.top.c.clockHour}, ${r.top.c.clockMinute}, '${r.top.c.shichenName}')">先按目前领先的【${r.top.c.shichenName}】用着（随时可改）</button>`);
-    }
-    btns.push(`<button type="button" class="rx-btn rx-btn-ghost" onclick="window.__sendRectifyToAI()">💬 把已填的内容交给 AI，让它继续追问</button>`);
-
-    box.style.display = "block";
-    box.innerHTML = `
-      <div class="rx-verdict-h ${tone}">🎯 ${headline}</div>
-      <div class="rx-bars">${bars}</div>
-      <div class="rx-lines">${detailHtml}</div>
-      <div class="rx-detail">${detail}</div>
-      <div class="rx-act">${btns.join("")}</div>`;
-  }
-
-  window.__applyRectifiedChart = function(clockH, clockM, shichenName) {
-    closeModal("modal-rectify");
-    window.__lockCandidateShichen(clockH, clockM, shichenName);
-  };
-
-  window.__sendRectifyToAI = function() {
-    const q = currentRectifyQuiz;
-    if (!q) return;
-    closeModal("modal-rectify");
-    document.getElementById("chart-drawer")?.classList.remove("open");
-
-    const candDesc = q.candidates.map((c, i) =>
-      `候选盘${String.fromCharCode(65 + i)}：【${c.shichenName}】（时柱${c.hourPillar}，紫微命宫${c.mingStars}，夫妻宫${c.spouseStars}）`
-    ).join(" vs ");
-
-    const evTxt = q.events
-      .filter(ev => rectifyAnswers.events[ev.id])
-      .map(ev => `· ${ev.label}：${rectifyAnswers.events[ev.id]} 年`);
-
-    const TR_LABEL = { yes: "很符合", kinda: "有点像", no: "不符合", unsure: "说不准" };
-    const trTxt = (q.traits || [])
-      .filter(t => rectifyAnswers.traits[t.id])
-      .map(t => `· 「${t.statement}」→ 我的回答：${TR_LABEL[rectifyAnswers.traits[t.id]]}`);
-
-    const r = window.AstrologyCore.scoreRectify(q, rectifyAnswers);
-    const sysTxt = r.evLines.concat(r.trLines).map(l => `· ${l.text}`);
-
-    const body = [
-      evTxt.length ? "【我填的人生时间点】\n" + evTxt.join("\n") : "【我还没填任何年份】",
-      trTxt.length ? "\n\n【几句描述的核对结果】\n" + trTxt.join("\n") : "",
-      "\n\n【系统自动算出来的初步判断（仅供参考，不要直接附和）】\n" + (sysTxt.join("\n") || "· 暂无")
-        + `\n· 当前状态：${r.status === "confident" ? "系统认为可以定下来" : (r.status === "tie" ? "两盘咬得很近，分不开" : "证据不足")}`
-    ].filter(Boolean).join("");
-
-    const prompt = `我的出生时间只知道一个大致区间，现在还定不下来：\n${candDesc}\n\n${body}\n\n请严格按下面三步来，不要跳步，也不要直接附和系统的初步判断：\n\n第一步：拿我填的每一个年份，分别在两个候选盘上排一遍流年与大限，看哪个盘对得上。对不上就说对不上，不要强行圆。\n\n第二步：针对我没填、或两盘都说得通的地方，向我提 2–3 个追问。追问必须只能用客观事实回答（哪一年发生了什么、住在哪里、身体哪个部位真的出过问题），不要问“你觉得自己是不是比较内向”这类性格感受题——那种题我会不自觉顺着你的话选。\n\n第三步：等我回答完追问之后再收敛。如果仍然分不开，请明确告诉我分不开，并说明还需要什么信息才能分开。不要为了给个答案而勉强下判断。`;
-    send(prompt);
-  };
-
   /**
    * 侧边栏「命盘档案」卡片 —— 全局只能有这一处写它。
    * 之前 updateChart 与 renderDynamicPrompts 各写一遍，后者会把生辰和定盘状态覆盖掉。
@@ -1186,9 +866,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const shichen = String(b.hourPillar || "").slice(-1);
     const isInterval = pr.timeMode === "interval";
     const pending = isInterval && Array.isArray(pr.intervalCandidates) && pr.intervalCandidates.length > 1;
-    // 「校准时辰」只在时辰真的没定时出现；知道准确时间的人用不上，常驻只会添乱
-    const rb = document.getElementById("btn-open-rectify");
-    if (rb) rb.hidden = !pending || isUntouchedDefault(pr);
     if (isUntouchedDefault(pr)) {
       mini.innerHTML = '<div class="mini-line strong">还没填出生信息</div>' +
         '<div class="mini-line">点这里填写，半分钟就好</div>';
@@ -1648,10 +1325,9 @@ document.addEventListener("DOMContentLoaded", () => {
       gridEl.innerHTML = cards.map(c => {
         const attr = c.onboard ? ' data-onboard="1"'
           : c.fill ? ' data-fill="1"'
-          : c.flow ? ` data-flow="${escapeHtml(c.flow)}"`
           : ` data-prompt="${escapeHtml(c.prompt)}"`;
         return `
-        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}${c.flow ? " is-verify" : ""}"${attr} role="button" tabindex="0">
+        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}"${attr} role="button" tabindex="0">
           <div class="prompt-card-title">${escapeHtml(c.title)}</div>
           <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
           ${c.basis ? `<div class="prompt-card-basis">依据：${escapeHtml(c.basis)}</div>` : ""}
@@ -1811,9 +1487,8 @@ document.addEventListener("DOMContentLoaded", () => {
       greet.style.display = "none";
       // 「重新回答」只挂在最后一条、且前一条是用户提问的正常回答上
       const n = msgs.length, last = msgs[n - 1], prev = msgs[n - 2];
-      const cur = state.sessions.find(x => x.id === state.currentSessionId);
-      const canRegen = Boolean(last && last.role === "ai" && !last.streaming && !last.notice && !last.flowDone &&
-        prev && prev.role === "user" && !(cur && cur.flow && !cur.flow.done));
+      const canRegen = Boolean(last && last.role === "ai" && !last.streaming && !last.notice &&
+        prev && prev.role === "user");
       list.innerHTML = msgs.map((m, i) => msgHtml(m, canRegen && i === n - 1, i)).join("");
     }
     scrollBottom();
@@ -1917,81 +1592,6 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom(false);
   }
 
-  /* ---------- 格局断定：推论逐条确认 ----------
-   * 以前一轮 3 条推论只给「对 / 不太对 / 记不清」三个总按钮，没法说「第 1 条对、第 2 条不对」。
-   * 现在一条一条问，最后一条答完自动把整轮答案发出去。 */
-  const CLAIM_LBL = { yes: "对", no: "不对", unsure: "记不清", other: "其他情况" };
-  function claimsHtml(m, idx) {
-    const s = state.sessions.find(x => x.id === state.currentSessionId);
-    const msgs = s ? getRoomMessages(s, state.kbMode) : [];
-    const live = msgs[msgs.length - 1] === m && !m.claimsSent && !!(s && s.flow && !s.flow.done);
-    const ans = m.claimAns || [];
-    const doneRows = ans.map((a, i) =>
-      '<div class="claim-done"><span class="claim-tag t-' + a.v + '">' + CLAIM_LBL[a.v] + '</span><span>' + escapeHtml(m.claims[i]) +
-      (a.note ? '<em>' + escapeHtml(a.note) + '</em>' : "") + '</span></div>').join("");
-    if (!live) {
-      return '<div class="claim-box is-closed">' + (doneRows || m.claims.map(c =>
-        '<div class="claim-done"><span class="claim-tag">待答</span><span>' + escapeHtml(c) + '</span></div>').join("")) + '</div>';
-    }
-    const k = ans.length, n = m.claims.length;
-    const btn = (act, txt, cls) => '<button type="button" class="claim-btn ' + (cls || "") + '" onclick="window.__claim(' + idx + ',\'' + act + '\')">' + txt + '</button>';
-    const body = m.claimOther
-      ? '<textarea id="claim-note" class="form-input-xs claim-note" rows="2" maxlength="120" placeholder="说说实际情况，比如：那几年压力大是真的，但主要是家里的事，不是工作"></textarea>' +
-        '<div class="claim-btns two">' + btn("back-other", "返回") + btn("other-ok", "确定", "is-primary") + '</div>'
-      : '<div class="claim-btns">' + btn("yes", "对，是这样", "t-yes") + btn("no", "不对", "t-no") +
-        btn("unsure", "记不清", "t-unsure") + btn("other", "其他情况…", "t-other") + '</div>';
-    return '<div class="claim-box">' + doneRows +
-      '<div class="claim-card">' +
-        '<div class="claim-prog"><span>第 ' + (k + 1) + ' / ' + n + ' 条</span><i><b style="width:' + Math.round(k / n * 100) + '%"></b></i></div>' +
-        '<div class="claim-text">' + escapeHtml(m.claims[k]) + '</div>' + body +
-        (k > 0 && !m.claimOther ? '<button type="button" class="claim-undo" onclick="window.__claim(' + idx + ',\'undo\')">← 改上一条</button>' : "") +
-      '</div></div>';
-  }
-  window.__claim = function (idx, act) {
-    if (state.busy) return;
-    const s = state.sessions.find(x => x.id === state.currentSessionId);
-    if (!s) return;
-    const msgs = getRoomMessages(s, state.kbMode);
-    const m = msgs[idx];
-    if (!m || !m.claims || m.claimsSent) return;
-    m.claimAns = m.claimAns || [];
-    if (act === "other" || act === "back-other") {
-      m.claimOther = act === "other";
-      renderMessages(msgs);
-      if (m.claimOther) setTimeout(() => { try { document.getElementById("claim-note").focus(); } catch (e) {} }, 40);
-      return;
-    }
-    if (act === "undo") {
-      m.claimAns.pop(); m.claimOther = false;
-      saveSessions(); renderMessages(msgs);
-      return;
-    }
-    let entry = null;
-    if (act === "other-ok") {
-      const note = String((document.getElementById("claim-note") || {}).value || "").trim();
-      if (!note) { toast("写一句实际情况，或者点「返回」选别的。"); return; }
-      entry = { v: "other", note: note };
-    } else if (act === "yes" || act === "no" || act === "unsure") {
-      entry = { v: act };
-    }
-    if (!entry) return;
-    m.claimAns.push(entry);
-    m.claimOther = false;
-    if (sound && sound.send && m.claimAns.length < m.claims.length) sound.send();
-    if (m.claimAns.length >= m.claims.length) {
-      m.claimsSent = true;
-      saveSessions();
-      const text = m.claims.map((c, i) => {
-        const a = m.claimAns[i];
-        return "第" + (i + 1) + "条「" + c + "」：" + (a.v === "other" ? "其他情况 —— " + a.note : CLAIM_LBL[a.v]);
-      }).join("\n");
-      send(text);
-    } else {
-      saveSessions();
-      renderMessages(msgs);
-    }
-  };
-
   function msgHtml(m, canRegen, idx) {
     if (m.role === "chart-change") {
       return `<div class="chart-change-divider"><span>\u{1F504} ${escapeHtml(m.content)}</span></div>`;
@@ -2031,33 +1631,6 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>`;
     }
 
-    let flowHtml = "";
-    if (!m.streaming && m.flowProbs && m.flowProbs.length) {
-      flowHtml += '<div class="flow-probs">' + m.flowProbs.map(x =>
-        '<div class="flow-prob"><span class="flow-prob-name">' + escapeHtml(x.name) + '</span>' +
-        '<span class="flow-prob-bar"><i style="width:' + Math.max(2, x.p) + '%"></i></span>' +
-        '<span class="flow-prob-pct">' + x.p + '%</span></div>').join("") + '</div>';
-    }
-    if (!m.streaming && m.flowDone) {
-      const what = m.flowDone.kind === "rectify"
-        ? "把出生时辰定为【" + escapeHtml(m.flowDone.pick) + "】"
-        : "格局断定：" + escapeHtml(m.flowDone.summary);
-      // 最后一轮被迫收的、或者对上的推论不到一半：照实标出来，让用户自己决定存不存
-      const weak = Boolean(m.flowDone.weak);
-      const weakTxt = m.flowDone.kind === "rectify"
-        ? "证据还不够硬：这个时辰只是目前更像。可以接着补充经历再定，也可以先存着用。"
-        : "对上的推论不够多，这个判断还存疑。可以接着聊，也可以先存着用。";
-      flowHtml += '<div class="flow-done' + (weak ? ' flow-done-weak' : '') + '">' +
-        '<div class="flow-done-what">' + what + '</div>' +
-        (weak && !m.flowConfirmed ? '<div class="flow-done-warn">' + weakTxt + '</div>' : '') +
-        (m.flowConfirmed
-          ? '<div class="flow-done-ok">✅ 已存进档案</div>'
-          : '<button type="button" class="flow-done-btn" onclick="window.__flowConfirm(\'' + escapeHtml(m.fid || "") + '\')">' +
-              (weak ? '仍然存进档案' : '✅ 确认，存进档案') + '</button>' +
-            '<div class="flow-done-sub">存了之后，每次回答都会以这个为准。觉得不对就接着跟它说。</div>') +
-        '</div>';
-    }
-    if (!m.streaming && m.claims && m.claims.length) flowHtml += claimsHtml(m, idx);
     const reasoningHtml = renderThinkBoxHtml(m);
     const bodyHtml = m.streaming
       ? `<div class="ai-final-answer streaming" id="active-answer">${
@@ -2072,7 +1645,6 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="message-bubble">
         ${reasoningHtml}
         ${bodyHtml}
-        ${flowHtml}
         ${tarot}
         ${!m.streaming && !m.notice && m.failed ? `<div class="message-actions">
             ${canRegen && m.retryable !== false ? `<button class="msg-action-btn is-primary" onclick="window.__regen()">↻ 重试</button>` : ""}
@@ -2115,77 +1687,6 @@ document.addEventListener("DOMContentLoaded", () => {
   /* ---------------- 发送（思考匣逐步推演 + 整段答案优雅浮现） ---------------- */
   window.__ask = (q) => send(q);
 
-  /* ---------------- 对话式定盘 / 格局断定 ---------------- */
-  function startFlow(kind) {
-    if (!state.userChart) return;
-    const acc = aiAccess();
-    if (!acc.mode) {
-      ui.alert("这个要跟 AI 来回聊几轮，得先开通 AI：用朋友发的邀请链接打开，或者填邀请码。", { okText: "去开通" })
-        .then(() => window.openModal("modal-settings"));
-      return;
-    }
-    if (acc.mode === "invite" && acc.left < 1) {
-      ui.alert("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后再来。");
-      return;
-    }
-    if (isUntouchedDefault(state.userChart.profile)) {
-      askForBirthFirst();
-      return;
-    }
-    newSession(kind === "rectify" ? "🎯 定盘" : "🧭 格局断定", true);
-    const s = state.sessions.find(x => x.id === state.currentSessionId);
-    if (!s) return;
-    s.flow = { kind: kind, round: 0, done: false };
-    if (kind === "rectify" && ChatEngine.rectifyCandidates) {
-      s.flow.cands = (ChatEngine.rectifyCandidates(state.userChart.profile) || [])
-        .map(c => ({ name: c.name, clockH: c.clockH, clockM: c.clockM }));
-    }
-    saveSessions();
-    toggleMobileSidebar(false);
-    send(kind === "rectify"
-      ? "帮我定盘：我不确定出生时辰准不准，请问我过去发生过的事来确认。"
-      : "帮我做格局断定：先说你的判断，再拿我过去的经历来验证。");
-  }
-  window.__startFlow = startFlow;
-
-  window.__flowConfirm = function (fid) {
-    const s = state.sessions.find(x => x.id === state.currentSessionId);
-    if (!s) return;
-    const msgs = getRoomMessages(s, state.kbMode);
-    const m = msgs.find(x => x.fid === fid);
-    if (!m || !m.flowDone || m.flowConfirmed) return;
-    const pad = n => String(n).padStart(2, "0");
-    const t = ChatEngine.getCurrentTimeAnchor ? ChatEngine.getCurrentTimeAnchor() : { solarDateOnly: "" };
-    let saved = "";
-    if (m.flowDone.kind === "rectify") {
-      const c = ((s.flow && s.flow.cands) || []).find(x => x.name === m.flowDone.pick);
-      if (!c) { ui.alert("没找到这个候选时辰，请重新校准一次。"); return; }
-      window.__lockCandidateShichen(c.clockH, c.clockM, c.name);
-      const act = activeProfile();
-      const note = "出生时辰确认为【" + c.name + "】（按钟表 " + pad(c.clockH) + ":" + pad(c.clockM) + " 排盘），" +
-                   (t.solarDateOnly || "") + " 通过过往经历逐条核对";
-      if (act) act.profile.rectifyNote = note;
-      if (state.userChart) state.userChart.profile.rectifyNote = note;
-      saveProfiles();
-      saved = "出生时辰定为【" + c.name + "】，命盘已按这个时辰重排。";
-    } else {
-      const act = activeProfile();
-      // 存疑的也照用户的意思存，但打上「验证不足」—— 之后的回答只拿它当参考，不当铁案
-      const sum = (m.flowDone.weak && !/存疑|验证不足/.test(m.flowDone.summary) ? "（验证不足，只能参考）" : "") + m.flowDone.summary;
-      if (act) { act.profile.gejuVerified = sum; act.profile.gejuAt = t.solarDateOnly || ""; }
-      if (state.userChart) state.userChart.profile.gejuVerified = sum;
-      saveProfiles();
-      saved = "格局断定：" + sum;
-    }
-    m.flowConfirmed = true;
-    if (s.flow) s.flow.done = true;
-    msgs.push({ role: "ai", content: "✅ 已存进档案。\n\n" + saved + "\n\n之后每次回答都会以这个为准。", ck: state.chartKey });
-    saveSessions();
-    renderMessages(msgs);
-    renderCtxChip(s);
-    if (sound && sound.chime) sound.chime();
-  };
-
   /* ---------------- 合盘 / 帮朋友看盘 ---------------- */
   function chartFromBirth(bi) {
     return AstrologyCore.analyzeFullNatalChart({
@@ -2194,14 +1695,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   function resolveTurnTarget(s, text) {
-    if (s.flow && !s.flow.done) {
-      // 定盘／格局断定进行中：用户的回答里常有「2015年6月3日我结婚了」这种日期，不能当成朋友生日
-      s.flow.round = (s.flow.round || 0) + 1;
-      saveSessions();
-      renderCtxChip(s);
-      return { chart: state.userChart, cfg: { flow: s.flow.kind, flowRound: s.flow.round },
-               pair: s.flow.kind === "rectify", flow: s.flow.kind };
-    }
     // 起卦对话：每一轮都按这一卦解。问题里常带「10月」「下周三」，不能当成谁的生日去解析
     if (s.gua) {
       renderCtxChip(s);
@@ -2239,12 +1732,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const el = document.getElementById("ctx-chip");
     if (!el) return;
     let html = "";
-    if (s && s.flow && !s.flow.done) {
-      const mx = (ChatEngine.FLOW_MAX || {})[s.flow.kind] || 5;
-      html = (s.flow.kind === "rectify" ? "🎯 正在定盘" : "🧭 正在做格局断定") +
-             "（第 " + Math.max(1, s.flow.round || 1) + " / " + mx + " 轮）· 照实回答，记不清就说记不清 " +
-             '<button type="button" class="ctx-chip-x">✕ 退出</button>';
-    } else if (s && s.partner) {
+    if (s && s.partner) {
       let nm = s.partner.name || "对方";
       if (s.partner.profileId) {
         const pf = state.profiles.find(x => x.id === s.partner.profileId);
@@ -2264,7 +1752,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const s = state.sessions.find(x => x.id === state.currentSessionId);
     if (!s) return;
     s.partner = null; s.friend = null; s.gua = null;
-    if (s.flow && !s.flow.done) s.flow.done = true;   // 退出定盘／格局断定，回到普通聊天
     saveSessions();
     renderCtxChip(s);
   }
@@ -2546,7 +2033,7 @@ document.addEventListener("DOMContentLoaded", () => {
   window.__regen = function () {
     if (state.busy) return;
     const s = state.sessions.find(x => x.id === state.currentSessionId);
-    if (!s || (s.flow && !s.flow.done)) return;
+    if (!s) return;
     const msgs = getRoomMessages(s, state.kbMode);
     const last = msgs[msgs.length - 1], prev = msgs[msgs.length - 2];
     if (!last || last.role !== "ai" || last.streaming || !prev || prev.role !== "user") return;
@@ -2624,9 +2111,9 @@ document.addEventListener("DOMContentLoaded", () => {
       pushNotice(CRISIS_REPLY);
       return;
     }
-    // 朋友邀请：每台设备每天有上限。定盘／格局断定聊到一半不拦，让他聊完
+    // 朋友邀请：每台设备每天有上限
     const acc0 = aiAccess();
-    if (acc0.mode === "invite" && acc0.left < 1 && !(s.flow && !s.flow.done)) {
+    if (acc0.mode === "invite" && acc0.left < 1) {
       restoreInput();
       pushNotice("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后恢复。\n\n" +
                  "想不限次数，可以在左下角「开通 AI → 高级设置」里填你自己的 DeepSeek Key（充 ¥10 大约能问 300 次）。");
@@ -2757,36 +2244,9 @@ document.addEventListener("DOMContentLoaded", () => {
         aiMsg.streaming = false;
         // 标记行（⟦NEXT⟧／⟦RECT⟧…）原样存一份：下一轮随历史喂回去，模型才会接着照格式写
         aiMsg.tail = ChatEngine.markerTail ? ChatEngine.markerTail(full) : "";
-        // 定盘／格局断定里模型漏了快捷回复时，兜底用固定的三个答法 ——
-        // 普通聊天那套「深挖追问」放在这里驴唇不对马嘴
-        const FLOW_QUICK = {
-          rectify: ["对，确实有这回事", "没有这回事", "记不清了"],
-          geju: ["对，说中了", "不太对", "记不清了"]
-        };
         aiMsg.followups = (sp.followups && sp.followups.length)
           ? sp.followups
-          : (turn.flow && FLOW_QUICK[turn.flow]
-              ? FLOW_QUICK[turn.flow].slice()
-              : ChatEngine.followupsFor(text, turn.chart, rep.text, state.kbMode));
-        if (turn.flow && ChatEngine.parseFlow) {
-          const fl = ChatEngine.parseFlow(full);
-          if (fl.probs.length) aiMsg.flowProbs = fl.probs;
-          if (turn.flow === "rectify" && fl.done) {
-            const top = fl.probs.slice().sort((a, b) => b.p - a.p)[0];
-            aiMsg.flowDone = { kind: "rectify", pick: fl.done, weak: !top || top.p < 80 || top.name !== fl.done };
-          }
-          if (turn.flow === "geju" && fl.geju) {
-            aiMsg.flowDone = { kind: "geju", summary: fl.geju,
-              weak: fl.gejuWeak !== undefined ? fl.gejuWeak : /存疑|还没验证|证据不足/.test(fl.geju) };
-          }
-          if (aiMsg.flowDone) { aiMsg.fid = "f" + Date.now(); aiMsg.followups = []; }
-          // 格局断定的推论：做成逐条确认的卡片，替代那三个笼统的快捷回复
-          else if (turn.flow === "geju" && fl.claims && fl.claims.length) {
-            aiMsg.claims = fl.claims;
-            aiMsg.claimAns = [];
-            aiMsg.followups = [];
-          }
-        }
+          : ChatEngine.followupsFor(text, turn.chart, rep.text, state.kbMode);
         // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
         aiMsg.audit = turn.gua ? null : auditOf(rep.text);
         saveSessions();
@@ -2873,7 +2333,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!card) return;
       if (card.dataset.onboard) { openOnboard(false); return; }
       if (card.dataset.fill) { focusAsk(); return; }
-      if (card.dataset.flow) { startFlow(card.dataset.flow); return; }
       if (card.dataset.prompt) send(card.dataset.prompt);
     });
     // 问题卡原来是 div：补上键盘可达（Tab 选中、回车/空格触发）
@@ -2928,10 +2387,6 @@ document.addEventListener("DOMContentLoaded", () => {
       drawer?.classList.remove("open");
     };
     document.getElementById("btn-open-drawer")?.addEventListener("click", open);
-    document.getElementById("btn-open-rectify")?.addEventListener("click", () => {
-      toggleMobileSidebar(false);
-      startFlow("rectify");
-    });
     // 还没填过生辰的，给引导表单；填过的才进完整的命盘抽屉
     const openOrOnboard = () => {
       if (isUntouchedDefault(state.userChart && state.userChart.profile)) openOnboard(false);

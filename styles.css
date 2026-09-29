@@ -2167,3 +2167,24 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
   .ob-mini-seg button { padding: 6px 14px; font-size: 13px; }
   .ob-sc-zi button { min-height: 40px; }
 }
+
+/* =============================================================
+ * 命盘抽屉 · 出生信息只读摘要（2026-09）
+ * 修改统一走首次填写那张表，抽屉里只展示，不再有第二套表单
+ * ============================================================= */
+#drawer-save-bar { display: none !important; }
+.birth-summary {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card);
+}
+.bs-row { display: flex; gap: 14px; padding: 6px 0; font-size: 14px; line-height: 1.5; }
+.bs-row + .bs-row { border-top: 1px dashed var(--border); }
+.bs-k { flex: 0 0 auto; width: 2.6em; color: var(--text-muted); font-size: 13px; }
+.bs-v { flex: 1; color: var(--text-main, var(--text)); word-break: break-word; }
+.birth-edit-btn {
+  margin-top: 10px; width: 100%; padding: 10px 12px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--accent); background: transparent; color: var(--accent);
+  font-size: 14px; font-weight: 600;
+}
+.birth-edit-btn:hover { background: var(--accent-bg); }
+.birth-edit-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

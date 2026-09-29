@@ -615,6 +615,18 @@ document.addEventListener("DOMContentLoaded", () => {
         $("ob-lm").innerHTML = '<option value="" disabled selected>月</option>';
         $("ob-ld").innerHTML = '<option value="" disabled selected>日</option>';
       }
+      // 已经有公历日期（修改档案时）→ 先换算成农历选好，免得切过去就把日期清空
+      const cur = $("ob-date").value;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(cur) && !$("ob-ld").value && window.CalendarCore) {
+        try {
+          const [y, m, d] = cur.split("-").map(Number);
+          const L = window.CalendarCore.solarToLunar(y, m, d);
+          ly.value = String(L.lYear);
+          obLunarChanged("y");
+          const idx = lunarMonthsOf(L.lYear).findIndex(x => x.start === L.monthStartDayNum);
+          if (idx >= 0) { $("ob-lm").value = String(idx); obLunarChanged("m"); $("ob-ld").value = String(L.lDay); }
+        } catch (e) {}
+      }
       obLunarChanged();
     } else {
       $("ob-date-hint").textContent = "只记得农历？点右上角切到「农历」，会自动换算成公历。";
@@ -657,11 +669,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const wk = "日一二三四五六"[new Date(g.y, g.m - 1, gd).getDay()];
     hint.textContent = `= 公历 ${g.y} 年 ${g.m} 月 ${gd} 日（星期${wk}）`;
   }
-  function openOnboard(forNew) {
+  function openOnboard(mode) {
     const box = document.getElementById("modal-onboard");
     if (!box) return;
-    if (box.classList.contains("show") && OB.forNew === forNew) return;   // 已经开着就别重置用户填到一半的内容
-    OB.forNew = Boolean(forNew);
+    const edit = mode === "edit";
+    const forNew = !edit && Boolean(mode);
+    if (box.classList.contains("show") && OB.forNew === forNew && OB.edit === edit) return;   // 已经开着就别重置用户填到一半的内容
+    OB.forNew = forNew;
+    OB.edit = edit;
+    OB.fromDrawer = edit && Boolean(document.getElementById("chart-drawer")?.classList.contains("open"));
     OB.gender = "";
     obSeg("ob-gender", "");
     OB.status = "";
@@ -682,17 +698,85 @@ document.addEventListener("DOMContentLoaded", () => {
     ["ob-date", "ob-time", "ob-rs", "ob-re", "ob-name"].forEach(id => { if ($(id)) $(id).value = ""; });
     ["ob-ly", "ob-lm", "ob-ld"].forEach(id => { if ($(id)) $(id).selectedIndex = 0; });
     obSetCal("solar");
+    if (edit) obPrefill();
     if ($("ob-err")) $("ob-err").textContent = "";
-    $("ob-name-wrap").hidden = !OB.forNew;
-    $("ob-title").textContent = OB.forNew ? "新建一个人的档案" : "先认识一下你";
-    $("ob-sub").textContent = OB.forNew
+    $("ob-name-wrap").hidden = !(OB.forNew || edit);
+    $("ob-title").textContent = edit ? "修改出生信息" : OB.forNew ? "新建一个人的档案" : "先认识一下你";
+    $("ob-sub").textContent = edit
+      ? "改完会按新的出生信息重新排盘。之前的对话都还在。"
+      : OB.forNew
       ? "填上 TA 的出生信息。每个档案的对话各自独立，合盘时可以直接选。"
       : "点到的每一句回答，都按你的出生时刻排盘推演。这些信息只存在你自己的手机里。";
-    $("ob-submit").textContent = OB.forNew ? "排好 TA 的盘" : "排好我的盘";
-    $("ob-later").textContent = OB.forNew ? "取消" : "先随便看看";
+    $("ob-submit").textContent = edit ? "保存并重新排盘" : OB.forNew ? "排好 TA 的盘" : "排好我的盘";
+    $("ob-later").textContent = (OB.forNew || edit) ? "取消" : "先随便看看";
     toggleMobileSidebar(false);
     closeProfileMenu();
     box.classList.add("show");
+  }
+  // 修改模式：把当前档案原样填回表单
+  function obPrefill() {
+    const act = activeProfile();
+    const p = act && act.profile;
+    if (!p) return;
+    const $ = id => document.getElementById(id);
+    if ($("ob-name")) $("ob-name").value = act.name || "";
+    OB.gender = p.gender || "";
+    obSeg("ob-gender", OB.gender);
+    OB.status = p.status || "";
+    obSeg("ob-status", OB.status);
+    if ($("ob-date")) $("ob-date").value = `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+    const city = $("ob-city");
+    if (city && p.city) { city.value = p.city; if (city.selectedIndex < 0) city.selectedIndex = 0; }
+    if (p.timeMode === "exact") {
+      if ($("ob-time")) $("ob-time").value = `${pad2(p.hour)}:${pad2(p.minute || 0)}`;
+      obSetTmode("exact");
+      return;
+    }
+    const rs = p.rangeStart || "", re = p.rangeEnd || "";
+    if (rs === "00:00" && re === "23:59") { obSetTmode("unknown"); return; }
+    // 区间正好是一个或相邻两个时辰 → 点亮格子；否则按「自己填时间范围」原样显示
+    let a = -1, b = -1;
+    for (let s = 0; s <= 12; s++) { if (slotStart(s) === rs) a = s; if (slotEnd(s) === re) b = s; }
+    if (a >= 0 && b >= a && b - a <= 1) {
+      OB.sc = a === b ? [a] : [a, b];
+    } else {
+      OB.customRange = true;
+      if ($("ob-rs")) $("ob-rs").value = rs;
+      if ($("ob-re")) $("ob-re").value = re;
+      const g = $("ob-sc-grid"), c = $("ob-sc-custom");
+      if (g) g.hidden = true; if (c) c.textContent = "改用时辰选择";
+    }
+    obSetTmode("interval");
+    renderShichen();
+  }
+  // 命盘抽屉顶部的只读摘要：用人话写，公历旁边带上农历
+  function renderBirthSummary(p) {
+    const box = document.getElementById("drawer-birth-summary");
+    if (!box || !p) return;
+    let lunar = "";
+    try {
+      const L = window.CalendarCore.solarToLunar(p.year, p.month, p.day);
+      lunar = `农历${L.lMonthLabel}${L.lDayLabel}`;
+    } catch (e) {}
+    let time;
+    if (p.timeMode === "exact") time = `${pad2(p.hour)}:${pad2(p.minute || 0)}`;
+    else if (p.rangeStart === "00:00" && p.rangeEnd === "23:59") time = "时辰不详";
+    else {
+      let a = -1, b = -1;
+      for (let s = 0; s <= 12; s++) { if (slotStart(s) === p.rangeStart) a = s; if (slotEnd(s) === p.rangeEnd) b = s; }
+      time = (a >= 0 && b >= a && b - a <= 1)
+        ? (a === b ? slotName(a) : slotName(a) + "到" + slotName(b)) + `（${p.rangeStart}–${p.rangeEnd}）`
+        : `大约 ${p.rangeStart || "?"}–${p.rangeEnd || "?"}`;
+    }
+    const city = (!p.city || /^默认/.test(p.city)) ? "出生地未填（按北京时间）" : p.city;
+    const status = { single: "单身", dating: "恋爱中", broken: "断联 / 冷战", married: "已婚" }[p.status] || "";
+    const row = (k, v) => `<div class="bs-row"><span class="bs-k">${k}</span><span class="bs-v">${escapeHtml(v)}</span></div>`;
+    box.innerHTML =
+      row("性别", p.gender === "female" ? "女" : "男") +
+      row("生日", `${p.year} 年 ${p.month} 月 ${p.day} 日` + (lunar ? ` · ${lunar}` : "")) +
+      row("时间", time) +
+      row("地点", city) +
+      (status ? row("感情", status) : "");
   }
   function submitOnboard() {
     const $ = id => document.getElementById(id);
@@ -723,7 +807,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (OB.forNew) createProfile(name);
     // 写进抽屉表单，然后走抽屉原本的保存逻辑
     const set = (id, v) => { const el = $(id); if (el) el.value = v; };
-    set("drawer-profile-name", OB.forNew ? name : (activeProfile()?.name || "本人"));
+    set("drawer-profile-name", (OB.forNew || (OB.edit && name)) ? name : (activeProfile()?.name || "本人"));
     set("drawer-gender", OB.gender);
     set("drawer-birthdate", date);
     set("drawer-time-mode", tmode);
@@ -734,6 +818,12 @@ document.addEventListener("DOMContentLoaded", () => {
     set("drawer-status", OB.status || "");
     $("btn-save-chart")?.click();
     $("modal-onboard")?.classList.remove("show");
+    if (OB.edit) {
+      // 从命盘抽屉进来改的：保存逻辑会顺手关抽屉，重新打开让人看到新盘
+      if (OB.fromDrawer) $("chart-drawer")?.classList.add("open");
+      toast("已按新的出生信息重新排盘。");
+      return;
+    }
 
     const pr = state.userChart && state.userChart.profile;
     const who = OB.forNew ? name + " 的" : "你的";
@@ -1183,6 +1273,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (re && chart.profile.rangeEnd) re.value = chart.profile.rangeEnd;
     if (bt) bt.value = `${String(chart.profile.hour).padStart(2, "0")}:${String(chart.profile.minute || 0).padStart(2, "0")}`;
     if (ct) ct.value = chart.profile.city || "默认 (东经120°标准时)";
+    renderBirthSummary(chart.profile);
     if (st) st.value = chart.profile.status;
     updateTstPreview(chart.profile);
 
@@ -2626,7 +2717,11 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     document.getElementById("profile-menu")?.addEventListener("click", e => e.stopPropagation());
     document.addEventListener("click", closeProfileMenu);
-    document.getElementById("btn-modify-chart-trigger")?.addEventListener("click", openOrOnboard);
+    document.getElementById("btn-modify-chart-trigger")?.addEventListener("click", () => {
+      if (isUntouchedDefault(state.userChart && state.userChart.profile)) openOnboard(false);
+      else openOnboard("edit");
+    });
+    document.getElementById("btn-edit-birth")?.addEventListener("click", () => openOnboard("edit"));
     document.getElementById("btn-close-drawer")?.addEventListener("click", close);
 
     const triggerLiveTst = () => {

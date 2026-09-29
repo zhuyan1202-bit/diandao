@@ -387,6 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const sameDay = ["year", "month", "day", "gender"].every(k => String(prev[k]) === String(p[k]));
       const sameTime = sameDay && prev.hour === p.hour && (prev.minute || 0) === (p.minute || 0);
       if (p.gejuVerified === undefined && prev.gejuVerified && sameTime) { p.gejuVerified = prev.gejuVerified; p.gejuAt = prev.gejuAt; }
+      if (p.rhythmCheck === undefined && prev.rhythmCheck) p.rhythmCheck = prev.rhythmCheck;   // 带生辰 key，生辰变了会自己作废
       if (p.rectifyNote === undefined && prev.rectifyNote && sameDay && p.rectified) p.rectifyNote = prev.rectifyNote;
       act.profile = p;
     }
@@ -1540,10 +1541,10 @@ document.addEventListener("DOMContentLoaded", () => {
             sub: "哪段时间该发力、哪段时间该收着",
             basis: `流年 ${t.yPillar} · 命宫【${mingStar}】`,
             prompt: "接下来一年，我的重点该放在哪？哪段时间该发力、哪段时间该收着？" }
-        : { icon: "🧭", title: "先验一验：我过去哪几年最难？",
-            sub: "AI 先说出你经历过的坎和转折年，你来对答案 —— 说中了，后面的话才值得听",
-            basis: `日元 ${dmLabel}${st ? " · " + st.verdict : ""} · 按大运推`,
-            flow: "geju" };
+        : { icon: "🧭", title: "看看我的人生节奏图",
+            sub: "按大运流年算出你哪几年顺、哪几年难。先对一对过去，对得上再看未来十年",
+            basis: `日元 ${dmLabel}${st ? " · " + st.verdict : ""} · 按大运流年推`,
+            rhythm: true };
 
       // 第三张：盘上哪块有「结」就先问哪块，没有明显的结再问擅长什么
       const moneyJi = huaOf("财帛宫").indexOf("化忌") >= 0;
@@ -1654,10 +1655,11 @@ document.addEventListener("DOMContentLoaded", () => {
       gridEl.innerHTML = cards.map(c => {
         const attr = c.onboard ? ' data-onboard="1"'
           : c.fill ? ' data-fill="1"'
+          : c.rhythm ? ' data-rhythm="1"'
           : c.flow ? ` data-flow="${escapeHtml(c.flow)}"`
           : ` data-prompt="${escapeHtml(c.prompt)}"`;
         return `
-        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}${c.flow ? " is-verify" : ""}"${attr} role="button" tabindex="0">
+        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}${c.flow || c.rhythm ? " is-verify" : ""}"${attr} role="button" tabindex="0">
           <div class="prompt-card-title">${escapeHtml(c.title)}</div>
           <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
           ${c.basis ? `<div class="prompt-card-basis">依据：${escapeHtml(c.basis)}</div>` : ""}
@@ -2879,6 +2881,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!card) return;
       if (card.dataset.onboard) { openOnboard(false); return; }
       if (card.dataset.fill) { focusAsk(); return; }
+      if (card.dataset.rhythm) { openRhythmModal(); return; }
       if (card.dataset.flow) { startFlow(card.dataset.flow); return; }
       if (card.dataset.prompt) send(card.dataset.prompt);
     });
@@ -2938,10 +2941,7 @@ document.addEventListener("DOMContentLoaded", () => {
       toggleMobileSidebar(false);
       startFlow("rectify");
     });
-    document.getElementById("btn-open-geju")?.addEventListener("click", () => {
-      toggleMobileSidebar(false);
-      startFlow("geju");
-    });
+    document.getElementById("btn-open-geju")?.addEventListener("click", () => openRhythmModal());
     // 还没填过生辰的，给引导表单；填过的才进完整的命盘抽屉
     const openOrOnboard = () => {
       if (isUntouchedDefault(state.userChart && state.userChart.profile)) openOnboard(false);
@@ -3599,6 +3599,224 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("modal-wuxing")?.classList.add("show");
   }
   window.__openWuxingReport = openWuxingReport;
+
+  /* ---------------- 人生节奏图（取代多轮的 AI「格局断定」） ----------------
+   * 曲线全部由 ChatEngine.lifeRhythm 按大运流年对喜忌算出，不经 AI；
+   * 用户拿过去的高点 / 低点对答案，对得上就存进档案（profile.gejuVerified），
+   * 对不上就换另一种读法（从格 / 专旺，或反过来的扶抑）再对一遍，还不行就建议先校准时辰。 */
+  const RH_ANS = { yes: "对得上", no: "不太对", skip: "记不清" };
+  function rhStore() {
+    const act = activeProfile(), p = state.userChart && state.userChart.profile;
+    if (!act || !p) return null;
+    const key = [p.year, p.month, p.day, p.hour, p.minute || 0, p.gender].join("|");
+    let c = act.profile.rhythmCheck;
+    if (!c || c.key !== key) c = act.profile.rhythmCheck = { key: key, alt: false, ans: {} };
+    return c;
+  }
+  function rhData() {
+    const c = rhStore();
+    if (!c || !window.ChatEngine || !ChatEngine.lifeRhythm) return null;
+    try { return ChatEngine.lifeRhythm(state.userChart, !!c.alt); } catch (e) { console.warn(e); return null; }
+  }
+  function rhTally(r, c) {
+    let yes = 0, no = 0, skip = 0;
+    r.checks.forEach(k => { const a = c.ans[k.y]; if (a === "yes") yes++; else if (a === "no") no++; else if (a === "skip") skip++; });
+    const n = yes + no;
+    const state_ = n >= 4 && yes / n >= 0.6 ? "ok" : n >= 4 && yes / n <= 0.4 ? "bad" : "mid";
+    return { yes, no, skip, n, total: r.checks.length, done: yes + no + skip, verdict: state_ };
+  }
+  function rhSvg(r, showAlt) {
+    const W = 360, H = 206, L = 6, R = 6, T = 24, B = 176;
+    const ys = r.years, y0 = ys[0].y, y1 = ys[ys.length - 1].y;
+    const X = y => L + (y - y0) / Math.max(1, y1 - y0) * (W - L - R);
+    const mid = (T + B) / 2, amp = (B - T) / 2 - 4;
+    const Y = s => mid - s * amp;
+    let h = `<svg class="rh-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="人生节奏曲线">`;
+    r.segs.forEach((g, i) => {
+      const x0 = X(g.from) - (i === 0 ? 0 : 0.5 * (W - L - R) / (y1 - y0)), x1 = X(g.to) + 0.5 * (W - L - R) / (y1 - y0);
+      const cls = g.s > 0.25 ? "rh-band-up" : g.s < -0.25 ? "rh-band-down" : "rh-band-flat";
+      h += `<rect class="${cls}${i % 2 ? " rh-odd" : ""}" x="${Math.max(L, x0).toFixed(1)}" y="${T}" width="${(Math.min(W - R, x1) - Math.max(L, x0)).toFixed(1)}" height="${B - T}"/>`;
+      if (x1 - x0 > 22) h += `<text class="rh-band-lbl" x="${((Math.max(L, x0) + Math.min(W - R, x1)) / 2).toFixed(1)}" y="${T - 8}">${escapeHtml(g.gz)}运</text>`;
+      h += `<text class="rh-axis" x="${Math.max(L + 10, Math.min(W - R - 10, X(g.from))).toFixed(1)}" y="${B + 13}">${g.from}</text>`;
+    });
+    h += `<line class="rh-zero" x1="${L}" x2="${W - R}" y1="${mid}" y2="${mid}"/>`;
+    const nx = X(r.nowY);
+    h += `<rect class="rh-future" x="${nx.toFixed(1)}" y="${T}" width="${(W - R - nx).toFixed(1)}" height="${B - T}"/>`;
+    h += `<line class="rh-now" x1="${nx.toFixed(1)}" x2="${nx.toFixed(1)}" y1="${T}" y2="${B}"/>`;
+    h += `<text class="rh-now-lbl" x="${nx.toFixed(1)}" y="${B + 26}">现在</text>`;
+    const path = key => ys.map((p, i) => (i ? "L" : "M") + X(p.y).toFixed(1) + " " + Y(p[key]).toFixed(1)).join(" ");
+    if (showAlt) h += `<path class="rh-line-alt" d="${path("sAlt")}"/>`;
+    h += `<path class="rh-line" d="${path("s")}"/>`;
+    const c = rhStore() || { ans: {} };
+    r.checks.forEach(k => {
+      const p = ys.find(q => q.y === k.y); if (!p) return;
+      const a = c.ans[k.y];
+      const cx = X(k.y).toFixed(1), cy = Y(p.s);
+      h += `<circle class="rh-dot rh-${k.kind}${a ? " rh-a-" + a : ""}" cx="${cx}" cy="${cy.toFixed(1)}" r="4.2"/>`;
+      const up = k.kind === "high" ? cy - 8 > T + 6 : cy + 15 > B - 2;
+      h += `<text class="rh-dot-lbl" x="${cx}" y="${(up ? cy - 8 : cy + 15).toFixed(1)}">${String(k.y).slice(2)}</text>`;
+    });
+    h += `<text class="rh-legend" x="${L + 2}" y="${T + 11}">顺</text><text class="rh-legend" x="${L + 2}" y="${B - 4}">难</text>`;
+    return h + "</svg>";
+  }
+  function rhLevel(s) { return s > 0.3 ? "顺" : s > 0.08 ? "偏顺" : s < -0.3 ? "难" : s < -0.08 ? "偏难" : "平"; }
+  function renderRhythm() {
+    const body = document.getElementById("rh-modal-body");
+    if (!body) return;
+    const r = rhData(), c = rhStore();
+    if (!r || !c) { body.innerHTML = '<div class="wx-empty">这张盘暂时算不出节奏图（缺出生信息）。</div>'; return; }
+    const tl = rhTally(r, c);
+    const chips = list => list.map(w => `<span class="wx-chip wx-${w}">${w}</span>`).join(" ");
+    let h = "";
+
+    // ① 一句话
+    h += '<section class="wx-sec"><div class="wx-sec-title">你是什么样的盘</div>';
+    if (r.pattern && r.pattern.road) h += `<p class="wx-lead">${escapeHtml(r.pattern.road)}。</p>`;
+    if (r.alt) h += `<p>这次按「${escapeHtml(r.main.label)}」来读：${escapeHtml(r.main.why || "")}</p>`;
+    else if (r.strength.plain) h += `<p>${escapeHtml(r.strength.plain)}。</p>`;
+    h += `<p class="wx-sub">依据：${r.pattern ? "月令取【" + escapeHtml(r.pattern.name) + "】 · " : ""}${escapeHtml(r.main.label)}</p></section>`;
+
+    // ② 节奏图
+    const showAlt = tl.verdict === "bad";
+    h += '<section class="wx-sec"><div class="wx-sec-title">人生节奏图<span class="wx-tag">程序按大运流年算，不经 AI</span></div>';
+    h += rhSvg(r, showAlt);
+    h += `<p class="wx-sub">曲线越高，那年的大运和流年越帮你；底色是十年一步的大运。${showAlt ? "虚线是另一种读法「" + escapeHtml(r.other.label) + "」。" : ""}</p>`;
+    if (r.curDayun) h += `<p>现在走<b>${escapeHtml(r.curDayun.gz)}运</b>（${r.curDayun.from}–${r.curDayun.to}），整体<b>${rhLevel(r.curDayun.s)}</b>。</p>`;
+    h += "</section>";
+
+    // ③ 对答案
+    h += '<section class="wx-sec"><div class="wx-sec-title">先对一对过去<span class="wx-tag">' + tl.done + "/" + tl.total + "</span></div>";
+    if (!r.checks.length) h += "<p>过去的起伏不够明显，挑不出关键年，直接看下面的建议就好。</p>";
+    else h += '<p class="wx-sub">下面是按你的盘算出来最顺、最难的几年。想想那几年的真实经历，一条条点。对得上，后面的判断才值得听。</p>';
+    r.checks.forEach(k => {
+      const a = c.ans[k.y];
+      h += `<div class="rh-check${a ? " is-answered" : ""}"><div class="rh-check-head"><b>${k.y}年</b><span class="wx-sub">${k.age}岁 · ${escapeHtml(k.gz)}</span>` +
+           `<span class="rh-tag rh-tag-${k.kind}">${k.kind === "high" ? "高点" : "低点"}</span></div>` +
+           `<div class="rh-check-text">${escapeHtml(k.text)}</div><div class="rh-check-btns">` +
+           Object.keys(RH_ANS).map(v => `<button type="button" class="rh-btn${a === v ? " on" : ""}" data-rh-ans="${v}" data-y="${k.y}">${RH_ANS[v]}</button>`).join("") +
+           "</div></div>";
+    });
+    if (tl.verdict === "ok") {
+      h += `<div class="rh-result rh-ok"><b>和你的经历对得上</b>（${tl.n} 条里对上 ${tl.yes} 条）。已存进档案，之后每次回答都按这套读法「${escapeHtml(r.main.label)}」来。</div>`;
+    } else if (tl.verdict === "bad") {
+      h += `<div class="rh-result rh-bad"><b>大多对不上</b>（${tl.n} 条里只对上 ${tl.yes} 条）。可能有两个原因：` +
+           `<br>① 这张盘该换一种读法 —— 「${escapeHtml(r.other.label)}」：${escapeHtml(r.other.why || "")}` +
+           `<br>② 出生时间不准，排出来的盘本身就不是你的。` +
+           `<div class="rh-actions"><button type="button" class="rh-act" data-rh-act="alt">换「${escapeHtml(r.other.label)}」再对一次</button>` +
+           `<button type="button" class="rh-act ghost" data-rh-act="rectify">先校准出生时辰</button></div></div>`;
+    } else if (tl.n > 0 && tl.n < 4 && tl.done < tl.total) {
+      h += `<div class="rh-result">再对 ${Math.max(1, 4 - tl.n)} 条（「记不清」不算），就能判断这张图准不准。</div>`;
+    } else if (tl.done >= tl.total && tl.n < 4) {
+      h += '<div class="rh-result">能确定的太少，暂时判断不了准不准。可以想想那几年的学业、工作、感情、家里有没有大事，再改一改答案。</div>';
+    } else if (tl.n >= 4) {
+      h += `<div class="rh-result">一半对得上（${tl.n} 条里对上 ${tl.yes} 条），先按这套读法参考，但别太当真。</div>`;
+    }
+    h += "</section>";
+
+    // ④ 未来十年
+    const yl = list => list.map(p => `<b>${p.y}</b>（${escapeHtml(p.gz)}）`).join("、");
+    h += '<section class="wx-sec"><div class="wx-sec-title">未来十年</div>';
+    if (r.future.go.length) h += `<p>适合冲的年份：${yl(r.future.go)} —— 换工作、谈大事、做决定放在这几年更顺。</p>`;
+    if (r.future.hold.length) h += `<p>适合守的年份：${yl(r.future.hold)} —— 这几年少冒险、少大额投入，先稳住。</p>`;
+    if (!r.future.go.length && !r.future.hold.length) h += "<p>未来十年起伏不大，节奏平稳，按自己的计划走就好。</p>";
+    h += "</section>";
+
+    // ⑤ 喜忌落到生活
+    h += '<section class="wx-sec"><div class="wx-sec-title">对你有利的方向</div>';
+    r.advice.favor.forEach(a => {
+      h += `<div class="wx-row"><b>${chips([a.wx])}</b><span>${escapeHtml(a.hangye)}</span></div>` +
+           `<p class="wx-sub">方位偏${escapeHtml(a.fangwei)}；颜色可以多用${escapeHtml(a.color)}</p>`;
+    });
+    if (r.advice.avoid.length) h += `<p class="wx-sub">少碰：${chips(r.advice.avoid.map(a => a.wx))}（${r.advice.avoid.map(a => escapeHtml(a.hangye.split("、").slice(0, 3).join("、"))).join("；")}）</p>`;
+    h += "</section>";
+
+    h += '<div class="rh-actions rh-foot-actions"><button type="button" class="rh-act" data-rh-act="ai">让 AI 讲讲我的节奏</button>' +
+         (c.alt ? '<button type="button" class="rh-act ghost" data-rh-act="main">回到原来的读法</button>' : "") + "</div>";
+    h += '<div class="wx-foot">分数只看大运流年对喜忌，是一张「大方向」的图，不代表具体哪件事一定发生。</div>';
+    body.innerHTML = h;
+  }
+  function rhSyncVerified() {
+    const act = activeProfile(), r = rhData(), c = rhStore();
+    if (!act || !r || !c) return;
+    const tl = rhTally(r, c);
+    const cur = act.profile.gejuVerified || "";
+    const mine = /^人生节奏图/.test(cur);
+    let next = cur;
+    if (tl.verdict === "ok") {
+      const t = ChatEngine.getCurrentTimeAnchor ? ChatEngine.getCurrentTimeAnchor() : { solarDateOnly: "" };
+      next = "人生节奏图核对（" + (t.solarDateOnly || "") + "）：按「" + r.main.label + "」读，喜" + r.main.favor.join("") +
+             "、忌" + r.main.avoid.join("") + (r.pattern ? "，月令取" + r.pattern.name : "") +
+             "；过去 " + tl.n + " 个关键年对上 " + tl.yes + " 个（" +
+             r.checks.filter(k => c.ans[k.y] === "yes" || c.ans[k.y] === "no")
+               .map(k => k.y + (k.kind === "high" ? "顺" : "难") + (c.ans[k.y] === "yes" ? "✓" : "✗")).join(" ") + "）";
+      act.profile.gejuAt = t.solarDateOnly || "";
+    } else if (mine) {
+      next = "";
+    }
+    if (next !== cur) {
+      act.profile.gejuVerified = next;
+      if (state.userChart) { state.userChart.profile.gejuVerified = next; renderDynamicPrompts(state.userChart); }
+    }
+    saveProfiles();
+  }
+  function openRhythmModal() {
+    if (!state.userChart) return;
+    if (isUntouchedDefault(state.userChart.profile)) { askForBirthFirst(); return; }
+    toggleMobileSidebar(false);
+    renderRhythm();
+    window.openModal("modal-rhythm");
+  }
+  window.__openRhythm = openRhythmModal;
+  function rhAskAI() {
+    const r = rhData(), c = rhStore();
+    if (!r || !c) return;
+    const acc = aiAccess();
+    if (!acc.mode) {
+      ui.alert("这个要用 AI 来讲，得先开通 AI：用朋友发的邀请链接打开，或者填邀请码。", { okText: "去开通" })
+        .then(() => window.openModal("modal-settings"));
+      return;
+    }
+    const lines = [];
+    lines.push("请按我的「人生节奏图」讲讲我的人生节奏。分数是程序按大运流年对喜忌算好的，不用重算，只解释：");
+    lines.push("读法：" + r.main.label + "，喜" + r.main.favor.join("") + "、忌" + r.main.avoid.join("") + (r.pattern ? "；月令取" + r.pattern.name : ""));
+    lines.push("大运：" + r.segs.map(g => g.gz + "运 " + g.from + "–" + g.to + " " + rhLevel(g.s)).join("；"));
+    const ck = r.checks.map(k => k.y + "年" + k.gz + (k.kind === "high" ? "（算作高点）" : "（算作低点）") +
+      (c.ans[k.y] ? "→我说" + RH_ANS[c.ans[k.y]] : "")).join("；");
+    if (ck) lines.push("过去的关键年：" + ck);
+    if (r.future.go.length) lines.push("未来宜冲：" + r.future.go.map(p => p.y + p.gz).join("、"));
+    if (r.future.hold.length) lines.push("未来宜守：" + r.future.hold.map(p => p.y + p.gz).join("、"));
+    lines.push("请讲：每步大运大概是什么主题；我对不上的那几年可能是什么原因；现在这步运该怎么用；未来这几个关键年分别该做什么、注意什么。");
+    window.closeModal("modal-rhythm");
+    newSession("人生节奏", true);
+    send(lines.join("\n"));
+  }
+  document.getElementById("rh-modal-body")?.addEventListener("click", e => {
+    const b = e.target.closest("[data-rh-ans]");
+    if (b) {
+      const c = rhStore(); if (!c) return;
+      const y = b.dataset.y, v = b.dataset.rhAns;
+      if (c.ans[y] === v) delete c.ans[y]; else c.ans[y] = v;
+      rhSyncVerified();
+      renderRhythm();
+      if (sound && sound.send) sound.send();
+      return;
+    }
+    const a = e.target.closest("[data-rh-act]");
+    if (!a) return;
+    const act = a.dataset.rhAct;
+    if (act === "alt" || act === "main") {
+      const c = rhStore(); if (!c) return;
+      c.alt = act === "alt"; c.ans = {};
+      rhSyncVerified();
+      renderRhythm();
+      document.querySelector("#modal-rhythm .wx-modal-box")?.scrollTo({ top: 0, behavior: "smooth" });
+    } else if (act === "rectify") {
+      window.closeModal("modal-rhythm");
+      document.getElementById("btn-open-rectify")?.click();
+    } else if (act === "ai") {
+      rhAskAI();
+    }
+  });
 
   /* ---------------- 统一启动入口（确保所有常量、函数、window挂载已就绪） ---------------- */
   initTheme();

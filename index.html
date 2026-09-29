@@ -12,7 +12,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260929113810">
+  <link rel="stylesheet" href="styles.css?v=20260929115637">
   <link rel="apple-touch-icon" href="icon-180.png">
   <style>
     /* 启动画面：脚本约 1.2MB，弱网下要加载好几秒，别让人对着白屏 */
@@ -76,7 +76,7 @@
 
       <div class="profile-actions">
         <button class="profile-action-btn is-accent is-wide" id="btn-open-rectify" hidden>⏱ 出生时辰还没定，校准一下</button>
-        <button class="profile-action-btn is-geju" id="btn-open-geju" title="AI 先下判断，再拿你过去的经历来验证">🧭 看看我的格局</button>
+        <button class="profile-action-btn is-geju" id="btn-open-geju" title="按大运流年算出哪几年顺、哪几年难，先拿过去对一对">🧭 我的人生节奏图</button>
         <button class="profile-action-btn is-pair" id="btn-open-pair">💞 和 TA 合不合</button>
         <button class="profile-action-btn is-gua is-wide" id="btn-open-gua" title="问一件具体的事：offer、感情、复合、回款、考试">☯ 问一件事 · 起卦</button>
         <button class="profile-action-btn is-wx is-wide" id="btn-open-wuxing">🌿 今日运势 · 五行报告</button>
@@ -411,6 +411,16 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="modal-rhythm">
+    <div class="modal-box wx-modal-box">
+      <div class="wx-modal-head">
+        <h3>🧭 我的人生节奏图</h3>
+        <button class="wx-close" onclick="closeModal('modal-rhythm')" aria-label="关闭">×</button>
+      </div>
+      <div id="rh-modal-body"></div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-wuxing">
     <div class="modal-box wx-modal-box">
       <div class="wx-modal-head">
@@ -620,21 +630,21 @@
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260929113810"></script>
-  <script src="calendar_core.js?v=20260929113810"></script>
-  <script src="ziwei_engine.js?v=20260929113810"></script>
-  <script src="bazi_analyze.js?v=20260929113810"></script>
+  <script src="vsop87.js?v=20260929115637"></script>
+  <script src="calendar_core.js?v=20260929115637"></script>
+  <script src="ziwei_engine.js?v=20260929115637"></script>
+  <script src="bazi_analyze.js?v=20260929115637"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260929113810"></script>
-  <script src="kb_retrieve.js?v=20260929113810"></script>
-  <script src="bazi_kb.js?v=20260929113810"></script>
-  <script src="bazi_retrieve.js?v=20260929113810"></script>
-  <script src="tarot_data.js?v=20260929113810"></script>
-  <script src="ziwei_bazi_core.js?v=20260929113810"></script>
-  <script src="liuyao.js?v=20260929113810"></script>
-  <script src="chat_engine.js?v=20260929113810"></script>
-  <script src="wuxing_report.js?v=20260929113810"></script>
-  <script src="invite.js?v=20260929113810"></script>
-  <script src="app.js?v=20260929113810"></script>
+  <script src="knowledge_base.js?v=20260929115637"></script>
+  <script src="kb_retrieve.js?v=20260929115637"></script>
+  <script src="bazi_kb.js?v=20260929115637"></script>
+  <script src="bazi_retrieve.js?v=20260929115637"></script>
+  <script src="tarot_data.js?v=20260929115637"></script>
+  <script src="ziwei_bazi_core.js?v=20260929115637"></script>
+  <script src="liuyao.js?v=20260929115637"></script>
+  <script src="chat_engine.js?v=20260929115637"></script>
+  <script src="wuxing_report.js?v=20260929115637"></script>
+  <script src="invite.js?v=20260929115637"></script>
+  <script src="app.js?v=20260929115637"></script>
 </body>
 </html>

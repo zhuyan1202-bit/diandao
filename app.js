@@ -1927,6 +1927,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (m.role === "chart-change") {
       return `<div class="chart-change-divider"><span>\u{1F504} ${escapeHtml(m.content)}</span></div>`;
     }
+    if (m.role === "gua") {
+      try {
+        return `<div class="gua-msg"><div class="gua-msg-q">☯ 所问：${escapeHtml(m.gua.question)}</div>${guaTableHtml(m.gua.chart)}</div>`;
+      } catch (e) { return ""; }
+    }
     const ai = m.role === "ai";
     let tarot = "";
     if (m.tarotWidget) {
@@ -2127,6 +2132,11 @@ document.addEventListener("DOMContentLoaded", () => {
       return { chart: state.userChart, cfg: { flow: s.flow.kind, flowRound: s.flow.round },
                pair: s.flow.kind === "rectify", flow: s.flow.kind };
     }
+    // 起卦对话：每一轮都按这一卦解。问题里常带「10月」「下周三」，不能当成谁的生日去解析
+    if (s.gua) {
+      renderCtxChip(s);
+      return { chart: state.userChart, cfg: { gua: s.gua }, pair: false, gua: true };
+    }
     const own = state.userChart && state.userChart.profile;
     let bi = null;
     try { bi = (window.ChatEngine && ChatEngine.parseBirthInText) ? ChatEngine.parseBirthInText(text, own) : null; } catch (e) {}
@@ -2173,6 +2183,9 @@ document.addEventListener("DOMContentLoaded", () => {
       html = "💞 正在和「" + escapeHtml(nm) + "」合盘，接着问都会带上两个人的盘 <button type=\"button\" class=\"ctx-chip-x\">✕ 结束合盘</button>";
     } else if (s && s.friend) {
       html = "👤 正在看朋友的盘：" + escapeHtml(s.friend.label) + " <button type=\"button\" class=\"ctx-chip-x\">✕ 回到我自己</button>";
+    } else if (s && s.gua) {
+      html = "☯ 这段对话只解这一卦：「" + escapeHtml(String(s.gua.question).slice(0, 18)) + "」· 问别的事请另起一卦 " +
+             "<button type=\"button\" class=\"ctx-chip-x\">✕ 结束解卦</button>";
     }
     el.innerHTML = html;
     el.style.display = html ? "flex" : "none";
@@ -2180,10 +2193,226 @@ document.addEventListener("DOMContentLoaded", () => {
   function clearCtx() {
     const s = state.sessions.find(x => x.id === state.currentSessionId);
     if (!s) return;
-    s.partner = null; s.friend = null;
+    s.partner = null; s.friend = null; s.gua = null;
     if (s.flow && !s.flow.done) s.flow.done = true;   // 退出定盘／格局断定，回到普通聊天
     saveSessions();
     renderCtxChip(s);
+  }
+
+  /* ================= 六爻起卦 =================
+   * 写问题 → 选类别 → 亲手摇六次 → 装卦（liuyao.js，确定性）→ 新开一段对话交给 AI 解。
+   * 一事不二占：同一个问题 24 小时内再来，只给看上次那一卦。 */
+  const GUA_CATS = [
+    ["job", "工作 / offer / 面试", "比如：这周面的那家公司，offer 能不能拿到？"],
+    ["single", "什么时候脱单", "比如：我今年能遇到合适的人吗？大概什么时候？"],
+    ["marry", "这个人能不能成 / 结婚", "比如：我和现在这个人能走到结婚吗？"],
+    ["reconcile", "复合", "比如：我和他还有没有复合的可能？"],
+    ["money", "钱 / 投资 / 回款", "比如：借出去的那笔钱，年底前能要回来吗？"],
+    ["exam", "考试 / 升学", "比如：这次考研能不能上岸？"]
+  ];
+  const GUA_LOG_KEY = "diandao_gua_log";
+  const GUA = { q: "", cat: "", sums: [], last: null, chart: null, busy: false };
+  const STATUS_TXT = { single: "单身", dating: "恋爱中", broken: "断联/冷战中", married: "已婚" };
+
+  function guaNorm(q) { return String(q || "").replace(/[\s，。？！,.?!、~～…"'“”‘’：:；;（）()【】]/g, "").toLowerCase(); }
+  function guaSimilar(a, b) {
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const A = new Set(a), B = new Set(b);
+    let inter = 0;
+    A.forEach(c => { if (B.has(c)) inter++; });
+    return inter / Math.max(A.size, B.size) >= 0.8;
+  }
+  function guaLogAll() { try { return JSON.parse(localStorage.getItem(GUA_LOG_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function guaRecent(q) {
+    const n = guaNorm(q), now = Date.now();
+    return (guaLogAll()[state.activeProfileId] || []).find(x => now - x.at < 86400000 && guaSimilar(guaNorm(x.q), n)) || null;
+  }
+  function guaRecord(entry) {
+    const all = guaLogAll();
+    const list = (all[state.activeProfileId] || []).filter(x => Date.now() - x.at < 7 * 86400000);
+    list.unshift(entry);
+    all[state.activeProfileId] = list.slice(0, 50);
+    try { localStorage.setItem(GUA_LOG_KEY, JSON.stringify(all)); } catch (e) {}
+  }
+
+  function openGuaModal() {
+    if (!window.Liuyao) { ui.alert("起卦模块没加载上，刷新一下页面再试。"); return; }
+    const acc = aiAccess();
+    if (!acc.mode) {
+      ui.alert("解卦要靠 AI，得先开通：用朋友发的邀请链接打开，或者填邀请码。", { okText: "去开通" })
+        .then(() => window.openModal("modal-settings"));
+      return;
+    }
+    if (acc.mode === "invite" && acc.left < 1) { ui.alert("今天的 " + inv().LIMIT + " 次已经用完了，明天零点后再来。"); return; }
+    if (isUntouchedDefault(state.userChart && state.userChart.profile)) { askForBirthFirst(); return; }
+    GUA.q = ""; GUA.cat = ""; GUA.sums = []; GUA.chart = null; GUA.busy = false;
+    renderGuaAsk();
+    window.openModal("modal-gua");
+  }
+
+  function renderGuaAsk(errHtml) {
+    const body = document.getElementById("gua-modal-body");
+    if (!body) return;
+    const ph = (GUA_CATS.find(c => c[0] === GUA.cat) || GUA_CATS[0])[2];
+    body.innerHTML =
+      '<p class="gua-intro">六爻适合问<b>一件具体的事</b>：这个 offer 能不能拿到、和他能不能走到结婚、这笔钱能不能要回来。' +
+      '想清楚再摇，<b>一件事只摇一次</b>。</p>' +
+      '<label class="gua-label" for="gua-q">你想问什么</label>' +
+      '<textarea id="gua-q" class="form-input-xs gua-q" rows="2" maxlength="80" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(GUA.q) + '</textarea>' +
+      '<div class="gua-label">这件事属于</div>' +
+      '<div class="gua-cats">' + GUA_CATS.map(c =>
+        '<button type="button" class="gua-cat' + (GUA.cat === c[0] ? " on" : "") + '" data-cat="' + c[0] + '">' + escapeHtml(c[1]) + '</button>').join("") +
+      '</div>' +
+      '<div class="gua-err" id="gua-err">' + (errHtml || "") + '</div>' +
+      '<button type="button" class="save-chart-btn gua-go" data-act="start">想好了，开始摇卦</button>';
+    const ta = document.getElementById("gua-q");
+    ta?.addEventListener("input", () => { GUA.q = ta.value; });
+    setTimeout(() => { try { ta.focus(); } catch (e) {} }, 60);
+  }
+
+  function yaoHtml(sum, withBian) {
+    const yang = sum === 7 || sum === 9, mv = sum === 6 || sum === 9;
+    return '<span class="g-yao ' + (yang ? "yang" : "yin") + '"><i></i><i></i></span>' +
+           '<span class="g-mv">' + (mv ? (sum === 9 ? "○" : "×") : "") + '</span>' +
+           (withBian ? '<span class="g-lbl">' + escapeHtml(Liuyao.SUM_LABEL[sum]) + '</span>' : "");
+  }
+
+  function renderGuaToss() {
+    const body = document.getElementById("gua-modal-body");
+    if (!body) return;
+    const n = GUA.sums.length;
+    const POS = ["初爻", "二爻", "三爻", "四爻", "五爻", "上爻"];
+    const rows = [];
+    for (let i = 5; i >= 0; i--) {
+      rows.push('<div class="gua-trow' + (i < n ? " done" : "") + (i === n ? " next" : "") + '"><span class="g-pos">' + POS[i] + '</span>' +
+        (i < n ? yaoHtml(GUA.sums[i], true) : '<span class="g-yao empty"><i></i><i></i></span>') + '</div>');
+    }
+    const coins = GUA.last
+      ? GUA.last.coins.map(c => '<span class="gua-coin ' + (c ? "back" : "face") + '">' + (c ? "背" : "字") + '</span>').join("")
+      : '<span class="gua-coin face">字</span><span class="gua-coin face">字</span><span class="gua-coin face">字</span>';
+    body.innerHTML =
+      '<div class="gua-qline">问：' + escapeHtml(GUA.q) + '</div>' +
+      '<div class="gua-coins" id="gua-coins">' + coins + '</div>' +
+      '<div class="gua-coin-note">' + (GUA.last ? escapeHtml(Liuyao.SUM_LABEL[GUA.last.sum]) : "心里默念你的问题，再点下面的按钮") + '</div>' +
+      '<div class="gua-trows">' + rows.join("") + '</div>' +
+      '<button type="button" class="save-chart-btn gua-go" data-act="toss">摇第 ' + (n + 1) + ' 次（' + POS[n] + '）</button>' +
+      '<p class="gua-tip">从下往上，一共六次。每次三枚铜钱：一背少阳、两背少阴、三背老阳（动）、三字老阴（动）。</p>';
+  }
+
+  function guaTableHtml(g) {
+    const rows = g.lines.slice().reverse().map(l => {
+      const cls = ["gua-row"];
+      if (l.moving) cls.push("moving");
+      if (g.yong && g.yong.kin && l.kin === g.yong.kin) cls.push("is-yong");
+      const flags = [l.kong ? "空" : "", l.yuePo ? "破" : ""].filter(Boolean).join("");
+      return '<div class="' + cls.join(" ") + '">' +
+        '<span class="g-god">' + escapeHtml(l.god) + '</span>' +
+        '<span class="g-kin">' + escapeHtml(l.kin + " " + l.stem + l.zhi + l.wx) + (flags ? '<em>' + flags + '</em>' : "") + '</span>' +
+        yaoHtml(l.sum, false) +
+        '<span class="g-sy">' + (l.shi ? "世" : l.ying ? "应" : "") + '</span>' +
+        '<span class="g-bian">' + (l.bian ? "→ " + escapeHtml(l.bian.kin + " " + l.bian.zhi + l.bian.wx) : "") + '</span>' +
+      '</div>';
+    }).join("");
+    const fs = g.fushen && g.fushen.length
+      ? '<div class="gua-meta">伏神：' + g.fushen.map(f => escapeHtml(f.posName + " " + f.kin + f.zhi + f.wx)).join("、") + '</div>' : "";
+    return '<div class="gua-card">' +
+      '<div class="gua-head"><b>' + escapeHtml(g.ben.name) + '</b><span>' + escapeHtml(g.ben.palace + "宫 · " + g.ben.gen + (g.ben.pattern ? " · " + g.ben.pattern : "")) + '</span>' +
+        (g.bian ? '<i>→</i><b>' + escapeHtml(g.bian.name) + '</b>' : '<span class="gua-quiet">六爻安静</span>') + '</div>' +
+      '<div class="gua-meta">月建 ' + escapeHtml(g.mPillar) + ' · 日辰 ' + escapeHtml(g.dayPillar) + ' · 旬空 ' + escapeHtml(g.kong.join("")) +
+        (g.yong && g.yong.kin ? ' · 用神 <b>' + escapeHtml(g.yong.kin) + '</b>' : "") + '</div>' +
+      rows + fs + '</div>';
+  }
+
+  function renderGuaResult() {
+    const body = document.getElementById("gua-modal-body");
+    if (!body || !GUA.chart) return;
+    body.innerHTML =
+      '<div class="gua-qline">问：' + escapeHtml(GUA.q) + '</div>' +
+      guaTableHtml(GUA.chart) +
+      '<button type="button" class="save-chart-btn gua-go" data-act="ask">请 AI 解这一卦</button>' +
+      '<p class="gua-tip">解卦会新开一段对话，之后可以接着追问这件事（什么时候、对方怎么想、要不要主动）。</p>';
+  }
+
+  function onGuaClick(e) {
+    const cat = e.target.closest(".gua-cat");
+    if (cat) {
+      GUA.cat = cat.dataset.cat;
+      GUA.q = (document.getElementById("gua-q") || {}).value || GUA.q;
+      renderGuaAsk();
+      return;
+    }
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const act = b.dataset.act;
+    if (act === "start") {
+      GUA.q = String((document.getElementById("gua-q") || {}).value || "").trim();
+      if (GUA.q.length < 4) return renderGuaAsk("先把问题写具体一点，比如「这周面的那家公司，offer 能不能拿到？」");
+      if (!GUA.cat) return renderGuaAsk("选一下这件事属于哪一类 —— 类别决定看卦里的哪一爻。");
+      const old = guaRecent(GUA.q);
+      if (old) {
+        const when = new Date(old.at);
+        const hm = String(when.getHours()).padStart(2, "0") + ":" + String(when.getMinutes()).padStart(2, "0");
+        const has = state.sessions.some(x => x.id === old.sid);
+        return renderGuaAsk("这件事你在 " + (when.getMonth() + 1) + "月" + when.getDate() + "日 " + hm + " 已经起过一卦了。" +
+          "一事不二占，24 小时内再摇的结果不作数。" +
+          (has ? ' <button type="button" class="gua-old" data-act="old" data-sid="' + escapeHtml(old.sid) + '">看上次那一卦</button>' : "（那段对话已经删了）"));
+      }
+      GUA.sums = []; GUA.last = null;
+      renderGuaToss();
+      return;
+    }
+    if (act === "old") {
+      window.closeModal("modal-gua");
+      switchSession(b.dataset.sid);
+      return;
+    }
+    if (act === "toss") {
+      if (GUA.busy || GUA.sums.length >= 6) return;
+      GUA.busy = true;
+      b.disabled = true;
+      const coinBox = document.getElementById("gua-coins");
+      coinBox?.classList.add("spin");
+      if (sound && sound.send) sound.send();
+      setTimeout(() => {
+        GUA.last = Liuyao.tossOnce();
+        GUA.sums.push(GUA.last.sum);
+        GUA.busy = false;
+        if (GUA.sums.length < 6) { renderGuaToss(); return; }
+        const t = ChatEngine.getCurrentTimeAnchor();
+        const pr = state.userChart.profile;
+        GUA.chart = Liuyao.build(GUA.sums, { mPillar: t.mPillar, dPillar: t.dPillar }, { category: GUA.cat, gender: pr.gender });
+        GUA.castAtText = t.solarStr + "（" + t.ganzhiFull + "）";
+        if (sound && sound.chime) sound.chime();
+        renderGuaResult();
+      }, 650);
+      return;
+    }
+    if (act === "ask") {
+      startGuaSession();
+    }
+  }
+
+  function startGuaSession() {
+    if (!GUA.chart) return;
+    const pr = state.userChart.profile;
+    const gua = {
+      question: GUA.q, category: GUA.cat, chart: GUA.chart,
+      timeline: Liuyao.timeline(new Date()),
+      castAt: Date.now(), castAtText: GUA.castAtText || "",
+      relStatus: STATUS_TXT[pr.status] || ""
+    };
+    newSession("☯ " + GUA.q.slice(0, 12) + (GUA.q.length > 12 ? "…" : ""), true);
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s) return;
+    s.gua = gua;
+    getRoomMessages(s, state.kbMode).push({ role: "gua", gua: gua, ck: state.chartKey });
+    saveSessions();
+    guaRecord({ q: GUA.q, cat: GUA.cat, at: gua.castAt, sid: s.id });
+    window.closeModal("modal-gua");
+    renderMessages(getRoomMessages(s, state.kbMode));
+    renderCtxChip(s);
+    send("我起了一卦，想问：" + GUA.q + "\n请按这一卦帮我解。");
   }
   function openPairModal() {
     const act = activeProfile();
@@ -2376,9 +2605,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const useLLM = Boolean(access.mode);
 
     // 思考便签：只记这次推演真正用到的坐标，几条短句，默认折叠
-    const thinkNotes = ChatEngine.buildThinkingNotes
-      ? ChatEngine.buildThinkingNotes(text, turn.chart, state.kbMode)
-      : [];
+    const gc = turn.gua && turn.cfg.gua && turn.cfg.gua.chart;
+    const thinkNotes = gc
+      ? [
+          "读卦：" + gc.ben.name + (gc.bian ? " → " + gc.bian.name : "（六爻安静）"),
+          "定用神：" + (gc.yong.kin || "按问题取"),
+          "看月建 " + gc.monthZhi + "、日辰 " + gc.dayPillar + "、旬空 " + gc.kong.join(""),
+          gc.movingCount ? "看 " + gc.movingCount + " 个动爻的回头生克" : "静卦，看用神旺衰与日辰",
+          "推应期，对照节气日期"
+        ]
+      : ChatEngine.buildThinkingNotes
+        ? ChatEngine.buildThinkingNotes(text, turn.chart, state.kbMode)
+        : [];
 
     const aiMsg = {
       role: "ai",
@@ -2442,7 +2680,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // 顺序很重要：先按实盘把能算准的地方改对，再拿改过的文本去做出厂检查。
         // 否则会出现「答案里写着错日期、底下再挂一条说这个日期错了」——
         // 用户专门提过这个，说一点都不严谨。
-        const rep = repairOf(sp.text);
+        // 起卦的回答里满是卦的干支（日辰、月建、爻的纳甲），拿本命盘去「改对」只会改坏
+        const rep = turn.gua ? { text: sp.text, fixed: [] } : repairOf(sp.text);
         aiMsg.repaired = rep.fixed;            // 留档，便于排查模型在哪类数据上老出错
         aiMsg.content = foNote ? ("> \u2139\ufe0f " + foNote + "\n\n" + rep.text) : rep.text;
         aiMsg.streaming = false;
@@ -2473,7 +2712,7 @@ document.addEventListener("DOMContentLoaded", () => {
           if (aiMsg.flowDone) { aiMsg.fid = "f" + Date.now(); aiMsg.followups = []; }
         }
         // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
-        aiMsg.audit = auditOf(rep.text);
+        aiMsg.audit = turn.gua ? null : auditOf(rep.text);
         saveSessions();
         renderMessages(roomMsgs);
         scrollBottom(false);
@@ -2628,6 +2867,8 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", openOrOnboard);
     document.getElementById("btn-open-pair")?.addEventListener("click", () => openPairModal());
+    document.getElementById("btn-open-gua")?.addEventListener("click", () => { toggleMobileSidebar(false); openGuaModal(); });
+    document.getElementById("gua-modal-body")?.addEventListener("click", onGuaClick);
     document.getElementById("pair-modal-body")?.addEventListener("click", e => {
       const b = e.target.closest(".pair-pick");
       if (b && b.dataset.pid) startPair(b.dataset.pid);

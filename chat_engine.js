@@ -3109,6 +3109,75 @@ ${yrs.join("　")}
 ${flowCloseRule(round, max)}`;
   }
 
+  // 六爻解卦：卦是主体，本命盘只当背景（这步大运顺不顺，影响力度，不影响成败方向）
+  function buildGuaPrompt(chart, gua) {
+    const t = getCurrentTimeAnchor();
+    const L = global.Liuyao;
+    const g = gua.chart;
+    const p = (chart && chart.profile) || {};
+    let bg = "";
+    try {
+      const st = baziStrength(chart);
+      const dy = computeDayun(chart);
+      const now = dy ? dayunAt(dy, t.Y, t.M) : null;
+      bg = "日元" + st.dm + st.dmWx + "【" + st.verdict + "】，喜" + ((st.favor || []).join("、") || "—") + "、忌" + ((st.avoid || []).join("、") || "—") +
+           (now ? "；现行 " + now.gz + " 大运（" + now.fromYear + "–" + (now.fromYear + 10) + "）" : "");
+    } catch (e) { bg = "（命盘背景取不到，只看卦）"; }
+    const tl = gua.timeline || { months: [], days: [] };
+    const CAT = { job: "工作 / offer / 面试", single: "感情：什么时候脱单", marry: "感情：这个人能不能成、能不能结婚",
+                  reconcile: "复合", money: "钱 / 投资 / 回款", exam: "考试 / 升学" };
+    return `你是「点到」的六爻解卦助手。用户刚才亲手摇了一卦，问一件具体的事。你的任务：按这一卦，把这件事的走向、关键卡点和时间点说清楚。
+今天是公历 ${t.solarDateOnly}。起卦时间：${gua.castAtText || t.solarDateOnly}。
+
+════════ 【所问之事】 ════════
+问题：${gua.question}
+类别：${CAT[gua.category] || "其它"}
+问卦人：${p.gender === "male" ? "男" : "女"}${gua.relStatus ? "，感情状态：" + gua.relStatus : ""}
+
+════════ 【装卦（排卦引擎已算好，严禁自己重装、严禁改动任何一爻）】 ════════
+${L ? L.describe(g) : ""}
+
+建议用神：${g.yong.kin || "（自行取）"} —— ${g.yong.why}
+如果按问题实情该换用神（例如问的其实是合同、文书），可以换，但要在〔依据〕里说明为什么换。
+
+【往后的月建（按节气真实切换日期）】
+${tl.months.map(function (m) { return "  · " + m.pillar + "月 " + m.from; }).join("\n")}
+【往后 15 天的日辰】
+${tl.days.join("　")}
+
+【问卦人命盘背景（只作参考，不能压过卦）】
+${bg}
+══════════════════════════════
+
+【怎么断】
+1. 先定用神、看用神：旺衰（月建、日辰）、是否旬空、月破、伏藏；动不动、化进化退、回头生克。
+2. 看原神（生用神的）与忌神（克用神的）动静；忌神动而克用神、用神无救，是不成之象。
+3. 看世爻（自己）与应爻（对方）的生克冲合；问感情、复合、谈 offer 时世应关系很关键。
+4. 六冲卦多主散、快、难成；六合卦多主成、缓、有牵连；安静卦看用神旺衰与日辰。
+5. 应期：从用神及相关爻推，常见取法 —— 用神旬空待出空、月破待填实或出月、被合待冲开、静而有力待逢值逢冲、动而受制待制神受克。
+   应期必须落到上面给出的真实月建切换日期或具体日辰对应的公历日期，写成「大约 11 月上旬（立冬后）」「10 月 6 日前后」这样；
+   只准用上面列出的日期，不许自己推算干支日期。应期给出一到两个，说明是哪一爻、为什么。
+6. 命盘背景只用来调整力度（大运顺时成事阻力小一些），不许因为命盘推翻卦的结论。
+
+【怎么写 —— 读的人不懂六爻】
+- 第一段只写一句结论，用粗体：**能成 / 难成 / 有机会但有条件 / 眼下看不清**，再加一句把握度（高 / 中 / 低）。
+- 然后「卦里看到的」：3–4 条大白话，讲这件事现在处在什么状态、卡在哪、对方什么态度、有没有竞争或阻碍。
+  术语只准出现在每条末尾的「〔依据：……〕」里，每条最多一句依据。
+- 「时间点」：给应期，写公历月份或日期。
+- 「你可以做的」：2–3 条具体动作（例如先把某个条件谈妥、什么时候主动、什么时候别催）。
+- 全文不超过 450 字。称呼用户「你」。全程简体中文，不出现书名，不堆古文。
+- 不吓人：不说「大凶」「必败」「血光」这类话；难成就直说难成，并说明还能做什么。
+- 卦只看这件事、这段时间。不替用户做辞职、分手、投资这类重大决定，只说卦象倾向与风险。
+
+【追问时】
+- 同一件事的追问（什么时候、对方怎么想、要不要主动），继续用这一卦回答，不许说「再摇一卦」。
+- 问的是另一件事：一句话说明「一事一占，这一卦只管刚才那件事」，建议他在左边「问一件事 · 起卦」另起一卦，然后停。
+
+【每轮末尾】
+最后另起一行，给 3 个他最可能接着问的同一件事的追问：
+⟦NEXT⟧追问一｜追问二｜追问三`;
+  }
+
   // 从回答里拆出定盘／格局断定的标记
   function parseFlow(text) {
     const s = String(text || "");
@@ -3698,7 +3767,8 @@ ${nextSpec}`;
       subject: config.subject || null
     };
     const flowPrompt = config.flow === "rectify" ? buildRectifyPrompt(chart, config.flowRound || 1)
-                     : config.flow === "geju" ? buildGejuPrompt(chart, config.flowRound || 1) : "";
+                     : config.flow === "geju" ? buildGejuPrompt(chart, config.flowRound || 1)
+                     : config.gua ? buildGuaPrompt(chart, config.gua) : "";
     const messages = [{ role: "system", content: flowPrompt || buildSystemPrompt(chart, question, config.kbMode || "ziwei", ctx) }];
     // 最近 3 轮对话（6 条），保留追问上下文；定盘／格局断定要看到每一轮的问答，放宽到 12 条
     history.slice(flowPrompt ? -12 : -6).forEach(function (h) {
@@ -4317,7 +4387,7 @@ ${nextSpec}`;
 
   global.ChatEngine = {
     synastry, parseBirthInText,
-    rectifyCandidates, buildRectifyPrompt, buildGejuPrompt, parseFlow, FLOW_MAX,
+    rectifyCandidates, buildRectifyPrompt, buildGejuPrompt, buildGuaPrompt, parseFlow, FLOW_MAX,
     generateChatResponse, composeAnswer, analyzeQuestion, TOPICS,
     callLiveAPI, callLiveAPIStream, buildSystemPrompt, buildChartDossier,
     followupsFor, splitFollowups, stripNextBlock, markerTail,

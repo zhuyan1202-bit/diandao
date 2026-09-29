@@ -1783,3 +1783,95 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
 .bk-paste { width: 100%; margin: 6px 0 8px; font-size: 12px; resize: vertical; font-family: ui-monospace, Menlo, monospace; }
 /* 侧栏底部按钮多了一个：放不下时允许换行，不要把最右边的挤出去 */
 .sidebar-footer { flex-wrap: wrap; row-gap: 2px; }
+
+/* ================= 六爻起卦 ================= */
+.profile-action-btn.is-gua { color: #5b4a8a; border-color: rgba(91, 74, 138, 0.45); }
+.profile-action-btn.is-gua:hover { background: rgba(91, 74, 138, 0.08); border-color: rgba(91, 74, 138, 0.7); }
+[data-theme="dark"] .profile-action-btn.is-gua { color: #b9a8ec; }
+
+.gua-intro { font-size: 13px; color: var(--text-sub); line-height: 1.65; margin-bottom: 14px; }
+.gua-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-main); margin: 12px 0 6px; }
+.gua-q { width: 100%; font-size: 15px; padding: 10px 12px; resize: none; line-height: 1.5; }
+.gua-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.gua-cat {
+  padding: 10px 6px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg-card-soft, transparent);
+  color: var(--text-sub); font-size: 13px; cursor: pointer; font-family: inherit; transition: all .15s;
+}
+.gua-cat.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.gua-err { min-height: 18px; font-size: 12.5px; color: var(--rose, #c0453f); line-height: 1.6; margin: 10px 0 8px; }
+.gua-old {
+  margin-left: 4px; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--accent); background: transparent;
+  color: var(--accent); font-size: 12.5px; cursor: pointer; font-family: inherit;
+}
+.gua-go { width: 100%; min-height: 46px; font-size: 15px; }
+.gua-go:disabled { opacity: .55; cursor: wait; }
+.gua-tip { font-size: 11.5px; color: var(--text-muted); line-height: 1.6; margin-top: 10px; text-align: center; }
+.gua-qline { font-size: 13.5px; color: var(--text-main); font-weight: 600; margin-bottom: 12px; line-height: 1.5; }
+
+/* 铜钱 */
+.gua-coins { display: flex; justify-content: center; gap: 14px; margin: 6px 0 6px; perspective: 400px; }
+.gua-coin {
+  width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 17px; font-weight: 700; position: relative;
+  background: radial-gradient(circle at 35% 30%, #f3dc9c, #c9a24f 60%, #9c7a31);
+  color: #5a4210; box-shadow: inset 0 0 0 3px rgba(90, 66, 16, .25), 0 2px 6px rgba(0,0,0,.15);
+}
+.gua-coin::after {   /* 方孔 */
+  content: ""; position: absolute; width: 10px; height: 10px; border: 2px solid rgba(90,66,16,.35);
+  top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: .35;
+}
+.gua-coin.back { background: radial-gradient(circle at 35% 30%, #e7d3a3, #a8874a 60%, #7d6230); color: #fff6dc; }
+.gua-coins.spin .gua-coin { animation: coinFlip .65s ease-in-out; }
+.gua-coins.spin .gua-coin:nth-child(2) { animation-delay: .05s; }
+.gua-coins.spin .gua-coin:nth-child(3) { animation-delay: .1s; }
+@keyframes coinFlip {
+  0% { transform: translateY(0) rotateX(0); }
+  45% { transform: translateY(-26px) rotateX(540deg); }
+  100% { transform: translateY(0) rotateX(1080deg); }
+}
+.gua-coin-note { text-align: center; font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px; min-height: 18px; }
+
+/* 爻 */
+.g-yao { display: inline-flex; gap: 10px; width: 92px; flex: 0 0 92px; }
+.g-yao i { display: block; height: 9px; border-radius: 2px; background: var(--text-main); flex: 1; }
+.g-yao.yang i:last-child { display: none; }
+.g-yao.empty i { background: var(--border); opacity: .6; }
+.g-mv { width: 16px; flex: 0 0 16px; text-align: center; color: #c0453f; font-weight: 700; font-size: 13px; }
+.g-lbl { font-size: 12px; color: var(--text-muted); }
+.gua-trows { display: flex; flex-direction: column; gap: 9px; margin: 4px auto 16px; width: fit-content; }
+.gua-trow { display: flex; align-items: center; gap: 10px; }
+.gua-trow .g-pos { width: 30px; font-size: 12px; color: var(--text-muted); }
+.gua-trow.next .g-pos { color: var(--accent); font-weight: 700; }
+
+/* 卦表 */
+.gua-card {
+  border: 1px solid var(--border); border-radius: 12px; padding: 12px 12px 10px; background: var(--bg-card);
+  margin-bottom: 12px;
+}
+.gua-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 4px; }
+.gua-head b { font-size: 16px; color: var(--text-main); }
+.gua-head span { font-size: 12px; color: var(--text-muted); }
+.gua-head i { font-style: normal; color: var(--text-muted); }
+.gua-quiet { margin-left: auto; }
+.gua-meta { font-size: 12px; color: var(--text-muted); margin: 4px 0 8px; line-height: 1.6; }
+.gua-meta b { color: var(--accent); }
+.gua-row {
+  display: flex; align-items: center; gap: 8px; padding: 6px 6px; border-radius: 8px; font-size: 12.5px;
+}
+.gua-row + .gua-row { border-top: 1px dashed var(--border); }
+.gua-row.is-yong { background: var(--accent-bg); }
+.gua-row .g-god { width: 30px; flex: 0 0 30px; color: var(--text-muted); font-size: 11.5px; }
+.gua-row .g-kin { width: 104px; flex: 0 0 104px; color: var(--text-main); white-space: nowrap; }
+.gua-row .g-kin em { font-style: normal; font-size: 10.5px; color: #c0453f; margin-left: 3px; }
+.gua-row .g-yao { width: 64px; flex: 0 0 64px; gap: 7px; }
+.gua-row .g-yao i { height: 7px; }
+.gua-row .g-sy { width: 16px; flex: 0 0 16px; font-weight: 700; color: var(--accent); }
+.gua-row .g-bian { color: var(--text-sub); font-size: 12px; white-space: nowrap; }
+.gua-msg { max-width: 560px; width: 100%; margin: 0 auto; }
+.gua-msg-q { font-size: 13px; color: var(--text-sub); margin: 0 0 6px 2px; }
+@media (max-width: 420px) {
+  .gua-row { gap: 5px; font-size: 12px; }
+  .gua-row .g-kin { width: 92px; flex-basis: 92px; }
+  .gua-row .g-yao { width: 52px; flex-basis: 52px; }
+  .gua-coin { width: 46px; height: 46px; }
+}

@@ -1923,6 +1923,81 @@ document.addEventListener("DOMContentLoaded", () => {
     scrollBottom(false);
   }
 
+  /* ---------- 格局断定：推论逐条确认 ----------
+   * 以前一轮 3 条推论只给「对 / 不太对 / 记不清」三个总按钮，没法说「第 1 条对、第 2 条不对」。
+   * 现在一条一条问，最后一条答完自动把整轮答案发出去。 */
+  const CLAIM_LBL = { yes: "对", no: "不对", unsure: "记不清", other: "其他情况" };
+  function claimsHtml(m, idx) {
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    const msgs = s ? getRoomMessages(s, state.kbMode) : [];
+    const live = msgs[msgs.length - 1] === m && !m.claimsSent && !!(s && s.flow && !s.flow.done);
+    const ans = m.claimAns || [];
+    const doneRows = ans.map((a, i) =>
+      '<div class="claim-done"><span class="claim-tag t-' + a.v + '">' + CLAIM_LBL[a.v] + '</span><span>' + escapeHtml(m.claims[i]) +
+      (a.note ? '<em>' + escapeHtml(a.note) + '</em>' : "") + '</span></div>').join("");
+    if (!live) {
+      return '<div class="claim-box is-closed">' + (doneRows || m.claims.map(c =>
+        '<div class="claim-done"><span class="claim-tag">待答</span><span>' + escapeHtml(c) + '</span></div>').join("")) + '</div>';
+    }
+    const k = ans.length, n = m.claims.length;
+    const btn = (act, txt, cls) => '<button type="button" class="claim-btn ' + (cls || "") + '" onclick="window.__claim(' + idx + ',\'' + act + '\')">' + txt + '</button>';
+    const body = m.claimOther
+      ? '<textarea id="claim-note" class="form-input-xs claim-note" rows="2" maxlength="120" placeholder="说说实际情况，比如：那几年压力大是真的，但主要是家里的事，不是工作"></textarea>' +
+        '<div class="claim-btns two">' + btn("back-other", "返回") + btn("other-ok", "确定", "is-primary") + '</div>'
+      : '<div class="claim-btns">' + btn("yes", "对，是这样", "t-yes") + btn("no", "不对", "t-no") +
+        btn("unsure", "记不清", "t-unsure") + btn("other", "其他情况…", "t-other") + '</div>';
+    return '<div class="claim-box">' + doneRows +
+      '<div class="claim-card">' +
+        '<div class="claim-prog"><span>第 ' + (k + 1) + ' / ' + n + ' 条</span><i><b style="width:' + Math.round(k / n * 100) + '%"></b></i></div>' +
+        '<div class="claim-text">' + escapeHtml(m.claims[k]) + '</div>' + body +
+        (k > 0 && !m.claimOther ? '<button type="button" class="claim-undo" onclick="window.__claim(' + idx + ',\'undo\')">← 改上一条</button>' : "") +
+      '</div></div>';
+  }
+  window.__claim = function (idx, act) {
+    if (state.busy) return;
+    const s = state.sessions.find(x => x.id === state.currentSessionId);
+    if (!s) return;
+    const msgs = getRoomMessages(s, state.kbMode);
+    const m = msgs[idx];
+    if (!m || !m.claims || m.claimsSent) return;
+    m.claimAns = m.claimAns || [];
+    if (act === "other" || act === "back-other") {
+      m.claimOther = act === "other";
+      renderMessages(msgs);
+      if (m.claimOther) setTimeout(() => { try { document.getElementById("claim-note").focus(); } catch (e) {} }, 40);
+      return;
+    }
+    if (act === "undo") {
+      m.claimAns.pop(); m.claimOther = false;
+      saveSessions(); renderMessages(msgs);
+      return;
+    }
+    let entry = null;
+    if (act === "other-ok") {
+      const note = String((document.getElementById("claim-note") || {}).value || "").trim();
+      if (!note) { toast("写一句实际情况，或者点「返回」选别的。"); return; }
+      entry = { v: "other", note: note };
+    } else if (act === "yes" || act === "no" || act === "unsure") {
+      entry = { v: act };
+    }
+    if (!entry) return;
+    m.claimAns.push(entry);
+    m.claimOther = false;
+    if (sound && sound.send && m.claimAns.length < m.claims.length) sound.send();
+    if (m.claimAns.length >= m.claims.length) {
+      m.claimsSent = true;
+      saveSessions();
+      const text = m.claims.map((c, i) => {
+        const a = m.claimAns[i];
+        return "第" + (i + 1) + "条「" + c + "」：" + (a.v === "other" ? "其他情况 —— " + a.note : CLAIM_LBL[a.v]);
+      }).join("\n");
+      send(text);
+    } else {
+      saveSessions();
+      renderMessages(msgs);
+    }
+  };
+
   function msgHtml(m, canRegen, idx) {
     if (m.role === "chart-change") {
       return `<div class="chart-change-divider"><span>\u{1F504} ${escapeHtml(m.content)}</span></div>`;
@@ -1988,6 +2063,7 @@ document.addEventListener("DOMContentLoaded", () => {
             '<div class="flow-done-sub">存了之后，每次回答都会以这个为准。觉得不对就接着跟它说。</div>') +
         '</div>';
     }
+    if (!m.streaming && m.claims && m.claims.length) flowHtml += claimsHtml(m, idx);
     const reasoningHtml = renderThinkBoxHtml(m);
     const bodyHtml = m.streaming
       ? `<div class="ai-final-answer streaming" id="active-answer">${
@@ -2710,6 +2786,12 @@ document.addEventListener("DOMContentLoaded", () => {
               weak: fl.gejuWeak !== undefined ? fl.gejuWeak : /存疑|还没验证|证据不足/.test(fl.geju) };
           }
           if (aiMsg.flowDone) { aiMsg.fid = "f" + Date.now(); aiMsg.followups = []; }
+          // 格局断定的推论：做成逐条确认的卡片，替代那三个笼统的快捷回复
+          else if (turn.flow === "geju" && fl.claims && fl.claims.length) {
+            aiMsg.claims = fl.claims;
+            aiMsg.claimAns = [];
+            aiMsg.followups = [];
+          }
         }
         // 出厂检查：只剩下改不了的那些（编造星曜、旺衰讲反等）才会告警
         aiMsg.audit = turn.gua ? null : auditOf(rep.text);

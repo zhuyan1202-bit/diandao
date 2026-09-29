@@ -3095,16 +3095,21 @@ ${yrs.join("　")}
   例如他上一轮说过「今年老想着单干」，下一轮再推「你这几年心里一直想自己做主」—— 这是复述，不是推论。
 - 不写长篇、不许出现书名。称呼用户「你」。全程简体中文。
 
-【每轮末尾】
-没收的轮次，最后另起一行输出给用户点的快捷回复，贴着你刚问的推论写（每一轮都要有）：
-⟦NEXT⟧对，确实是这样｜不太对｜记不清了
+【推论怎么交给用户 —— 界面会把推论做成一张一张的卡片，让他逐条点「对 / 不对 / 记不清 / 其他情况」】
+- 正文里只写判断和记账，不要在正文里罗列推论、不要写「对吗？」。
+- 推论统一写在回答最后，每条单独一行，以 ⟦Q⟧ 开头，一行一件事、一个时间段，30–60 字，问句结尾：
+⟦Q⟧2016–2018 年你过得比较辛苦，多半是工作或钱上压力大，对吗？
+⟦Q⟧2020 年前后你换过一次工作或搬过一次家，对吗？
+- 用户的回复会是这种格式：「第1条「……」：对」「第2条「……」：不对」「第3条「……」：其他情况 —— 他补充的实际情况」。
+  「其他情况」按他补充的内容判 ✓ / ✗ / ½，不能一律当 ✓。
+- 没收的轮次必须有 ⟦Q⟧ 行；不要再输出 ⟦NEXT⟧。
 
 【什么时候收】
 - 至少 3 条推论 ✓，而且 ✓ 比 ✗ 多 → 收：写最终结论（格局、旺衰、喜忌、哪几条经历对上了、哪几条没对上），最后一行输出：
   喜用、忌神写成五行（木火土金水），后面再跟一句大白话；不许只写「能落地的东西」「约束」这类没法核对的说法。
   ✓ 几条、✗ 几条照实列出就够了，不许评论 ✗（例如「不是巧合」「这几条 ✗ 就不冤」「恰好说明主线是对的」）。
   ⟦GEJU⟧一段话总结（不超过 150 字）：格局名＋一句话含义；身强／身弱；喜用；忌神；「一共 N 条推论，对上 M 条」（N 是说出口的全部推论，没对上的、½ 的都算进 N；M 只数 ✓）＋对上的关键年份与事。
-  收的这一轮不要 ⟦NEXT⟧。
+  收的这一轮不要 ⟦Q⟧。
 - 最后一轮必须收：如实写命中率。对上的不到一半，⟦GEJU⟧ 总结第一句写「这个判断存疑」。
 ${flowCloseRule(round, max)}`;
   }
@@ -3181,7 +3186,15 @@ ${bg}
   // 从回答里拆出定盘／格局断定的标记
   function parseFlow(text) {
     const s = String(text || "");
-    const out = { probs: [], done: "", geju: "" };
+    const out = { probs: [], done: "", geju: "", claims: [] };
+    // 格局断定的推论：每行一条 ⟦Q⟧……，界面做成逐条确认的卡片
+    s.split("\n").forEach(function (line) {
+      const q = /\u27E6Q\u27E7\s*(.+)/.exec(line);
+      if (q) {
+        const c = q[1].replace(/\u27E6[A-Z]*\u27E7.*$/, "").replace(/[`*]/g, "").trim();
+        if (c.length >= 4 && out.claims.length < 4) out.claims.push(c.slice(0, 120));
+      }
+    });
     const r = /\u27E6RECT\u27E7([^\n\u27E6]*)/.exec(s);
     if (r) {
       r[1].split(/[|｜,，]/).forEach(function (kv) {
@@ -4286,7 +4299,7 @@ ${nextSpec}`;
   function stripNextBlock(s) {
     let t = String(s || "");
     // 正文到第一个标记为止：⟦RECT⟧ ⟦DONE⟧ ⟦GEJU⟧（定盘／格局断定）和 ⟦NEXT⟧ 都只给前端用
-    const mk = /\u27E6(?:NEXT|RECT|DONE|GEJU)\u27E7/.exec(t);
+    const mk = /\u27E6(?:NEXT|RECT|DONE|GEJU|Q)\u27E7/.exec(t);
     if (mk) {
       t = t.slice(0, mk.index);
     } else {
@@ -4300,7 +4313,7 @@ ${nextSpec}`;
   // 回答末尾那几行标记原样留一份（存进消息里），下一轮喂回模型当格式示范
   function markerTail(s) {
     const t = String(s || "");
-    const mk = /\u27E6(?:NEXT|RECT|DONE|GEJU)\u27E7/.exec(t);
+    const mk = /\u27E6(?:NEXT|RECT|DONE|GEJU|Q)\u27E7/.exec(t);
     return mk ? t.slice(mk.index).trim().slice(0, 400) : "";
   }
 

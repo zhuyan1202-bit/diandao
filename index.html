@@ -12,14 +12,14 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="manifest.json">
   <title>点到 — AI 命理分析与人生决策顾问</title>
-  <link rel="stylesheet" href="styles.css?v=20260929141806">
+  <link rel="stylesheet" href="styles.css?v=20260929152057">
   <link rel="apple-touch-icon" href="icon-180.png">
   <style>
     /* 启动画面：脚本约 1.2MB，弱网下要加载好几秒，别让人对着白屏 */
     #boot-splash { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 12px; background: #f7f5f0; transition: opacity .35s; }
     #boot-splash .bs-logo { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center;
-      justify-content: center; font-size: 26px; color: #fff; background: linear-gradient(135deg, #d9b86c, #c2567a);
+      justify-content: center; font-size: 26px; color: #fff; background: #9a6b3f;
       animation: bs-pulse 1.4s ease-in-out infinite; }
     #boot-splash .bs-text { font-size: 14px; color: #8c847a; font-family: -apple-system, "PingFang SC", sans-serif; }
     @keyframes bs-pulse { 50% { transform: scale(.92); opacity: .75; } }
@@ -42,7 +42,9 @@
     <!-- ========== 侧边栏 ========== -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <div class="brand-logo">✦</div>
+        <div class="brand-logo" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 2.5c.7 5.2 4.3 8.8 9.5 9.5-5.2.7-8.8 4.3-9.5 9.5-.7-5.2-4.3-8.8-9.5-9.5 5.2-.7 8.8-4.3 9.5-9.5z"/></svg>
+        </div>
         <div class="brand-title">
           <h2>点到</h2>
           <p>AI 命理分析与人生决策顾问</p>
@@ -50,34 +52,44 @@
       </div>
 
       <button class="new-chat-btn" id="btn-new-chat">
-        <span>＋</span> 开启新的推演
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg> 新的推演
       </button>
 
-      <div class="profile-switcher">
-        <button class="profile-switch-btn" id="btn-profile-switch" title="切换 / 管理命盘档案">
-          <span class="ps-avatar" id="ps-avatar">本</span>
-          <span class="ps-name" id="ps-name">本人</span>
-          <span class="ps-caret">▾</span>
-        </button>
-        <div class="profile-menu" id="profile-menu">
-          <div class="profile-menu-title">命盘档案（各自独立，对话不互通）</div>
-          <div id="profile-menu-list"></div>
-          <button class="profile-menu-new" id="btn-profile-new">＋ 新建一个人的档案</button>
+      <!-- 档案：切换器 + 命盘摘要合成一张卡（原来是上下两块，信息重复） -->
+      <div class="profile-block">
+        <div class="profile-switcher">
+          <button class="profile-switch-btn" id="btn-profile-switch" title="切换 / 管理命盘档案">
+            <span class="ps-avatar" id="ps-avatar">本</span>
+            <span class="ps-name" id="ps-name">本人</span>
+            <svg class="ico ps-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5"/></svg>
+          </button>
+          <div class="profile-menu" id="profile-menu">
+            <div class="profile-menu-title">命盘档案（各自独立，对话不互通）</div>
+            <div id="profile-menu-list"></div>
+            <button class="profile-menu-new" id="btn-profile-new">＋ 新建一个人的档案</button>
+          </div>
+        </div>
+
+        <div class="chart-profile-mini" id="btn-mini-chart-card" title="点击查看与编辑命盘">
+          <div class="mini-profile-details" id="mini-profile-text">—</div>
+          <svg class="ico mini-edit" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg>
         </div>
       </div>
 
-      <div class="chart-profile-mini" id="btn-mini-chart-card" title="点击查看与编辑命盘">
-        <div class="mini-profile-header">
-          <span>命盘档案</span>
-          <span>编辑 ✎</span>
-        </div>
-        <div class="mini-profile-details" id="mini-profile-text">—</div>
-      </div>
-
+      <!-- 三个工具：统一样式，靠图标区分，不再各用一种颜色 -->
       <div class="profile-actions">
-        <button class="profile-action-btn is-pair" id="btn-open-pair">💞 和 TA 合不合</button>
-        <button class="profile-action-btn is-gua is-wide" id="btn-open-gua" title="问一件具体的事：offer、感情、复合、回款、考试">☯ 问一件事 · 起卦</button>
-        <button class="profile-action-btn is-wx is-wide" id="btn-open-wuxing">🌿 今日运势 · 五行报告</button>
+        <button class="profile-action-btn" id="btn-open-pair">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/></svg>
+          合盘 <em>和 TA 合不合</em>
+        </button>
+        <button class="profile-action-btn" id="btn-open-gua" title="问一件具体的事：offer、感情、复合、回款、考试">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5h15M4.5 12h6M13.5 12h6M4.5 17.5h15"/></svg>
+          起卦 <em>问一件具体的事</em>
+        </button>
+        <button class="profile-action-btn" id="btn-open-wuxing">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+          今日运势 <em>五行报告</em>
+        </button>
       </div>
 
       <div class="sidebar-sessions" id="sessions-container">
@@ -86,24 +98,36 @@
       </div>
 
       <div class="sidebar-footer">
-        <button class="tool-icon-btn" id="btn-theme-toggle" title="切换浅色 / 夜间模式">
-          <span id="theme-icon">🌙</span> <span id="theme-label">夜间</span>
+        <button class="tool-icon-btn footer-settings" id="btn-open-settings" title="开通 AI / 模型设置">
+          <span>✦</span> 开通 AI
         </button>
-        <button class="tool-icon-btn" id="btn-open-settings" title="配置大模型 API">
-          <span>⚙</span> 设置
+        <button class="tool-icon-btn icon-only" id="btn-theme-toggle" title="切换浅色 / 夜间模式" aria-label="切换浅色 / 夜间模式">
+          <span id="theme-icon" class="ico-wrap"></span>
         </button>
-        <button class="tool-icon-btn" id="btn-sound-toggle" title="音效开关">
-          <span id="sound-icon">🔔</span>
-        </button>
-        <button class="tool-icon-btn" id="btn-mobile-access" title="用手机扫码访问" hidden>
-          <span>📱</span>
-        </button>
-        <button class="tool-icon-btn" id="btn-open-backup" title="备份 / 恢复档案和对话">
-          <span>💾</span>
-        </button>
-        <button class="tool-icon-btn" id="btn-clear-history" title="清空全部记录">
-          <span>🗑</span>
-        </button>
+        <div class="footer-more">
+          <button class="tool-icon-btn icon-only" id="btn-footer-more" title="更多" aria-label="更多" aria-haspopup="true" aria-expanded="false">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5.5" cy="12" r="1.1"/><circle cx="12" cy="12" r="1.1"/><circle cx="18.5" cy="12" r="1.1"/></svg>
+          </button>
+          <div class="footer-more-menu" id="footer-more-menu" role="menu">
+            <button class="more-item" id="btn-sound-toggle" role="menuitem">
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16v-5a6 6 0 1 1 12 0v5l1.5 2h-15L6 16zM10 20.5a2 2 0 0 0 4 0"/></svg>
+              <span id="sound-icon">音效：关</span>
+            </button>
+            <button class="more-item" id="btn-mobile-access" role="menuitem" hidden>
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+              用手机扫码访问
+            </button>
+            <button class="more-item" id="btn-open-backup" role="menuitem">
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 20h14"/></svg>
+              备份 / 恢复
+            </button>
+            <div class="more-sep"></div>
+            <button class="more-item is-danger" id="btn-clear-history" role="menuitem">
+              <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+              清空全部记录
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -111,11 +135,17 @@
     <main class="main-chat-container">
       <header class="chat-top-bar">
         <div class="top-bar-left">
-          <button class="menu-toggle-btn" id="btn-mobile-menu">☰</button>
+          <button class="menu-toggle-btn" id="btn-mobile-menu" aria-label="打开菜单">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
           <div class="chat-current-title" id="chat-title-text">新的推演</div>
         </div>
         <div class="top-bar-right">
-          <button class="bar-pill-btn" id="btn-export-chat">🖼 <span>导出命盘图</span></button>
+          <button class="bar-pill-btn" id="btn-export-chat">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 14v6h14v-6"/></svg> <span>导出命盘图</span>
+          </button>
+          <!-- 手机端：右上角头像 = 当前档案，点开看 / 改命盘（替代输入框上方的「正在看」条） -->
+          <button class="top-avatar-btn" id="btn-top-avatar" aria-label="查看和编辑我的命盘" title="我的命盘">本</button>
         </div>
       </header>
 
@@ -155,12 +185,29 @@
         <div class="messages-wrapper" id="messages-wrapper">
 
           <div class="chat-greeting-card" id="greeting-card">
-            <div class="greeting-icon" id="greeting-icon">🔮</div>
-            <h1 class="greeting-title" id="greeting-title">点到 · 更懂你自己</h1>
-            <p class="greeting-desc" id="greeting-desc">
-              十二宫已按你的出生时刻排定。下面两个入口是按你的盘挑的；心里有具体的事，直接在下面问更有用。
-            </p>
+            <div class="greet-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 2.5c.7 5.2 4.3 8.8 9.5 9.5-5.2.7-8.8 4.3-9.5 9.5-.7-5.2-4.3-8.8-9.5-9.5 5.2-.7 8.8-4.3 9.5-9.5z"/></svg>
+            </div>
+            <h1 class="greeting-title" id="greeting-title">今天想问点什么？</h1>
+            <p class="greeting-desc" id="greeting-desc"></p>
 
+            <!-- 三个核心功能：原来只在侧边栏，手机上根本看不到 -->
+            <div class="feature-card" id="feature-card">
+              <button type="button" class="feature-item" data-feature="pair">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="12" r="5.5"/><circle cx="15" cy="12" r="5.5"/></svg>
+                <span>合盘</span>
+              </button>
+              <button type="button" class="feature-item" data-feature="gua">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5h15M4.5 12h6M13.5 12h6M4.5 17.5h15"/></svg>
+                <span>起卦</span>
+              </button>
+              <button type="button" class="feature-item" data-feature="wuxing">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+                <span>今日运势</span>
+              </button>
+            </div>
+
+            <div class="starter-label" id="starter-label">试试问</div>
             <div class="starter-prompts-grid" id="starter-prompts-grid"></div>
           </div>
 
@@ -196,13 +243,14 @@
     <!-- ========== 命盘抽屉 ========== -->
     <aside class="chart-drawer" id="chart-drawer">
       <div class="drawer-header">
-        <h3>🪢 个人命盘档案</h3>
+        <h3>个人命盘档案</h3>
+        <button class="drawer-export-btn" id="btn-drawer-export" title="导出命盘图">导出命盘图</button>
         <button class="drawer-close" id="btn-close-drawer">×</button>
       </div>
 
       <div class="drawer-body">
         <div class="drawer-section">
-          <div class="drawer-section-title">⚙ 生辰数据</div>
+          <div class="drawer-section-title">生辰数据</div>
           <div class="form-row">
             <div class="form-col" style="flex:1 1 100%;">
               <label class="form-label-xs">档案名称（这是谁的盘）</label>
@@ -236,15 +284,15 @@
             <div class="form-col">
               <label class="form-label-xs">出生时间模式</label>
               <select class="form-select-xs" id="drawer-time-mode">
-                <option value="interval" selected>⏱ 仅知大致区间（不确定具体几分）</option>
-                <option value="exact">🎯 知道精确时间（几点几分）</option>
+                <option value="interval" selected>仅知大致区间（不确定具体几分）</option>
+                <option value="exact">知道精确时间（几点几分）</option>
               </select>
             </div>
           </div>
 
           <!-- 区间模式输入区 -->
           <div id="drawer-interval-wrap" style="margin-top:8px;">
-            <label class="form-label-xs">⏳ 大致出生时间区间</label>
+            <label class="form-label-xs">大致出生时间区间</label>
             <div class="form-row" style="align-items:center;">
               <div class="form-col">
                 <span style="font-size:11.5px;color:var(--text-muted);">最早可能时间</span>
@@ -260,7 +308,7 @@
 
           <!-- 精确时间输入区 -->
           <div id="drawer-exact-wrap" style="margin-top:8px; display:none;">
-            <label class="form-label-xs">🎯 精确出生钟表时间（时:分）</label>
+            <label class="form-label-xs">精确出生钟表时间（时:分）</label>
             <input type="time" class="form-input-xs" id="drawer-birthtime" value="10:30" style="width:100%;">
             <select class="form-select-xs" id="drawer-hour" style="display:none;">
               <option value="0">0</option><option value="2">2</option><option value="4">4</option>
@@ -271,7 +319,7 @@
           </div>
           <div class="form-row" style="margin-top:8px;">
             <div class="form-col" style="flex:1;">
-              <label class="form-label-xs">📍 出生地点（天文真太阳时校准 · 强烈建议选择）</label>
+              <label class="form-label-xs">出生地点（天文真太阳时校准 · 强烈建议选择）</label>
               <select class="form-select-xs" id="drawer-city">
                 <option value="默认 (东经120°标准时)">默认 (东经120°北京时间标准时 · 不做经度修正)</option>
                 <optgroup label="西南 / 西北（经度时差大 · 极易跨时辰）">
@@ -322,12 +370,12 @@
             </div>
           </div>
           <div id="drawer-tst-preview" class="tst-preview-box">
-            ⏱ 正在计算真太阳时天文修正…
+            正在计算真太阳时天文修正…
           </div>
         </div>
 
         <div class="drawer-section">
-          <div class="drawer-section-title">🪐 紫微斗数 · 十二宫全盘</div>
+          <div class="drawer-section-title">紫微斗数 · 十二宫全盘</div>
           <div class="ziwei-grid-scroll">
             <div id="ziwei-grid" class="ziwei-grid"></div>
           </div>
@@ -336,19 +384,19 @@
         </div>
 
         <div class="drawer-section">
-          <div class="drawer-section-title">🌌 紫微 · 夫妻宫</div>
+          <div class="drawer-section-title">紫微 · 夫妻宫</div>
           <div id="drawer-ziwei-info" style="font-size:13.2px; color:var(--text-sub);"></div>
         </div>
 
         <div class="drawer-section">
-          <div class="drawer-section-title">🪢 四柱八字</div>
+          <div class="drawer-section-title">四柱八字</div>
           <div id="drawer-bazi-info" style="font-size:13.2px; color:var(--text-sub);"></div>
         </div>
       </div>
 
       <div class="drawer-save-bar" id="drawer-save-bar">
         <div class="save-hint" id="save-hint">已保存</div>
-        <button class="save-chart-btn" id="btn-save-chart">💾 保存档案并重新排盘</button>
+        <button class="save-chart-btn" id="btn-save-chart">保存档案并重新排盘</button>
       </div>
     </aside>
   </div>
@@ -357,7 +405,7 @@
   <div class="modal-overlay" id="modal-mobile">
     <div class="modal-box" style="max-width:420px;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 style="font-size:17px;">📱 用手机访问「点到」</h3>
+        <h3 style="font-size:17px;">用手机访问「点到」</h3>
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-mobile')">×</button>
       </div>
       <p style="font-size:12.8px; color:var(--text-sub); line-height:1.6; margin-bottom:14px;">
@@ -375,7 +423,7 @@
   <div class="modal-overlay" id="modal-pair">
     <div class="modal-box wx-modal-box">
       <div class="wx-modal-head">
-        <h3>💞 合盘</h3>
+        <h3>合盘</h3>
         <button class="wx-close" onclick="closeModal('modal-pair')">×</button>
       </div>
       <div id="pair-modal-body"></div>
@@ -385,7 +433,7 @@
   <div class="modal-overlay" id="modal-gua">
     <div class="modal-box wx-modal-box gua-modal-box">
       <div class="wx-modal-head">
-        <h3>☯ 问一件事 · 起卦</h3>
+        <h3>起卦 · 问一件具体的事</h3>
         <button class="wx-close" onclick="closeModal('modal-gua')" aria-label="关闭">×</button>
       </div>
       <div id="gua-modal-body"></div>
@@ -395,7 +443,7 @@
   <div class="modal-overlay" id="modal-wuxing">
     <div class="modal-box wx-modal-box">
       <div class="wx-modal-head">
-        <h3>🌿 <span id="wx-modal-title">五行报告</span></h3>
+        <h3><span id="wx-modal-title">五行报告</span></h3>
         <button class="wx-close" onclick="closeModal('modal-wuxing')">×</button>
       </div>
       <div id="wx-modal-body"></div>
@@ -507,9 +555,20 @@
       </div>
 
       <div class="ob-field">
-        <label class="ob-label" for="ob-date">出生日期（公历）</label>
+        <div class="ob-label-row">
+          <label class="ob-label" for="ob-date">出生日期</label>
+          <div class="ob-mini-seg" id="ob-cal" role="radiogroup" aria-label="历法">
+            <button type="button" data-v="solar" class="on" aria-checked="true">公历</button>
+            <button type="button" data-v="lunar" aria-checked="false">农历</button>
+          </div>
+        </div>
         <input type="date" class="form-input-xs ob-input" id="ob-date" min="1920-01-01" max="2030-12-31">
-        <div class="ob-hint">只记得农历？先查一下对应的公历日期再填。</div>
+        <div class="ob-lunar-row" id="ob-lunar-row" hidden>
+          <select class="form-select-xs ob-input" id="ob-ly" aria-label="农历年"></select>
+          <select class="form-select-xs ob-input" id="ob-lm" aria-label="农历月"></select>
+          <select class="form-select-xs ob-input" id="ob-ld" aria-label="农历日"></select>
+        </div>
+        <div class="ob-hint" id="ob-date-hint">只记得农历？点右上角切到「农历」，会自动换算成公历。</div>
       </div>
 
       <div class="ob-field">
@@ -521,6 +580,16 @@
         </div>
         <div class="ob-sub-row" id="ob-exact-row">
           <input type="time" class="form-input-xs ob-input" id="ob-time">
+        </div>
+        <!-- 时辰选择：点一个 = 那两个小时；再点相邻的一个 = 连成四小时 -->
+        <div class="ob-shichen" id="ob-shichen" hidden>
+          <div class="ob-sc-grid" id="ob-sc-grid" role="group" aria-label="选择出生时辰"></div>
+          <div class="ob-sc-zi" id="ob-sc-zi" hidden>
+            <span>子时跨半夜，是哪一段？</span>
+            <button type="button" data-zi="late">晚上 11 点–12 点</button>
+            <button type="button" data-zi="early">凌晨 0 点–1 点</button>
+          </div>
+          <button type="button" class="ob-link" id="ob-sc-custom">自己填时间范围</button>
         </div>
         <div class="ob-sub-row" id="ob-interval-row" hidden>
           <input type="time" class="form-input-xs ob-input" id="ob-rs">
@@ -555,7 +624,7 @@
   <div class="modal-overlay" id="modal-backup">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-        <h3 style="font-size:17px;">💾 备份 / 恢复</h3>
+        <h3 style="font-size:17px;">备份 / 恢复</h3>
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-backup')" aria-label="关闭">×</button>
       </div>
       <p class="bk-note">
@@ -593,29 +662,29 @@
   <div class="modal-overlay" id="modal-poster">
     <div class="modal-box" style="max-width:560px; text-align:center;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-        <h3 style="font-size:16.5px;">🪐 命盘图</h3>
+        <h3 style="font-size:16.5px;">命盘图</h3>
         <button style="background:none;border:none;color:var(--text-muted);font-size:22px;cursor:pointer;" onclick="closeModal('modal-poster')">×</button>
       </div>
       <canvas id="poster-canvas" style="width:100%;height:auto;border-radius:12px;margin-bottom:14px;box-shadow:var(--shadow-md);"></canvas>
-      <button class="save-chart-btn" id="btn-download-poster">📥 保存到相册 / 下载</button>
+      <button class="save-chart-btn" id="btn-download-poster">保存到相册 / 下载</button>
     </div>
   </div>
 
-  <script src="vsop87.js?v=20260929141806"></script>
-  <script src="calendar_core.js?v=20260929141806"></script>
-  <script src="ziwei_engine.js?v=20260929141806"></script>
-  <script src="bazi_analyze.js?v=20260929141806"></script>
+  <script src="vsop87.js?v=20260929152057"></script>
+  <script src="calendar_core.js?v=20260929152057"></script>
+  <script src="ziwei_engine.js?v=20260929152057"></script>
+  <script src="bazi_analyze.js?v=20260929152057"></script>
   <!-- 知识库（RAG）：紫微 + 八字 -->
-  <script src="knowledge_base.js?v=20260929141806"></script>
-  <script src="kb_retrieve.js?v=20260929141806"></script>
-  <script src="bazi_kb.js?v=20260929141806"></script>
-  <script src="bazi_retrieve.js?v=20260929141806"></script>
-  <script src="tarot_data.js?v=20260929141806"></script>
-  <script src="ziwei_bazi_core.js?v=20260929141806"></script>
-  <script src="liuyao.js?v=20260929141806"></script>
-  <script src="chat_engine.js?v=20260929141806"></script>
-  <script src="wuxing_report.js?v=20260929141806"></script>
-  <script src="invite.js?v=20260929141806"></script>
-  <script src="app.js?v=20260929141806"></script>
+  <script src="knowledge_base.js?v=20260929152057"></script>
+  <script src="kb_retrieve.js?v=20260929152057"></script>
+  <script src="bazi_kb.js?v=20260929152057"></script>
+  <script src="bazi_retrieve.js?v=20260929152057"></script>
+  <script src="tarot_data.js?v=20260929152057"></script>
+  <script src="ziwei_bazi_core.js?v=20260929152057"></script>
+  <script src="liuyao.js?v=20260929152057"></script>
+  <script src="chat_engine.js?v=20260929152057"></script>
+  <script src="wuxing_report.js?v=20260929152057"></script>
+  <script src="invite.js?v=20260929152057"></script>
+  <script src="app.js?v=20260929152057"></script>
 </body>
 </html>

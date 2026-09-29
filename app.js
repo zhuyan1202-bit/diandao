@@ -58,8 +58,12 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("diandao_theme", t);
     const icon = document.getElementById("theme-icon");
     const label = document.getElementById("theme-label");
-    if (icon) icon.textContent = t === "light" ? "🌙" : "☀️";
+    const MOON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>';
+    const SUN = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>';
+    if (icon) icon.innerHTML = t === "light" ? MOON : SUN;
     if (label) label.textContent = t === "light" ? "夜间" : "浅色";
+    const tbtn = document.getElementById("btn-theme-toggle");
+    if (tbtn) tbtn.title = t === "light" ? "切换到夜间模式" : "切换到浅色模式";
   }
 
   /* ---------------- 星点背景 ---------------- */
@@ -307,16 +311,13 @@ document.addEventListener("DOMContentLoaded", () => {
       openai: "OpenAI"
     };
     if (hasKey && prov !== "builtin") {
-      btn.innerHTML = `<span style="color:#34d399;">●</span> AI 已连接 (${names[prov] || prov}) ⚙`;
-      btn.style.borderColor = "rgba(52, 211, 153, 0.45)";
+      btn.innerHTML = `<span class="ai-dot"></span> AI 已连接 · ${names[prov] || prov}`;
     } else if (inv()) {
-      // 侧栏底部一行要挤 6 个按钮，文案压短；完整说明在「开通 AI」弹窗里
-      btn.innerHTML = `<span style="color:#34d399;">●</span> AI · 今天剩 ${inv().quota().left} 次`;
+      // 侧栏底部空间有限，文案压短；完整说明在「开通 AI」弹窗里
+      btn.innerHTML = `<span class="ai-dot"></span> AI · 今天剩 ${inv().quota().left} 次`;
       btn.title = "朋友邀请开通的 AI，每天 " + inv().LIMIT + " 次，零点恢复";
-      btn.style.borderColor = "rgba(52, 211, 153, 0.45)";
     } else {
       btn.innerHTML = `<span>✦</span> 开通 AI`;
-      btn.style.borderColor = "";
     }
   }
 
@@ -409,6 +410,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const av = document.getElementById("ps-avatar");
     if (nm) nm.textContent = act.name;
     if (av) av.textContent = (act.name || "?").trim().charAt(0);
+    const topAv = document.getElementById("btn-top-avatar");
+    if (topAv) topAv.textContent = (act.name || "?").trim().charAt(0);
 
     const list = document.getElementById("profile-menu-list");
     if (list) {
@@ -481,14 +484,178 @@ document.addEventListener("DOMContentLoaded", () => {
     obSeg("ob-tmode", v);
     const ex = document.getElementById("ob-exact-row");
     const iv = document.getElementById("ob-interval-row");
-    const hint = document.getElementById("ob-time-hint");
+    const sc = document.getElementById("ob-shichen");
     if (ex) ex.hidden = v !== "exact";
-    if (iv) iv.hidden = v !== "interval";
-    if (hint) hint.textContent = v === "exact"
-      ? "出生证明上一般有。差一个时辰（两小时），盘就完全不同。"
-      : v === "interval"
-      ? "比如「早上 8 点到 10 点之间」。跨了两个时辰也能先排，会按最可能的那个时辰来。"
-      : "也能排：年、月、日三柱和五行报告照样准；和时辰有关的部分会先标「待定」，建议问问家里人再来补。";
+    if (sc) sc.hidden = v !== "interval";
+    if (iv) iv.hidden = !(v === "interval" && OB.customRange);
+    obTimeHint();
+  }
+  function obTimeHint() {
+    const hint = document.getElementById("ob-time-hint");
+    if (!hint) return;
+    const v = OB.tmode;
+    if (v === "exact") hint.textContent = "出生证明上一般有。差一个时辰（两小时），盘就完全不同。";
+    else if (v === "unknown") hint.textContent = "也能排：年、月、日三柱和五行报告照样准；和时辰有关的部分会先标「待定」，建议问问家里人再来补。";
+    else if (OB.customRange) hint.textContent = "比如「早上 8 点到 10 点之间」。跨了两个时辰也能先排，会按最可能的那个时辰来。";
+    else {
+      const r = obScRange();
+      hint.textContent = r
+        ? `已选 ${r.label}（钟表时间 ${r.rs}–${r.re}）。排盘时会按出生城市再做真太阳时校准。`
+        : "点出生的时辰（按当时的钟表时间）。只记得在两个时辰之间，就把相邻的两个都点上。";
+    }
+  }
+
+  /* ---- 时辰选择器 ----
+   * 时间轴切成 13 格：0 = 子时前半（0 点–1 点），1–11 = 丑…亥，12 = 子时后半（23 点–24 点）。
+   * 子时跨半夜：23 点出生按「晚子时」进位到次日，和 0 点出生不是同一天的盘，所以必须问清是哪一段。
+   * 选中结果写成钟表时间区间，走原来「只知道大概」那套排盘逻辑，不另起一套。 */
+  const SC_NAMES = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"];
+  const SC_RANGE = ["23–1 点", "1–3 点", "3–5 点", "5–7 点", "7–9 点", "9–11 点",
+                    "11–13 点", "13–15 点", "15–17 点", "17–19 点", "19–21 点", "21–23 点"];
+  const pad2 = n => String(n).padStart(2, "0");
+  function slotStart(s) { return s === 0 ? "00:00" : s === 12 ? "23:00" : pad2(2 * s - 1) + ":00"; }
+  function slotEnd(s)   { return s === 0 ? "00:59" : s === 12 ? "23:59" : pad2(2 * s) + ":59"; }
+  function slotName(s)  { return s === 0 ? "子时（凌晨）" : s === 12 ? "子时（夜里）" : SC_NAMES[s] + "时"; }
+  function obScRange() {
+    const sel = OB.sc;
+    if (!sel || !sel.length) return null;
+    const a = Math.min.apply(null, sel), b = Math.max.apply(null, sel);
+    return { rs: slotStart(a), re: slotEnd(b), label: a === b ? slotName(a) : slotName(a) + "到" + slotName(b) };
+  }
+  function renderShichen() {
+    const grid = document.getElementById("ob-sc-grid");
+    if (!grid) return;
+    if (!grid.children.length) {
+      grid.innerHTML = SC_NAMES.map((n, i) =>
+        `<button type="button" class="ob-sc" data-sc="${i}" aria-pressed="false"><b>${n}时</b><span>${SC_RANGE[i]}</span></button>`
+      ).join("");
+    }
+    const sel = OB.sc || [];
+    grid.querySelectorAll(".ob-sc").forEach(b => {
+      const i = Number(b.dataset.sc);
+      const on = i === 0 ? (sel.indexOf(0) >= 0 || sel.indexOf(12) >= 0) : sel.indexOf(i) >= 0;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const zi = document.getElementById("ob-sc-zi");
+    if (zi) zi.hidden = !OB.ziAsk;
+    obTimeHint();
+  }
+  // 点一格：没选过 → 选它；再点同一格 → 取消；点紧挨着的一格 → 连成两个时辰；其余 → 改选这一格
+  function pickSlot(s) {
+    const sel = OB.sc || [];
+    if (sel.length === 1 && sel[0] === s) OB.sc = [];
+    else if (sel.length === 1 && Math.abs(sel[0] - s) === 1) OB.sc = [sel[0], s];
+    else OB.sc = [s];
+    OB.ziAsk = false;
+    renderShichen();
+  }
+  function onShichenClick(e) {
+    const zb = e.target.closest("[data-zi]");
+    if (zb) { pickSlot(zb.dataset.zi === "late" ? 12 : 0); return; }
+    const b = e.target.closest(".ob-sc");
+    if (!b) return;
+    const i = Number(b.dataset.sc);
+    if (i === 0) {
+      // 子时已选中 → 再点就是取消；没选中 → 先问前半夜还是后半夜
+      const sel = OB.sc || [];
+      if (sel.indexOf(0) >= 0 || sel.indexOf(12) >= 0) { OB.sc = sel.filter(x => x !== 0 && x !== 12); OB.ziAsk = false; }
+      else OB.ziAsk = !OB.ziAsk;
+      renderShichen();
+      return;
+    }
+    pickSlot(i);
+  }
+
+  /* ---- 农历输入 ----
+   * 只用 CalendarCore.solarToLunar（已和香港天文台 5535 天逐日核对过）反查，不另写一套农历表：
+   * 从公历 1 月 15 日起每 10 天取一次样，收集农历年 = Y 的各个月（含闰月）及其初一的日序号。 */
+  const LUNAR_CACHE = {};
+  function lunarMonthsOf(Y) {
+    if (LUNAR_CACHE[Y]) return LUNAR_CACHE[Y];
+    const CC = window.CalendarCore;
+    if (!CC || !CC.solarToLunar) return [];
+    const base = CC.dayNumber(Y, 1, 15);
+    const seen = {}, out = [];
+    for (let off = 0; off <= 420; off += 10) {
+      const g = CC.jdToGregorian(base + off);
+      let L;
+      try { L = CC.solarToLunar(g.y, g.m, Math.floor(g.d)); } catch (e) { continue; }
+      if (L.lYear !== Y || seen[L.monthStartDayNum]) continue;
+      seen[L.monthStartDayNum] = 1;
+      out.push({ month: L.lMonth, isLeap: L.isLeap, start: L.monthStartDayNum, label: L.lMonthLabel });
+    }
+    out.sort((a, b) => a.start - b.start);
+    out.forEach((m, i) => {
+      if (out[i + 1]) { m.len = out[i + 1].start - m.start; return; }
+      // 最后一个月（腊月）：看第 30 天还在不在这个月
+      const g = CC.jdToGregorian(m.start + 29);
+      let L30 = null;
+      try { L30 = CC.solarToLunar(g.y, g.m, Math.floor(g.d)); } catch (e) {}
+      m.len = (L30 && L30.monthStartDayNum === m.start) ? 30 : 29;
+    });
+    return (LUNAR_CACHE[Y] = out);
+  }
+  const LUNAR_DAY = ["", "初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+    "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+    "廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十"];
+  function obSetCal(v) {
+    OB.cal = v;
+    obSeg("ob-cal", v);
+    const $ = id => document.getElementById(id);
+    $("ob-date").hidden = v !== "solar";
+    $("ob-lunar-row").hidden = v !== "lunar";
+    if (v === "lunar") {
+      const ly = $("ob-ly");
+      if (!ly.options.length) {
+        const nowY = new Date().getFullYear();
+        let h = '<option value="" disabled selected>年</option>';
+        for (let y = nowY; y >= 1920; y--) h += `<option value="${y}">${y}年</option>`;
+        ly.innerHTML = h;
+        $("ob-lm").innerHTML = '<option value="" disabled selected>月</option>';
+        $("ob-ld").innerHTML = '<option value="" disabled selected>日</option>';
+      }
+      obLunarChanged();
+    } else {
+      $("ob-date-hint").textContent = "只记得农历？点右上角切到「农历」，会自动换算成公历。";
+    }
+  }
+  // 农历三个下拉任一变化：重排月份/日期选项，算出公历写回 #ob-date（提交时仍只读 #ob-date）
+  function obLunarChanged(which) {
+    const $ = id => document.getElementById(id);
+    const ly = $("ob-ly"), lm = $("ob-lm"), ld = $("ob-ld"), hint = $("ob-date-hint");
+    const Y = Number(ly.value);
+    const months = Y ? lunarMonthsOf(Y) : [];
+    if (which === "y") {
+      const keepLabel = lm.selectedIndex > 0 ? lm.options[lm.selectedIndex].text : "";
+      lm.innerHTML = '<option value="" disabled selected>月</option>' +
+        months.map((m, i) => `<option value="${i}">${m.label}</option>`).join("");
+      const hit = months.findIndex(m => m.label === keepLabel);
+      if (hit >= 0) lm.value = String(hit);
+    }
+    const mo = months[Number(lm.value)];
+    if (which === "y" || which === "m") {
+      const keepD = ld.value;
+      const len = mo ? mo.len : 30;
+      let h = '<option value="" disabled selected>日</option>';
+      for (let d = 1; d <= len; d++) h += `<option value="${d}">${LUNAR_DAY[d]}</option>`;
+      ld.innerHTML = h;
+      if (keepD && Number(keepD) <= len) ld.value = keepD;
+    }
+    const D = Number(ld.value);
+    const leap = months.find(m => m.isLeap);
+    if (!Y || !mo || !D) {
+      $("ob-date").value = "";
+      hint.textContent = leap
+        ? `${Y} 年有${leap.label}：闰月出生的，选带「闰」字的那个月。`
+        : "选好农历的年、月、日，会自动换算成公历。";
+      return;
+    }
+    const g = window.CalendarCore.jdToGregorian(mo.start + D - 1);
+    const gd = Math.floor(g.d);
+    $("ob-date").value = `${g.y}-${pad2(g.m)}-${pad2(gd)}`;
+    const wk = "日一二三四五六"[new Date(g.y, g.m - 1, gd).getDay()];
+    hint.textContent = `= 公历 ${g.y} 年 ${g.m} 月 ${gd} 日（星期${wk}）`;
   }
   function openOnboard(forNew) {
     const box = document.getElementById("modal-onboard");
@@ -499,13 +666,22 @@ document.addEventListener("DOMContentLoaded", () => {
     obSeg("ob-gender", "");
     OB.status = "";
     obSeg("ob-status", "");
+    OB.sc = []; OB.ziAsk = false; OB.customRange = false;
+    { const g = document.getElementById("ob-sc-grid"), c = document.getElementById("ob-sc-custom");
+      if (g) g.hidden = false; if (c) c.textContent = "自己填时间范围"; }
     obSetTmode("exact");
+    renderShichen();
     const $ = id => document.getElementById(id);
-    // 城市列表直接抄抽屉里那份，只维护一处
+    // 城市列表直接抄抽屉里那份，只维护一处；只把第一项的说法换成人话（值不变）
     const cityDst = $("ob-city"), citySrc = $("drawer-city");
-    if (cityDst && citySrc && !cityDst.options.length) cityDst.innerHTML = citySrc.innerHTML;
+    if (cityDst && citySrc && !cityDst.options.length) {
+      cityDst.innerHTML = citySrc.innerHTML;
+      if (cityDst.options[0]) cityDst.options[0].textContent = "不确定 / 按北京时间";
+    }
     if (cityDst) cityDst.selectedIndex = 0;
     ["ob-date", "ob-time", "ob-rs", "ob-re", "ob-name"].forEach(id => { if ($(id)) $(id).value = ""; });
+    ["ob-ly", "ob-lm", "ob-ld"].forEach(id => { if ($(id)) $(id).selectedIndex = 0; });
+    obSetCal("solar");
     if ($("ob-err")) $("ob-err").textContent = "";
     $("ob-name-wrap").hidden = !OB.forNew;
     $("ob-title").textContent = OB.forNew ? "新建一个人的档案" : "先认识一下你";
@@ -525,16 +701,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const date = $("ob-date")?.value || "";
     if (OB.forNew && !name) return err("给这个档案起个名字，比如「小林」「我妈」。");
     if (!OB.gender) return err("请选一下性别 —— 男女排大运的方向相反，不能省。");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err("请填出生日期。");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return err(OB.cal === "lunar" ? "请选全农历的年、月、日。" : "请填出生日期。");
     const y = Number(date.slice(0, 4));
     if (y < 1920 || y > new Date().getFullYear()) return err("出生年份看起来不对，再检查一下。");
     let tmode = OB.tmode, bt = "", rs = "", re = "";
     if (tmode === "exact") {
       bt = $("ob-time")?.value || "";
       if (!bt) return err("请填出生时间；记不准的话选「只知道大概」。");
-    } else if (tmode === "interval") {
+    } else if (tmode === "interval" && OB.customRange) {
       rs = $("ob-rs")?.value || ""; re = $("ob-re")?.value || "";
       if (!rs || !re) return err("请填最早和最晚可能的时间。");
+    } else if (tmode === "interval") {
+      const r = obScRange();
+      if (!r) return err(OB.ziAsk ? "子时跨半夜，选一下是晚上 11 点后还是凌晨 0 点后。" : "请点一下出生的时辰；实在不记得，选「完全不知道」。");
+      rs = r.rs; re = r.re;
     } else {
       // 完全不知道：按一整天当区间排，候选时辰全部保留，界面上会标「时辰待定」
       tmode = "interval"; rs = "00:00"; re = "23:59";
@@ -887,9 +1067,12 @@ document.addEventListener("DOMContentLoaded", () => {
       ? "\u56db\u67f1 <b>" + escapeHtml([b.yearPillar, b.monthPillar, b.dayPillar, b.hourPillar].join(" ")) + "</b>"
       : "\u547d\u5bab <b>" + escapeHtml(getPalaceStarLabel(chart, "\u547d\u5bab")) + "</b> \u00b7 \u592b\u59bb\u5bab <b>" + escapeHtml(spouse) + "</b>";
 
+    // 侧栏摘要只放人话：没选城市就不显示那串「默认 (东经120°标准时)」；性别用 女/男，坤造/乾造留给命盘抽屉
+    const cityShort = (pr.city && !/^默认/.test(pr.city)) ? escapeHtml(pr.city) + " \u00b7 " : "";
+    const sexShort = pr.gender === "female" ? "女" : "男";
     mini.innerHTML =
         '<div class="mini-line strong">' + pr.year + "-" + pad(pr.month) + "-" + pad(pr.day) + " \u00b7 " + timeTxt + flag + "</div>"
-      + '<div class="mini-line">' + escapeHtml(pr.city || "") + " \u00b7 " + g + " \u00b7 \u65e5\u5143 <b>" + escapeHtml(b.dayMaster + b.wuxing) + "</b></div>"
+      + '<div class="mini-line">' + cityShort + sexShort + " \u00b7 \u65e5\u5143 <b>" + escapeHtml(b.dayMaster + b.wuxing) + "</b></div>"
       + '<div class="mini-line">' + starLine + "</div>";
   }
 
@@ -1198,11 +1381,15 @@ document.addEventListener("DOMContentLoaded", () => {
                prompt: "我在感情里总卡在哪一步？我会被哪种人吸引、最容易在哪出问题？" };
     }
 
+    // 首页改版：标题统一成一句开场白，下面只留一行日期；原来那段解释性长文案删掉，首屏要轻
+    const todayLine = `今日 ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日`;
+    const starterLabel = document.getElementById("starter-label");
+    if (starterLabel) starterLabel.textContent = "试试问";
+
     let cards = [];
     if (mode === "all") {
-      if (greetIcon) greetIcon.textContent = "🔮";
-      if (greetTitle) greetTitle.textContent = "点到 · 更懂你自己";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">紫微和八字两张盘都已按你的出生时刻排好，一起看。下面几个问题是按你的盘挑的；心里有具体的事，直接在下面问。</div>`;
+      if (greetTitle) greetTitle.textContent = "今天想问点什么？";
+      if (greetDesc) greetDesc.textContent = todayLine;
 
       const st = safeCall(window.ChatEngine && window.ChatEngine.baziStrength, chart);
       const spHua = huaOf("夫妻宫");
@@ -1242,9 +1429,8 @@ document.addEventListener("DOMContentLoaded", () => {
         askCardFor("all")
       ];
     } else if (mode === "ziwei") {
-      if (greetIcon) greetIcon.textContent = "🔮";
-      if (greetTitle) greetTitle.textContent = "紫微斗数 · 一语点到";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">十二宫已按你的出生时刻排定。下面两个入口是按你的盘挑的；心里有具体的事，直接在下面问更有用。</div>`;
+      if (greetTitle) greetTitle.textContent = "今天想问点什么？";
+      if (greetDesc) greetDesc.textContent = "紫微斗数 · " + todayLine;
 
       const spHua = huaOf("夫妻宫");
       let subLove;
@@ -1284,9 +1470,8 @@ document.addEventListener("DOMContentLoaded", () => {
         askCardFor("ziwei")
       ];
     } else {
-      if (greetIcon) greetIcon.textContent = "📜";
-      if (greetTitle) greetTitle.textContent = "四柱八字 · 一语点到";
-      if (greetDesc) greetDesc.innerHTML = `<div>🕒 <strong>今日 公历 ${t.solarDateOnly} · ${t.lunarStr} · ${t.yPillar}年 ${t.mPillar}月 ${t.dPillar}日</strong></div><div style="margin-top:4px;">四柱已按你的出生时刻定局。下面两个入口是按你的盘挑的；心里有具体的事，直接在下面问更有用。</div>`;
+      if (greetTitle) greetTitle.textContent = "今天想问点什么？";
+      if (greetDesc) greetDesc.textContent = "四柱八字 · " + todayLine;
 
       const st  = safeCall(window.ChatEngine && window.ChatEngine.baziStrength, chart);
       const pat = safeCall(window.ChatEngine && window.ChatEngine.derivePattern, chart);
@@ -1312,26 +1497,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // 还没填生辰：上面按示例盘写出来的「你的夫妻宫…」全都不是他的，整块换成一个入口
     if (untouched) {
-      if (greetIcon) greetIcon.textContent = "✦";
-      if (greetTitle) greetTitle.textContent = "点到 · 更懂你自己";
-      if (greetDesc) greetDesc.innerHTML = `<div>点到按你的出生时刻排出紫微和八字两张盘，再由 AI 现场推演回答你的问题。</div>` +
-        `<div style="margin-top:4px;">先花半分钟填一下出生信息，之后问什么都按你的盘来答。</div>`;
-      cards = [{ icon: "🗓", title: "填我的出生信息", sub: "出生日期、大概几点、在哪个城市 —— 不知道具体时间也能先排",
+      if (greetTitle) greetTitle.textContent = "今天想问点什么？";
+      if (greetDesc) greetDesc.textContent = "先花半分钟填出生信息，之后问什么都按你的盘来答。";
+      if (starterLabel) starterLabel.textContent = "第一步";
+      cards = [{ title: "填我的出生信息", sub: "出生日期、大概几点、在哪个城市 —— 不知道具体时间也能先排",
                  onboard: true }];
     }
 
+    // 首页改版：问题卡改成轻量胶囊，只显示问题本身；副标题和盘上依据收进悬停提示，懂行的人仍看得到
     const gridEl = document.querySelector(".starter-prompts-grid");
     if (gridEl) {
       gridEl.innerHTML = cards.map(c => {
         const attr = c.onboard ? ' data-onboard="1"'
           : c.fill ? ' data-fill="1"'
           : ` data-prompt="${escapeHtml(c.prompt)}"`;
-        return `
-        <div class="prompt-card${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}"${attr} role="button" tabindex="0">
-          <div class="prompt-card-title">${escapeHtml(c.title)}</div>
-          <div class="prompt-card-sub">${escapeHtml(c.sub)}</div>
-          ${c.basis ? `<div class="prompt-card-basis">依据：${escapeHtml(c.basis)}</div>` : ""}
-        </div>`;
+        const tip = [c.sub, c.basis ? "依据：" + c.basis : ""].filter(Boolean).join("\n");
+        const label = c.fill ? "我想问别的…" : c.onboard ? c.title + " →" : c.title;
+        return `<div class="prompt-card is-chip${c.fill ? " is-ask" : ""}${c.onboard ? " is-onboard" : ""}"${attr} role="button" tabindex="0" title="${escapeHtml(tip)}">${escapeHtml(label)}</div>`;
       }).join("");
     }
   }
@@ -1482,6 +1664,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const list = document.getElementById("messages-list");
     const greet = document.getElementById("greeting-card");
     if (!list) return;
+    document.body.classList.toggle("is-empty-chat", !msgs.length);
     if (!msgs.length) { greet.style.display = "block"; list.innerHTML = ""; }
     else {
       greet.style.display = "none";
@@ -2361,6 +2544,22 @@ document.addEventListener("DOMContentLoaded", () => {
       const b = e.target.closest("button[data-v]");
       if (b) obSetTmode(b.dataset.v);
     });
+    document.getElementById("ob-cal")?.addEventListener("click", e => {
+      const b = e.target.closest("button[data-v]");
+      if (b) obSetCal(b.dataset.v);
+    });
+    document.getElementById("ob-ly")?.addEventListener("change", () => obLunarChanged("y"));
+    document.getElementById("ob-lm")?.addEventListener("change", () => obLunarChanged("m"));
+    document.getElementById("ob-ld")?.addEventListener("change", () => obLunarChanged("d"));
+    document.getElementById("ob-shichen")?.addEventListener("click", onShichenClick);
+    document.getElementById("ob-sc-custom")?.addEventListener("click", () => {
+      OB.customRange = !OB.customRange;
+      const btn = document.getElementById("ob-sc-custom");
+      if (btn) btn.textContent = OB.customRange ? "改用时辰选择" : "自己填时间范围";
+      document.getElementById("ob-sc-grid").hidden = OB.customRange;
+      document.getElementById("ob-sc-zi").hidden = OB.customRange || !OB.ziAsk;
+      obSetTmode("interval");
+    });
     document.getElementById("ob-submit")?.addEventListener("click", submitOnboard);
     document.getElementById("ob-later")?.addEventListener("click", () =>
       document.getElementById("modal-onboard")?.classList.remove("show"));
@@ -2393,6 +2592,14 @@ document.addEventListener("DOMContentLoaded", () => {
       else open();
     };
     document.getElementById("btn-mini-chart-card")?.addEventListener("click", openOrOnboard);
+    document.getElementById("btn-top-avatar")?.addEventListener("click", openOrOnboard);
+    // 首页功能卡：直接复用侧边栏那三个按钮的逻辑，只维护一处
+    document.getElementById("feature-card")?.addEventListener("click", e => {
+      const it = e.target.closest(".feature-item");
+      if (!it) return;
+      const target = { pair: "btn-open-pair", gua: "btn-open-gua", wuxing: "btn-open-wuxing" }[it.dataset.feature];
+      if (target) document.getElementById(target)?.click();
+    });
     document.getElementById("btn-open-pair")?.addEventListener("click", () => openPairModal());
     document.getElementById("btn-open-gua")?.addEventListener("click", () => { toggleMobileSidebar(false); openGuaModal(); });
     document.getElementById("gua-modal-body")?.addEventListener("click", onGuaClick);
@@ -2520,6 +2727,7 @@ document.addEventListener("DOMContentLoaded", () => {
       send("帮我抽一张塔罗牌，看看我当下这段感情的处境和该注意什么。"));
 
     document.getElementById("btn-export-chat")?.addEventListener("click", exportPoster);
+    document.getElementById("btn-drawer-export")?.addEventListener("click", exportPoster);
     document.getElementById("btn-mobile-menu")?.addEventListener("click", () => toggleMobileSidebar());
     document.getElementById("sidebar-backdrop")?.addEventListener("click", () => toggleMobileSidebar(false));
 
@@ -2529,10 +2737,22 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("btn-sound-toggle")?.addEventListener("click", () => {
       state.soundEnabled = !state.soundEnabled;
       try { localStorage.setItem("diandao_sound", state.soundEnabled ? "1" : "0"); } catch (e) {}
-      document.getElementById("sound-icon").textContent = state.soundEnabled ? "🔔" : "🔕";
-      toast(state.soundEnabled ? "🔔 音效已打开" : "🔕 音效已关闭");
+      document.getElementById("sound-icon").textContent = state.soundEnabled ? "音效：开" : "音效：关";
+      toast(state.soundEnabled ? "音效已打开" : "音效已关闭");
       if (state.soundEnabled) sound.chime();
     });
+
+    // 侧栏底部「更多」：音效 / 扫码 / 备份 / 清空 收进这里，底部只留 开通AI · 夜间 · 更多
+    const moreBtn = document.getElementById("btn-footer-more");
+    const moreMenu = document.getElementById("footer-more-menu");
+    const setMore = open => {
+      moreMenu?.classList.toggle("open", open);
+      moreBtn?.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    moreBtn?.addEventListener("click", e => { e.stopPropagation(); setMore(!moreMenu.classList.contains("open")); });
+    moreMenu?.addEventListener("click", e => { if (e.target.closest(".more-item")) setMore(false); });
+    document.addEventListener("click", e => { if (!e.target.closest(".footer-more")) setMore(false); });
+    document.addEventListener("keydown", e => { if (e.key === "Escape") setMore(false); });
 
     document.getElementById("btn-open-settings")?.addEventListener("click", () => openModal("modal-settings"));
     document.getElementById("btn-mobile-access")?.addEventListener("click", () => openMobileAccessModal());
@@ -3049,7 +3269,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   initStarCanvas();
   sound = initSound();
-  { const si = document.getElementById("sound-icon"); if (si) si.textContent = state.soundEnabled ? "🔔" : "🔕"; }
+  { const si = document.getElementById("sound-icon"); if (si) si.textContent = state.soundEnabled ? "音效：开" : "音效：关"; }
   loadPersisted();
   initSessions();
   bindEvents();

@@ -848,6 +848,7 @@
     // 采样区间内每 15 分钟对应的时辰地支，找出所有候选时辰及覆盖时长占比
     const shichenCounts = {};
     const shichenSampleTime = {};
+    const shichenOrder = [];        // 按时间先后出现的时辰（跨子夜时 0…11 的地支序不是时间顺序）
     let totalSamples = 0;
     for (let m = startTotalMin; m <= endTotalMin; m += 10) {
       const normMin = ((m % 1440) + 1440) % 1440;
@@ -858,12 +859,14 @@
       shichenCounts[zhiIdx] = (shichenCounts[zhiIdx] || 0) + 1;
       if (!shichenSampleTime[zhiIdx]) {
         shichenSampleTime[zhiIdx] = { hour: h, minute: min };
+        shichenOrder.push(zhiIdx);
       }
       totalSamples++;
     }
 
-    const candidates = Object.keys(shichenCounts).map(idxStr => {
-      const zhiIdx = parseInt(idxStr, 10);
+    // 按覆盖占比从高到低排（同占比保持时间先后）：candidates[0] 会拿去排盘、并被称作「最可能」。
+    // 以前按地支序号排，10:50–12:50 这种区间会把只占一小段的巳时当成最可能。
+    const candidates = shichenOrder.map(zhiIdx => {
       const sample = shichenSampleTime[zhiIdx];
       // 反推对应的钟表时间用于保存
       const clockTot = (((sample.hour * 60 + sample.minute - tstStart.totalDeltaMin + dstMin) % 1440) + 1440) % 1440;
@@ -898,7 +901,7 @@
         traitText,
         chart
       };
-    });
+    }).sort((a, b) => b.prob - a.prob);
 
     return {
       tstStart,

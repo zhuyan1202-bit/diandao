@@ -1798,6 +1798,8 @@ html[data-theme="dark"] .drawer-save-bar.is-dirty .save-hint { color: #f0b352; }
   color: var(--text-sub); font-size: 13px; cursor: pointer; font-family: inherit; transition: all .15s;
 }
 .gua-cat.on { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.gua-cat.wide { grid-column: 1 / -1; }
+.gua-label em { font-style: normal; font-weight: 400; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 .gua-err { min-height: 18px; font-size: 12.5px; color: var(--rose, #c0453f); line-height: 1.6; margin: 10px 0 8px; }
 .gua-old {
   margin-left: 4px; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--accent); background: transparent;

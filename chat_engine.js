@@ -726,7 +726,7 @@
     // 都会被按感情盘解读，整个推演台锁在夫妻宫上。
     // 现在默认改成「综合」，走命宫／日元格局；感情必须由关键词明确命中才进。
     let palName = "命宫", domainLabel = "综合运势", baziAspect = "日元格局与当前大运";
-    if (/(感情|恋爱|爱情|对象|男友|女友|老公|老婆|伴侣|配偶|结婚|离婚|分手|复合|暧昧|表白|相亲|正缘|姻缘|桃花|脱单|单身|喜欢我|追我|出轨|第三者|异地恋)/.test(q)) {
+    if (/(感情|恋爱|爱情|对象|男友|女友|老公|老婆|伴侣|配偶|结婚|离婚|分手|复合|暧昧|表白|相亲|正缘|姻缘|桃花|脱单|单身|喜欢我|追我|出轨|第三者|异地恋|另一半|对的人|有缘人|真命天|嫁人|嫁给|娶)/.test(q)) {
       palName = "夫妻宫"; domainLabel = "感情婚恋"; baziAspect = "婚姻宫与配偶星";
     } else if (/(考试|考研|考公|上岸|升学|学业|读书|论文|学历|证书|执照|面试|笔试|留学申请)/.test(q)) {
       palName = "官禄宫"; domainLabel = "学业考试"; baziAspect = "印星文昌与官星";
@@ -1203,6 +1203,58 @@
     return TIANGAN[(base + n) % 10];
   }
 
+  /* 斗君法流月：从本月起 N 个农历月，各月的流月命宫（P 下标：0=子 … 11=亥）与公历起讫。
+   * 紫微流月表用它；合并窗口里八字节气月表也用它，给「流月命宫落本题宫」的月份加分。
+   * 中途任何一步出错就整张不给（和原来一样：宁可没有，不给半张）。 */
+  function ziweiMonthsAhead(chart, t, N) {
+    const CC = global.CalendarCore;
+    const hourZhi = String((chart.bazi || {}).hourPillar || "").charAt(1);
+    const birthLM = chart.lunar ? chart.lunar.lMonth : 0;
+    if (!CC || !hourZhi || !birthLM) return [];
+    const hIdx = DIZHI.indexOf(hourZhi);
+    function douJun(lyear) {                       // 该流年的「斗君」＝正月命宫所在
+      const st = DIZHI.indexOf(yearZhi(lyear));
+      return ((st - (birthLM - 1) + hIdx) % 12 + 12) % 12;
+    }
+    try {
+      const cur = CC.newMoonOnOrBefore(CC.dayNumber(t.Y, t.M, t.D));
+      // 先把 N+1 个月的起日全算出来 —— 要给区间就得知道下一个月从哪天开始。
+      // 只给起日的话，模型写「9月11日起」还是得自己编结束日。
+      const ms = [];
+      for (let sft = 0; sft <= N; sft++) {
+        const dn = CC.newMoonDayNum(cur.k + sft);
+        const g = CC.jdToGregorian(dn - 0.5);
+        const gd = Math.floor(g.d);
+        const lu = CC.solarToLunar(g.y, g.m, gd);
+        ms.push({ jd: dn, y: g.y, m: g.m, d: gd, lu: lu });
+      }
+      const out = [];
+      for (let sft = 0; sft < N; sft++) {
+        const a = ms[sft], b2 = ms[sft + 1];
+        if (!a.lu || !b2) continue;
+        const endG = CC.jdToGregorian(b2.jd - 1.5);         // 下个月起日的前一天
+        out.push({
+          sft: sft, lu: a.lu,
+          palIdx: (douJun(a.lu.lYear) + (a.lu.lMonth - 1)) % 12,
+          from: { y: a.y, m: a.m, d: a.d },
+          to: { y: endG.y, m: endG.m, d: Math.floor(endG.d) },
+          dn0: a.jd, dn1: b2.jd - 1                          // 起止日序，两头都含
+        });
+      }
+      return out;
+    } catch (e) { return []; }
+  }
+
+  // 合并窗口用：流月命宫正落本题宫的那一两个农历月
+  function ziweiTargetMonths(chart, dom, t) {
+    const P = chart.ziwei && chart.ziwei.raw && chart.ziwei.raw.palaces;
+    if (!P || P.length !== 12 || !dom) return [];
+    let tIdx = -1;
+    for (let i = 0; i < 12; i++) if (P[i].name === dom.palName) { tIdx = i; break; }
+    if (tIdx < 0) return [];
+    return ziweiMonthsAhead(chart, t, 13).filter(function (x) { return x.palIdx === tIdx; });
+  }
+
   /* ---------- 紫微：本题宫位 / 大限 / 流年 / 流月 ---------- */
   function ziweiForecast(chart, dom, t) {
     const ZWE = global.ZiweiEngine;
@@ -1389,50 +1441,24 @@
     }
     L.push("");
 
-    // 流月（斗君法，未来 13 个农历月，公历起讫精确到日）
-    const CC = global.CalendarCore;
-    const hourZhi = String((chart.bazi || {}).hourPillar || "").charAt(1);
-    const birthLM = chart.lunar ? chart.lunar.lMonth : 0;
-    if (CC && hourZhi && birthLM) {
-      const hIdx = DIZHI.indexOf(hourZhi);
-      function douJun(lyear) {                       // 该流年的「斗君」＝正月命宫所在
-        const st = DIZHI.indexOf(yearZhi(lyear));
-        return ((st - (birthLM - 1) + hIdx) % 12 + 12) % 12;
+    // 流月（斗君法，未来 13 个农历月，公历起讫精确到日）—— 计算在 ziweiMonthsAhead，合并窗口也用它
+    try {
+      const zm = ziweiMonthsAhead(chart, t, 13);   // 13：覆盖整整一年，「明年这个时候」也能落到区间
+      const rows = zm.map(function (x) {
+        const i = x.palIdx;
+        const flag = (tIdx >= 0 && i === tIdx) ? "　⚑【流月命宫正落本题宫，本月是关键引动点】" : "";
+        const far = x.sft >= 6;
+        return "  · " + (x.lu.isLeap ? "闰" : "") + x.lu.lMonthLabel +
+               "（公历" + x.from.m + "月" + x.from.d + "日–" + x.to.m + "月" + x.to.d + "日）：流月命宫＝本命【" +
+               P[i].name + "】" + P[i].branch +
+               (far ? "" : ("：" + starsOf(i))) + flag;
+      });
+      if (rows.length) {
+        L.push("【未来 " + rows.length + " 个月 · 流月命宫（斗君法已精确排定，" +
+               "公历起讫也算好了；回答里的时间区间只能从这里抄）】");
+        L.push(rows.join("\n"));
       }
-      try {
-        const cur = CC.newMoonOnOrBefore(CC.dayNumber(t.Y, t.M, t.D));
-        const N = 13;                      // 覆盖整整一年，「明年这个时候」也能落到区间
-        // 先把 N+1 个月的起日全算出来 —— 要给区间就得知道下一个月从哪天开始。
-        // 只给起日的话，模型写「9月11日起」还是得自己编结束日。
-        const ms = [];
-        for (let sft = 0; sft <= N; sft++) {
-          const dn = CC.newMoonDayNum(cur.k + sft);
-          const g = CC.jdToGregorian(dn - 0.5);
-          const gd = Math.floor(g.d);
-          const lu = CC.solarToLunar(g.y, g.m, gd);
-          ms.push({ jd: dn, y: g.y, m: g.m, d: gd, lu: lu });
-        }
-        const rows = [];
-        for (let sft = 0; sft < N; sft++) {
-          const a = ms[sft], b2 = ms[sft + 1];
-          if (!a.lu || !b2) continue;
-          const endG = CC.jdToGregorian(b2.jd - 1.5);         // 下个月起日的前一天
-          const ed = Math.floor(endG.d);
-          const i = (douJun(a.lu.lYear) + (a.lu.lMonth - 1)) % 12;
-          const flag = (tIdx >= 0 && i === tIdx) ? "　⚑【流月命宫正落本题宫，本月是关键引动点】" : "";
-          const far = sft >= 6;
-          rows.push("  · " + (a.lu.isLeap ? "闰" : "") + a.lu.lMonthLabel +
-                    "（公历" + a.m + "月" + a.d + "日–" + endG.m + "月" + ed + "日）：流月命宫＝本命【" +
-                    P[i].name + "】" + P[i].branch +
-                    (far ? "" : ("：" + starsOf(i))) + flag);
-        }
-        if (rows.length) {
-          L.push("【未来 " + rows.length + " 个月 · 流月命宫（斗君法已精确排定，" +
-                 "公历起讫也算好了；回答里的时间区间只能从这里抄）】");
-          L.push(rows.join("\n"));
-        }
-      } catch (e) {}
-    }
+    } catch (e) {}
     return L.join("\n");
   }
 
@@ -1873,9 +1899,11 @@
     "将星": { "水":"子", "火":"午", "金":"酉", "木":"卯" },
     "华盖": { "水":"辰", "火":"戌", "金":"丑", "木":"未" }
   };
-  const TIANYI = { "甲":["丑","未"], "戊":["丑","未"], "乙":["子","申"], "己":["子","申"],
+  // 天乙贵人按「甲戊庚牛羊，乙己鼠猴乡，丙丁猪鸡位，壬癸兔蛇藏，六辛逢马虎」，
+  // 和排盘（ziwei_bazi_core.js）那张表保持一致 —— 以前这里是「庚辛逢马虎」，庚日的人两边会打架。
+  const TIANYI = { "甲":["丑","未"], "戊":["丑","未"], "庚":["丑","未"], "乙":["子","申"], "己":["子","申"],
                    "丙":["亥","酉"], "丁":["亥","酉"], "壬":["卯","巳"], "癸":["卯","巳"],
-                   "庚":["寅","午"], "辛":["寅","午"] };
+                   "辛":["寅","午"] };
   const WENCHANG = { "甲":"巳","乙":"午","丙":"申","戊":"申","丁":"酉","己":"酉",
                      "庚":"亥","辛":"子","壬":"寅","癸":"卯" };
   const JINYU    = { "甲":"辰","乙":"巳","丙":"未","丁":"申","戊":"未",
@@ -1968,6 +1996,110 @@
     });
     shown.sort(function (a, c) { return want.indexOf(a) - want.indexOf(c); });
     return { hits: hits, shown: shown, others: others, dm: dm, kong: kong, xun: xunHead };
+  }
+
+  /* ============================================================
+   * 7.1.4d 节气月「本题引动」
+   * 节气月表只看命盘：〔喜〕〔忌〕每轮不变，这是对的（同一个月不能这轮说好、下轮说坏）。
+   * 但「这件事在哪个月动」必须跟着问题走 —— 以前问事业、问感情、问钱，
+   * 模型拿到的是同一张表、同一组〔喜〕月，于是回回挑出同样的一两个月。
+   * ⚑ 管「这件事在哪个月动」，〔喜〕〔忌〕管「动起来顺不顺」，两件事分开。
+   * 打分：月干＝主十神 +2、次十神 +1；月支本气＝主/次十神 +1；
+   *      月支冲合本题柱位 +1；本题神煞落在月支 +1；紫微流月命宫落本题宫 +2（合并窗口才有）。
+   * ≥2 分打 ⚑（≥4 分 ⚑⚑）；表尾取分最高的两个月写成【本题关键月】，同分取近的。
+   * 十神取法按子平通行说法；有流派差异的（例如男命子女看官杀）都集中在这张表里，要改只改这里。
+   * ============================================================ */
+  const MONTH_HIT_RULES = {
+    "事业发展":       { main: ["正官", "七杀"], sub: ["正印", "偏印"], keys: ["月令"], rel: "冲合", ss: ["将星", "驿马"] },
+    "学业考试":       { main: ["正印", "偏印"], sub: ["正官"], keys: ["月令"], rel: "冲合", ss: ["文昌贵人"] },
+    "财运置业":       { main: ["正财", "偏财"], sub: ["食神", "伤官"], keys: [], rel: "", ss: [], warn: ["比肩", "劫财"] },
+    "感情婚恋":       { main: { male: ["正财"], female: ["正官"] }, sub: { male: ["偏财"], female: ["七杀"] },
+                        keys: ["日支"], rel: "冲合", ss: ["桃花"] },
+    "子女与创造":     { main: { male: ["七杀", "正官"], female: ["食神", "伤官"] }, sub: [], keys: ["时支"], rel: "冲合", ss: [] },
+    "家庭与长辈":     { main: ["正印", "偏印"], sub: ["偏财"], keys: ["年支", "月令"], rel: "冲合", ss: [] },
+    "人际与合作":     { main: ["比肩", "劫财"], sub: [], keys: ["月令"], rel: "冲合", ss: ["将星", "桃花"] },
+    "变动与远行":     { main: [], sub: [], keys: ["日支", "年支"], rel: "冲", ss: ["驿马"] },
+    "身心健康":       { main: [], sub: [], keys: ["日支"], rel: "冲刑", ss: ["羊刃"], bothJi: true },
+    "内在状态与心性": { main: ["偏印", "伤官"], sub: [], keys: ["日支"], rel: "冲刑", ss: ["华盖"] },
+    "综合运势":       { main: [], sub: [], keys: ["日支", "月令"], rel: "冲合", ss: ["天乙贵人"] }
+  };
+  // 月支和本题柱位的哪些关系算「引动」（拱不算：缺旺神，力弱）
+  const MH_REL = { "冲合": /相冲|六合|半合|伏吟/, "冲": /相冲/, "冲刑": /相冲|相刑|自刑/ };
+
+  function monthHitCtx(chart, dom, god, xjOf) {
+    const b = chart.bazi || {};
+    const zhi = function (x) { return String(x || "").charAt(1); };
+    const yrZhi = zhi(b.yearPillar), dayZhi = zhi(b.dayPillar);
+    const jus = [];                       // 驿马／桃花／将星／华盖：年支、日支两套三合都查（同 shenshaOf）
+    [yrZhi, dayZhi].forEach(function (z) {
+      const j = SANHE_KEY[z];
+      if (j && jus.indexOf(j) < 0) jus.push(j);
+    });
+    return {
+      dg: b.dayMaster, god: god, xjOf: xjOf, jus: jus,
+      gender: (chart.profile && chart.profile.gender === "male") ? "male" : "female",
+      keys: { "年支": yrZhi, "月令": zhi(b.monthPillar), "日支": dayZhi, "时支": zhi(b.hourPillar) },
+      // 问房子（田宅宫）：印星＝房产、契书，也算次要引动
+      extraSub: (dom && dom.palName === "田宅宫") ? ["正印", "偏印"] : []
+    };
+  }
+
+  function ssOnBranch(nm, z, c) {
+    if (nm === "天乙贵人") return (TIANYI[c.dg] || []).indexOf(z) >= 0;
+    if (nm === "文昌贵人") return WENCHANG[c.dg] === z;
+    if (nm === "羊刃")     return YANGREN[c.dg] === z;
+    if (BY_JU[nm]) return c.jus.some(function (j) { return BY_JU[nm][j] === z; });
+    return false;
+  }
+
+  // 某个节气月（月干 g2、月支 z2）对本题的引动：{ score, notes, warn }
+  function monthHitFor(rule, g2, z2, c) {
+    const out = { score: 0, notes: [], warn: "" };
+    if (!rule) return out;
+    const pick = function (v) { return Array.isArray(v) ? v : ((v && v[c.gender]) || []); };
+    const main = pick(rule.main), sub = pick(rule.sub).concat(c.extraSub || []);
+    const zMain = (HIDDEN_GAN[z2] || [])[0];
+    const gg = c.god(g2), zg = zMain ? c.god(zMain) : "";
+    if (main.indexOf(gg) >= 0)     { out.score += 2; out.notes.push("月干" + gg); }
+    else if (sub.indexOf(gg) >= 0) { out.score += 1; out.notes.push("月干" + gg); }
+    if (zg && (main.indexOf(zg) >= 0 || sub.indexOf(zg) >= 0)) { out.score += 1; out.notes.push("月支本气" + zg); }
+    if (rule.bothJi && c.xjOf(GANWX[g2]) === "忌" && c.xjOf(GANWX[zMain]) === "忌") {
+      out.score += 2; out.notes.push("干支皆忌");
+    }
+    const re = MH_REL[rule.rel];
+    if (re) {
+      for (let i = 0; i < rule.keys.length; i++) {
+        const kz = c.keys[rule.keys[i]];
+        const m = kz ? branchRel(z2, kz).match(re) : null;
+        if (m) { out.score += 1; out.notes.push(rule.keys[i] + m[0]); break; }
+      }
+    }
+    for (let i = 0; i < (rule.ss || []).length; i++) {
+      if (ssOnBranch(rule.ss[i], z2, c)) { out.score += 1; out.notes.push(rule.ss[i] + "临月支"); break; }
+    }
+    if ((rule.warn || []).indexOf(gg) >= 0) out.warn = "月干" + gg + "，防破财、钱被分走";
+    return out;
+  }
+
+  // 表尾结论行。以【开头：追问轮撤掉月份表时（trimDeskForFollowup 遇到【就停），这一行会留下来
+  function keyMonthLine(metas, dom) {
+    const label = (dom && dom.domainLabel) || "本题";
+    const top = metas
+      .map(function (mt, j) { return { mt: mt, j: j }; })
+      .filter(function (x) { return x.mt.hit && x.mt.hit.score >= 2; })
+      .sort(function (a, c) { return (c.mt.hit.score - a.mt.hit.score) || (a.j - c.j); })
+      .slice(0, 2)
+      .sort(function (a, c) { return a.j - c.j; });
+    if (!top.length) {
+      return "【本题关键月 · " + label + "】未来 " + metas.length + " 个节气月里，没有哪个月明显引动这件事。\n" +
+             "  ▸ 如实说近一年这件事没有特别的引动月，时间只讲到流年／大运层面，不要硬挑月份。";
+    }
+    return "【本题关键月 · " + label + "】" + top.map(function (x) {
+        const mt = x.mt;
+        return mt.g2 + mt.z2 + "月（" + mt.span + "）" + (mt.hit.score >= 4 ? "⚑⚑" : "⚑") + "：" + mt.hit.notes.join("、");
+      }).join("；") + "\n" +
+      "  ▸ 这件事的时间窗口只从这里挑，起讫照抄这里写的日期。关键月标〔忌〕的，照实说是压力或难关月、给避险动作，" +
+      "不许因为它是关键月就说成好月。";
   }
 
   function derivePattern(chart) {
@@ -2122,7 +2254,8 @@
              broken: broken, saved: saved, notes: notes, tier: tier };
   }
 
-  function baziForecast(chart, dom, t) {
+  // opt.zwMonths：合并窗口传进来的「紫微流月命宫落本题宫」的农历月（见 ziweiTargetMonths），给节气月加分用
+  function baziForecast(chart, dom, t, opt) {
     const b = chart.bazi || {};
     const p = chart.profile;
     const dg = b.dayMaster;
@@ -2345,6 +2478,7 @@
         let st = 0;
         for (let i = 0; i < terms.length; i++) if (terms[i].jd <= nowJD) st = i;
         const rows = [];
+        const metas = [];          // 每行的干支与起讫日序：打 ⚑、挑【本题关键月】用
         for (let i = st; i < st + 13 && i + 1 < terms.length; i++) {
           const cu = terms[i], nx = terms[i + 1];
           const zi = ((cu.k / 2) + 1) % 12;
@@ -2369,11 +2503,44 @@
                     (far ? "" : ((mq ? "（与日元" + dg + mq + "）" : "") +
                                  (rels.length ? "｜" + rels.join("，") : ""))) +
                     xjTag(g2, z2, far ? [] : XJ_NATAL));
+          metas.push({ g2: g2, z2: z2, d0: Math.floor(cu.jd + 0.5), d1: Math.floor(nx.jd + 0.5) - 1,
+                       span: cu.name + " " + cu.m + "/" + cu.d + " – " + nx.name + " " + nx.m + "/" + nx.d });
         }
+        // 本题引动（规则见 MONTH_HIT_RULES）：⚑ 管「这件事在哪个月动」，跟着问题走；
+        // 〔喜〕〔忌〕管「动起来顺不顺」，跟着命盘走、每轮不变。这一段出任何错只丢标记，表照常给。
+        let keyLine = "", suffix = null;
+        try {
+          const mhRule = MONTH_HIT_RULES[dom.domainLabel] || null;
+          const mhCtx = monthHitCtx(chart, dom, god, xjOf);
+          metas.forEach(function (mt) { mt.hit = monthHitFor(mhRule, mt.g2, mt.z2, mhCtx); });
+          // 紫微：流月命宫落本题宫的那一两个农历月，归到公历重叠最多的那一行（只加分，不另列日期）
+          ((opt && opt.zwMonths) || []).forEach(function (zm) {
+            let best = null, bo = 0;
+            metas.forEach(function (mt) {
+              const ov = Math.min(mt.d1, zm.dn1) - Math.max(mt.d0, zm.dn0) + 1;
+              if (ov > bo) { bo = ov; best = mt; }
+            });
+            if (best && bo >= 10 && !best.zw) {
+              best.zw = true;
+              best.hit.score += 2;
+              best.hit.notes.push("紫微流月命宫入" + dom.palName);
+            }
+          });
+          suffix = metas.map(function (mt) {
+            let s = "";
+            if (mt.hit.score >= 2) s += "｜" + (mt.hit.score >= 4 ? "⚑⚑" : "⚑") + "本题：" + mt.hit.notes.join("、");
+            if (mt.hit.warn) s += "｜⚠本题：" + mt.hit.warn;
+            return s;
+          });
+          keyLine = keyMonthLine(metas, dom);
+        } catch (e) { suffix = null; keyLine = ""; }
+        if (suffix) for (let j = 0; j < rows.length; j++) rows[j] += suffix[j] || "";
         if (rows.length) {
           L.push("【未来 " + rows.length + " 个节气月（公历起讫已由天文算法算出，" +
                  "回答里的任何时间区间只能从这里抄，不许自己算）】");
+          if (keyLine) L.push("  （行末 ⚑＝这件事在这个月被引动，跟着问题变；〔喜〕〔忌〕＝这个月本身顺不顺，跟着命盘走、每轮不变。两件事分开说）");
           L.push(rows.join("\n"));
+          if (keyLine) L.push(keyLine);
         }
       } catch (e) {}
     }
@@ -2420,7 +2587,11 @@
         let zb = ziweiForecast(chart, dom, t) || "";
         const cut = zb.search(/\n\u3010\u672a\u6765\s*\d+\s*\u4e2a\u6708 \u00b7 \u6d41\u6708\u547d\u5bab/);
         if (cut >= 0) zb = zb.slice(0, cut);
-        body = (baziForecast(chart, dom, t) || "") +
+        // 紫微流月表不单列了，但它是唯一「跟着问题变」的月份信号（流月命宫落到本题宫的那个月），
+        // 不能跟着表一起丢：按公历重叠天数折算到节气月上加分，日期仍然只有节气月一套。
+        let zwMonths = [];
+        try { zwMonths = ziweiTargetMonths(chart, dom, t); } catch (e) { zwMonths = []; }
+        body = (baziForecast(chart, dom, t, { zwMonths: zwMonths }) || "") +
                (zb ? "\n\u3010\u7d2b\u5fae \u00b7 \u6d41\u5e74\u4e0e\u5927\u9650\uff08\u65f6\u95f4\u533a\u95f4\u4e00\u5f8b\u7528\u4e0a\u9762\u7684\u8282\u6c14\u6708\u8868\uff0c\u4e0d\u53e6\u6392\uff09\u3011\n" + zb : "");
       } else {
         body = (mode === "bazi") ? baziForecast(chart, dom, t) : ziweiForecast(chart, dom, t);
@@ -3309,7 +3480,7 @@ ${blk}
 - 然后**只围绕他问的这件事**展开。他问「这份工作要不要辞」，你就回答辞不辞；
   ${noMenu} ——
   那是报菜名，不是回答。盘上哪一条最能定这件事就讲哪一条，其余的一个字都不要提。
-- 时间窗口最多 2 个，每个写成「几月到几月（带公历起讫）＋ 会遇到什么 ＋ 该做什么」。
+- 时间窗口最多 2 个，优先取推演台的【本题关键月】（或带 ⚑ 的月份）；每个写成「几月到几月（带公历起讫）＋ 会遇到什么 ＋ 该做什么」。
 - 收尾给 1–2 条能照做的动作（什么时间、对谁、做什么）。禁止「多沟通」「提升自我」这类空话。
 
 ${modeStrength}`;
@@ -3323,7 +3494,8 @@ ${modeStrength}`;
 - ❌ **不要**写任何章节标题，直接说人话。
 - ❌ **不要**重新介绍这张盘的总体格局${mode === "ziwei" ? "（命宫、主星、整体性格）" : "（日元旺衰、喜用忌神、格局层次）"} ——
      除非用户这次问的正好就是这个。
-- ❌ **不要**把上几轮点过的时间窗口再抄一遍。
+- ❌ **不要**把上几轮点过的时间窗口再抄一遍。例外：这次推演台给的【本题关键月】恰好就是那个月 ——
+     那就一句话点明「还是那个月」，只讲这件事在那个月怎么表现，不许为了不重复另编月份。
 - ✅ 只回答**这个新问题**，只讲它带来的**新东西**：新的${mode === "ziwei" ? "宫位、星曜、四化" : "干支、十神、冲合"}、新的角度、新的结论。
 - ✅ 开门见山第一句就给答案，然后讲依据，最后给 1 条能照做的动作。
 - ✅ 如果这个问题的答案和上一轮其实是同一件事，就**直接说「这个和刚才那个是同一回事」并只补充增量**，不要硬凑篇幅。

@@ -2039,7 +2039,9 @@ document.addEventListener("DOMContentLoaded", () => {
     ["marry", "这个人能不能成 / 结婚", "比如：我和现在这个人能走到结婚吗？"],
     ["reconcile", "复合", "比如：我和他还有没有复合的可能？"],
     ["money", "钱 / 投资 / 回款", "比如：借出去的那笔钱，年底前能要回来吗？"],
-    ["exam", "考试 / 升学", "比如：这次考研能不能上岸？"]
+    ["exam", "考试 / 升学", "比如：这次考研能不能上岸？"],
+    // 不属于上面任何一类的事（健康、搬家、找东西、官司……）：liuyao.js 不给建议用神，由 AI 按问题内容取并说明理由
+    ["other", "其他 / 说不清", "比如：下个月搬家顺不顺？丢的东西还能找回来吗？"]
   ];
   const GUA_LOG_KEY = "diandao_gua_log";
   const GUA = { q: "", cat: "", sums: [], last: null, chart: null, busy: false };
@@ -2091,9 +2093,9 @@ document.addEventListener("DOMContentLoaded", () => {
       '想清楚再摇，<b>一件事只摇一次</b>。</p>' +
       '<label class="gua-label" for="gua-q">你想问什么</label>' +
       '<textarea id="gua-q" class="form-input-xs gua-q" rows="2" maxlength="80" placeholder="' + escapeHtml(ph) + '">' + escapeHtml(GUA.q) + '</textarea>' +
-      '<div class="gua-label">这件事属于</div>' +
+      '<div class="gua-label">这件事属于<em>拿不准就选「其他」，不选也能摇</em></div>' +
       '<div class="gua-cats">' + GUA_CATS.map(c =>
-        '<button type="button" class="gua-cat' + (GUA.cat === c[0] ? " on" : "") + '" data-cat="' + c[0] + '">' + escapeHtml(c[1]) + '</button>').join("") +
+        '<button type="button" class="gua-cat' + (c[0] === "other" ? " wide" : "") + (GUA.cat === c[0] ? " on" : "") + '" data-cat="' + c[0] + '">' + escapeHtml(c[1]) + '</button>').join("") +
       '</div>' +
       '<div class="gua-err" id="gua-err">' + (errHtml || "") + '</div>' +
       '<button type="button" class="save-chart-btn gua-go" data-act="start">想好了，开始摇卦</button>';
@@ -2179,7 +2181,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (act === "start") {
       GUA.q = String((document.getElementById("gua-q") || {}).value || "").trim();
       if (GUA.q.length < 4) return renderGuaAsk("先把问题写具体一点，比如「这周面的那家公司，offer 能不能拿到？」");
-      if (!GUA.cat) return renderGuaAsk("选一下这件事属于哪一类 —— 类别决定看卦里的哪一爻。");
       const old = guaRecent(GUA.q);
       if (old) {
         const when = new Date(old.at);
@@ -2189,6 +2190,8 @@ document.addEventListener("DOMContentLoaded", () => {
           "一事不二占，24 小时内再摇的结果不作数。" +
           (has ? ' <button type="button" class="gua-old" data-act="old" data-sid="' + escapeHtml(old.sid) + '">看上次那一卦</button>' : "（那段对话已经删了）"));
       }
+      // 类别不再必选：没选就按「其他」—— 不给建议用神，由 AI 按问题内容取用神并说明理由
+      if (!GUA.cat) GUA.cat = "other";
       GUA.sums = []; GUA.last = null;
       renderGuaToss();
       return;

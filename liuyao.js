@@ -5,6 +5,7 @@
  *    摇钱 → 本卦/变卦 → 纳甲 → 八宫与世应 → 六亲 → 六神 → 旬空
  *    → 月建、日辰对每一爻的作用 → 伏神 → 动爻回头生克
  *  判断吉凶、定应期交给 AI —— 但 AI 只准引用这里排好的数据，不准自己重装卦。
+ *  另外把用神的有利／不利／悬着的信号按规则数一遍（assess），给 AI 定「把握度」用 —— 只数信号，不断吉凶。
  *
  *  约定：lines[0] 是初爻（最下面），lines[5] 是上爻。1 = 阳，0 = 阴。
  *  钱法：三枚铜钱，「背」记 3、「字」记 2：
@@ -72,6 +73,11 @@
   }
   function isChong(a, b) { return Math.abs(ZHI.indexOf(a) - ZHI.indexOf(b)) === 6; }
   function isHe(a, b) { return (ZHI.indexOf(a) + ZHI.indexOf(b)) % 12 === 1; }
+  // 六冲卦 / 六合卦：内外卦对应爻两两相冲或相合
+  function patternOf(najia) {
+    const all = function (fn) { return [0, 1, 2].every(function (i) { return fn(najia[i].zhi, najia[i + 3].zhi); }); };
+    return all(isChong) ? "六冲卦" : all(isHe) ? "六合卦" : "";
+  }
   // 月建对这一爻：旺相休囚死
   function seasonState(monthZhi, wx) {
     const m = ZHI_WX[ZHI.indexOf(monthZhi)];
@@ -195,6 +201,7 @@
           const a = o.indexOf(nj.zhi), b = o.indexOf(bj.zhi);
           if (a >= 0 && b >= 0 && a !== b) hua.push(b > a ? "化进神" : "化退神");
         }
+        if (bj.zhi === nj.zhi) hua.push("伏吟");     // 乾震互变时同位纳甲不变：原地打转
         if (kong.indexOf(bj.zhi) >= 0) hua.push("化空");
         if (monthZhi && isChong(monthZhi, bj.zhi)) hua.push("化月破");
         if (isChong(nj.zhi, bj.zhi)) hua.push("反吟（冲）");
@@ -220,17 +227,15 @@
       });
     }
 
-    // 六冲卦 / 六合卦（内外卦对应爻两两相冲或相合）
-    let pattern = "";
-    const allPair = function (fn) { return [0, 1, 2].every(function (i) { return fn(ben.najia[i].zhi, ben.najia[i + 3].zhi); }); };
-    if (allPair(isChong)) pattern = "六冲卦";
-    else if (allPair(isHe)) pattern = "六合卦";
+    // 六冲卦 / 六合卦（内外卦对应爻两两相冲或相合）；变卦也记 —— 六冲变六合先散后聚，六合变六冲先聚后散
+    const pattern = patternOf(ben.najia);
 
     return {
       sums: sums.slice(),
       ben: { name: ben.name, upper: ben.upper, lower: ben.lower, palace: ben.palace, palaceWx: ben.palaceWx,
              gen: ben.gen, shi: ben.shi, ying: ben.ying, pattern: pattern },
-      bian: bian ? { name: bian.name, upper: bian.upper, lower: bian.lower, palace: bian.palace, gen: bian.gen } : null,
+      bian: bian ? { name: bian.name, upper: bian.upper, lower: bian.lower, palace: bian.palace, gen: bian.gen,
+                     pattern: patternOf(bian.najia) } : null,
       lines: lines, fushen: fushen,
       monthZhi: monthZhi, dayPillar: anchor.dPillar || "", mPillar: anchor.mPillar || "", kong: kong,
       movingCount: moving.filter(Boolean).length,
@@ -285,7 +290,7 @@
       : "  无（五亲俱全）";
     return [
       "本卦：" + g.ben.name + "（" + g.ben.palace + "宫·" + g.ben.palaceWx + "，" + g.ben.gen + (g.ben.pattern ? "，" + g.ben.pattern : "") + "）" +
-        (g.bian ? "　→　变卦：" + g.bian.name + "（" + g.bian.palace + "宫，" + g.bian.gen + "）" : "　（六爻安静，无动爻）"),
+        (g.bian ? "　→　变卦：" + g.bian.name + "（" + g.bian.palace + "宫，" + g.bian.gen + (g.bian.pattern ? "，" + g.bian.pattern : "") + "）" : "　（六爻安静，无动爻）"),
       "月建：" + g.mPillar + "月（" + g.monthZhi + "）　日辰：" + g.dayPillar + "日　旬空：" + g.kong.join(""),
       "动爻：" + (g.movingCount ? g.movingCount + " 个" : "无"),
       "",
@@ -297,6 +302,222 @@
     ].join("\n");
   }
 
+  /* =============================================================
+   *  用神盘点：给 AI 定「把握度」用
+   *  以前 prompt 只写「再加一句把握度（高 / 中 / 低）」、不给标准 —— 模型求稳，回回都写「中」。
+   *  这里只数规则上确定的信号：用神在月建日辰下有没有气、动了往哪变、原神忌神动没动、
+   *  跟世爻合还是冲、卦是聚是散，以及哪些因素还悬着。吉凶仍由 AI 断，但它得对着这张清单说话。
+   *  把握度说的是「这一卦说得清不清楚」，不是结果好不好：难成也可以是高把握。
+   * ============================================================= */
+  const YUAN_OF = { 父母: "官鬼", 兄弟: "父母", 子孙: "兄弟", 妻财: "子孙", 官鬼: "妻财" };   // 生用神的：原神
+  const JI_OF   = { 父母: "妻财", 兄弟: "官鬼", 子孙: "父母", 妻财: "兄弟", 官鬼: "子孙" };   // 克用神的：忌神
+  const MU_OF   = { 木: "未", 火: "戌", 金: "丑", 水: "辰", 土: "辰" };                        // 墓库（水土同墓）
+
+  // 一个地支在这一卦的月建、日辰下有没有气。m、d 为正 = 帮它，为负 = 伤它
+  function qiOf(zhi, wx, g) {
+    const mz = g.monthZhi || "", dz = String(g.dayPillar || "").charAt(1);
+    const q = { m: 0, d: 0, mTxt: "", dTxt: "", anDong: false, riPo: false, he: false, mu: false,
+                kong: (g.kong || []).indexOf(zhi) >= 0 };
+    if (mz) {
+      if (isChong(mz, zhi)) { q.m = -2; q.mTxt = "月破"; }
+      else if (mz === zhi) { q.m = 2; q.mTxt = "临月建"; }
+      else {
+        const s = seasonState(mz, wx);
+        q.m = { 旺: 2, 相: 1, 休: -0.5, 囚: -0.5, 死: -1 }[s];
+        q.mTxt = { 旺: "得月令", 相: "得月建生", 休: "不得月令", 囚: "不得月令", 死: "被月建克" }[s];
+        if (isHe(mz, zhi)) { q.mTxt += (q.m >= 1 ? "，又" : "，但") + "与月建相合"; q.m = Math.min(2, q.m + 1); }
+      }
+    }
+    if (dz) {
+      const rel = dayRelation(dz, zhi);
+      if (rel.indexOf("临日") >= 0) { q.d = 2; q.dTxt = "临日辰"; }
+      else if (rel.indexOf("日冲") >= 0) {
+        // 旺相之爻逢日冲是暗动（被激起来），休囚的才是日破（被冲散）
+        if (q.m >= 1) { q.anDong = true; q.dTxt = "旺而逢日冲（暗动）"; }
+        else { q.d = -2; q.riPo = true; q.dTxt = "休囚又逢日冲（日破）"; }
+      } else {
+        if (rel.indexOf("日生") >= 0) { q.d = 1; q.dTxt = "得日辰生"; }
+        else if (rel.indexOf("日比") >= 0) { q.d = 1; q.dTxt = "得日辰扶"; }
+        else if (rel.indexOf("日克") >= 0) { q.d = -1; q.dTxt = "被日辰克"; }
+        if (rel.indexOf("日合") >= 0) { q.he = true; q.d += 1; q.dTxt += (q.dTxt ? "，又" : "") + "与日辰相合"; }
+        q.mu = MU_OF[wx] === dz;
+      }
+    }
+    q.qi = q.m >= 1 || q.d >= 1;        // 有气：月建、日辰至少一边帮它
+    return q;
+  }
+
+  /**
+   * @param g    build() 的结果
+   * @param kin  用神六亲；不传就用 g.yong.kin（AI 换了用神时可以按新的重数）
+   * @returns { kin, where, pro[], con[], open[], lean: 偏成/偏不成/两可, level: 高/中/低 }
+   *          没有用神（类别未定）时 level 为空
+   */
+  function assess(g, kinOverride) {
+    const kin = kinOverride || (g && g.yong && g.yong.kin) || "";
+    const out = { kin: kin, where: "", pro: [], con: [], open: [], lean: "", level: "", score: null };
+    if (!kin || !g || !g.lines) return out;
+    const P = function (w, t) { if (w > 0) out.pro.push({ w: w, t: t }); };
+    const C = function (w, t) { if (w > 0) out.con.push({ w: w, t: t }); };
+    const O = function (w, t) { out.open.push({ w: w, t: t }); };
+    const nameOf = function (l) { return l.posName + l.kin + l.zhi + l.wx; };
+
+    // 用神落在哪一爻：两现时取动、取持世、取临应、再取有气的；不上卦就找伏神
+    let main = null, fu = null, q = null;
+    const cands = g.lines.filter(function (l) { return l.kin === kin; });
+    if (cands.length) {
+      const rank = function (l) { const x = qiOf(l.zhi, l.wx, g); return (l.moving ? 100 : 0) + (l.shi ? 20 : 0) + (l.ying ? 10 : 0) + x.m + x.d; };
+      main = cands.slice().sort(function (a, b) { return rank(b) - rank(a); })[0];
+      q = qiOf(main.zhi, main.wx, g);
+      out.where = nameOf(main) + (main.moving ? "，动" : "，静") + (main.shi ? "，持世" : main.ying ? "，临应" : "") +
+                  (cands.length > 1 ? "（卦里另有 " + (cands.length - 1) + " 处" + kin + "）" : "");
+    } else {
+      const fs = (g.fushen || []).filter(function (f) { return f.kin === kin; });
+      if (!fs.length) return out;
+      fu = fs.map(function (f) { return { f: f, q: qiOf(f.zhi, f.wx, g) }; })
+             .sort(function (a, b) { return (b.q.m + b.q.d) - (a.q.m + a.q.d); })[0];
+      q = fu.q;
+      out.where = "不上卦，伏在" + fu.f.posName + fu.f.underKin + fu.f.underZhi + "之下（伏神" + kin + fu.f.zhi + fu.f.wx + "）";
+      O(1, "用神不上卦（伏藏）：事情还没摆到台面上");
+    }
+    const who = fu ? "伏神" : "用神";
+    const moving = !!(main && main.moving);
+
+    // ① 用神在月建、日辰下有没有气
+    if (q.m > 0) P(q.m, who + q.mTxt); else C(-q.m, who + q.mTxt);
+    if (q.d > 0) P(q.d, who + q.dTxt); else C(-q.d, who + q.dTxt);
+    if (q.anDong && !moving) P(0.5, who + q.dTxt + "：事情在暗中推进");
+    if (!q.qi && !q.anDong) C(1, who + "无气：月建、日辰都不帮它");
+    if (q.mu) O(1, who + "入日墓：像被关住，要等冲开墓库");
+    if (q.m <= -2 && q.d >= 1) O(0.5, who + "月破但得日辰帮：要等出了这个月或填实才算数");
+    if (q.kong) {
+      if (moving) O(0.5, "用神动而旬空：动不为空，出空那天落地");
+      else if (q.qi || q.anDong || q.riPo) O(0.5, who + "旬空，但有气或逢冲：不算真空，出空才落地");
+      else C(2, who + "旬空又无气：真空，落不了地");
+    }
+
+    // ② 用神动了往哪变（变爻只回头作用于本爻）
+    if (moving && main.bian) {
+      const h = main.bian.hua.join("，");
+      if (/回头生/.test(h)) P(2, "用神动而化回头生");
+      if (/回头克/.test(h)) C(2, "用神动而化回头克");
+      if (/化进神/.test(h)) P(1, "用神化进神：越走越旺");
+      if (/化退神/.test(h)) C(1, "用神化退神：劲头往回收");
+      if (/化空/.test(h)) C(1, "用神化空：有头无尾");
+      if (/化月破/.test(h)) C(1, "用神化月破");
+      if (/反吟/.test(h)) { C(1, "用神反吟"); O(1, "反吟主反复：结果会来回变"); }
+      if (main.bian.zhi === main.zhi) C(1, "用神伏吟：原地打转、推不动");
+      if (MU_OF[main.wx] === main.bian.zhi && main.bian.zhi !== main.zhi) C(1, "用神化墓：动了又被困住");
+      if (q.he) O(1, "用神动而被日辰合住：要等冲开才真动起来");
+    }
+
+    // ③ 原神、忌神：明动算足，暗动或自身无力算一半
+    const actOf = function (l) {
+      if (l === main) return null;
+      const x = qiOf(l.zhi, l.wx, g);
+      if (!l.moving && !x.anDong) return null;
+      const h = l.bian ? l.bian.hua.join("，") : "";
+      return { l: l, an: !l.moving, weak: !x.qi || x.m <= -2 || x.riPo || /回头克|化退神/.test(h) };   // 无气、月破日破、回头克、化退：力弱
+    };
+    const yuans = g.lines.filter(function (l) { return l.kin === YUAN_OF[kin]; }).map(actOf).filter(Boolean);
+    const jis   = g.lines.filter(function (l) { return l.kin === JI_OF[kin]; }).map(actOf).filter(Boolean);
+    const relay = yuans.some(function (a) { return !a.an && !a.weak; });   // 原神明动有力：忌神再动也只是接力生用神
+    let yw = 0, jw = 0;
+    yuans.forEach(function (a) {
+      const w = (a.an || a.weak) ? 0.5 : 1;
+      if (yw + w > 2) return;
+      yw += w;
+      P(w, "原神" + nameOf(a.l) + (a.an ? "暗动" : "发动") + "，生" + who + (a.weak ? "（但它自己无力，帮得有限）" : ""));
+    });
+    jis.forEach(function (a) {
+      if (relay) { P(0.5, "忌神" + nameOf(a.l) + "虽动，原神也在动：忌生原、原生用，反成接力"); return; }
+      const w = (a.an || a.weak) ? 1 : 2;
+      if (jw + w > 3) return;
+      jw += w;
+      C(w, "忌神" + nameOf(a.l) + (a.an ? "暗动" : "发动") + "，克" + who + (a.weak ? "（但它自己无力，克得不重）" : ""));
+    });
+
+    // ④ 伏神出不出得来：看压在上面的飞神
+    if (fu) {
+      const fly = g.lines[fu.f.pos - 1];
+      if (fly) {
+        if (SHENG[fly.wx] === fu.f.wx) P(1, "飞神" + nameOf(fly) + "生伏神：伏神有靠");
+        else if (KE[fly.wx] === fu.f.wx) C(1, "飞神" + nameOf(fly) + "克伏神：伏神被压着出不来");
+        if (fly.moving || fly.yuePo || fly.kong || (fly.day || []).indexOf("日冲") >= 0)
+          P(1, "飞神" + (fly.moving ? "发动" : fly.kong ? "旬空" : "被冲") + "：给伏神让了路，容易出来");
+      }
+    }
+
+    // ⑤ 用神和世爻（自己）的关系
+    const shi = g.lines.filter(function (l) { return l.shi; })[0];
+    if (main && shi) {
+      if (main === shi) P(1, "用神持世：事情落在自己手上");
+      else {
+        if (isHe(main.zhi, shi.zhi)) P(1, "用神与世爻相合");
+        else if (isChong(main.zhi, shi.zhi)) C(1, "用神与世爻相冲");
+        if (SHENG[main.wx] === shi.wx) P(1, "用神生世：往你这边来");
+      }
+    }
+
+    // ⑥ 卦是聚是散：六冲主散，六合主聚，变卦也算（老存档里的变卦没记 pattern，这里现算）
+    const bn = g.ben.pattern || "";
+    const bp = g.movingCount
+      ? patternOf(hexOf(g.lines.map(function (l) { return (l.moving ? !l.yang : l.yang) ? 1 : 0; })).najia)
+      : "";
+    if (bn === "六冲卦" && bp === "六合卦") P(1, "六冲变六合：先散后聚");
+    else if (bn === "六合卦" && bp === "六冲卦") C(1, "六合变六冲：先聚后散");
+    else {
+      if (bn === "六冲卦") C(1, "本卦六冲：主散、难聚");
+      if (bn === "六合卦") P(1, "本卦六合：主成、有牵连");
+      if (bp === "六冲卦") C(1, "变卦六冲：后头容易散");
+      if (bp === "六合卦") P(1, "变卦六合：后头能合上");
+    }
+
+    // ⑦ 动得太乱
+    if (g.movingCount >= 4) O(1, "动爻多达 " + g.movingCount + " 个：头绪乱、变数大");
+
+    // 合计：方向看有利减不利，把握度看差距有多大、反方向有多少、还有多少悬着
+    // 阈值按两万次随机起卦校过（高 22% / 中 44% / 低 34%）：三档都得常见，不能又挤回「中」；
+    // 反方向只要有一条足力的（忌神发动、回头克），就不算「基本指向同一边」，到不了高
+    const sum = function (a) { return a.reduce(function (s, x) { return s + x.w; }, 0); };
+    const F = sum(out.pro), U = sum(out.con), S = sum(out.open), net = F - U;
+    out.lean = net >= 1.5 ? "偏成" : net <= -1.5 ? "偏不成" : "两可";
+    out.level = (Math.abs(net) >= 3 && Math.min(F, U) <= 1.5 && S < 1) ? "高"
+              : (Math.abs(net) < 1.5 || S >= 2) ? "低" : "中";
+    out.score = { pro: F, con: U, open: S };      // 调参用，不进 prompt —— 实测模型会把数字原样抄进回答
+    return out;
+  }
+
+  // 盘点写成给 AI 看的几行字（不带分数）
+  function assessText(a) {
+    if (!a || !a.kin) return "  （没有建议用神：你按问题自己取用神，再按【把握度怎么定】自己数）";
+    if (!a.level) return "  （用神" + a.kin + "在卦里、伏神里都找不到：你按问题自己取用神，再自己数）";
+    const list = function (arr) { return arr.length ? arr.map(function (x) { return x.t; }).join("；") : "—"; };
+    return [
+      "  用神" + a.kin + "：" + a.where,
+      "  · 有利：" + list(a.pro),
+      "  · 不利：" + list(a.con),
+      "  · 悬着：" + list(a.open),
+      "  · 按【把握度怎么定】数下来：" + a.lean + "，把握度「" + a.level + "」"
+    ].join("\n");
+  }
+
+  // 没选类别时按问题里的字眼猜一个。像好几类、或哪类都不像，就不猜 —— 交给 AI 自己取用神
+  const CAT_HINTS = [
+    ["reconcile", /复合|挽回|前任|前男友|前女友|和好|断联|拉黑|分手/],
+    ["marry",     /结婚|领证|婚礼|嫁给|娶|见家长|走到最后|在一起/],
+    ["single",    /脱单|桃花|正缘|找对象|单身|另一半/],
+    ["job",       /offer|面试|工作|入职|录用|跳槽|升职|晋升|岗位|转正|求职|裁员|调岗/i],
+    ["money",     /钱|投资|回款|收款|借款|欠款|还款|股票|基金|理财|赚|货款|尾款/],
+    ["exam",      /考试|考研|考公|考编|上岸|录取|升学|雅思|托福|考证|成绩|分数线/]
+  ];
+  function guessCategory(text) {
+    const s = String(text || "");
+    const hit = CAT_HINTS.filter(function (c) { return c[1].test(s); });
+    return hit.length === 1 ? hit[0][0] : "";
+  }
+
   global.Liuyao = { tossOnce: tossOnce, build: build, describe: describe, timeline: timeline,
+                    assess: assess, assessText: assessText, guessCategory: guessCategory,
                     SUM_LABEL: SUM_LABEL, yongShenFor: yongShenFor, _PALACE: PALACE, _hexOf: hexOf };
 })(typeof window !== "undefined" ? window : globalThis);
